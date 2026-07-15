@@ -1,0 +1,43 @@
+# ==========================================
+# Gitignore - Proyecto Monorepo (Python/JS)
+# ==========================================
+
+# --- Entorno y Variables Sensibles ---
+.env
+.env.*
+!.env.example
+
+# --- Python / Backend (FastAPI, Alembic, etc.) ---
+backend/venv/
+backend/.venv/
+venv/
+.venv/
+ENV/
+env/
+**/__pycache__/
+**/*.py[cod]
+**/*$py.class
+backend/.pytest_cache/
+backend/.coverage
+backend/htmlcov/
+
+# --- Node / Frontend (React / Vite) ---
+frontend/node_modules/
+node_modules/
+frontend/dist/
+frontend/dist-ssr/
+frontend/*.local
+
+# --- Herramientas de Sistema y Construcción ---
+.DS_Store
+Thumbs.db
+backend/.ipynb_checkpoints/
+
+# --- Configuración de Editores de Código ---
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
