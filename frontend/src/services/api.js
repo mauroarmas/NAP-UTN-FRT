@@ -60,6 +60,15 @@ export const getTemplates = () => api.get('/templates/');
 export const getTemplate = (id) => api.get(`/templates/${id}`);
 export const createTemplate = (data) => api.post('/templates/', data);
 
+// Servicios / Orquestación
+export const listarServicios = () => api.get('/servicios/');
+export const obtenerServicio = (id) => api.get(`/servicios/${id}`);
+export const desplegarPedido = (pedidoId, data = {}) => api.post(`/servicios/desplegar/${pedidoId}`, data);
+export const iniciarServicio = (id) => api.post(`/servicios/${id}/start`);
+export const detenerServicio = (id) => api.post(`/servicios/${id}/stop`);
+export const eliminarServicio = (id) => api.delete(`/servicios/${id}`);
+export const getStatusServicio = (id) => api.get(`/servicios/${id}/status`);
+
 // Health
 export const healthCheck = () => api.get('/health');
 

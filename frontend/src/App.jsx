@@ -18,7 +18,7 @@ function ProtectedLayout({ user }) {
         <Routes>
           <Route path="/" element={<Dashboard user={user} />} />
           <Route path="/pedidos" element={<Pedidos user={user} />} />
-          <Route path="/servicios" element={<Servicios />} />
+          <Route path="/servicios" element={<Servicios user={user} />} />
           {user?.rol === 'admin' && (
             <>
               <Route path="/catedras" element={<Catedras />} />
