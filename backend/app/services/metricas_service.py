@@ -47,12 +47,27 @@ async def capturar_snapshot_servicio(
     # RAM: mem y maxmem en bytes
     ram_mb = round(status.get("mem", 0) / (1024 * 1024), 2)
 
-    # Disco: disk y maxdisk en bytes
-    disk_gb = round(status.get("disk", 0) / (1024 * 1024 * 1024), 3)
+    # Disco: usar maxdisk REAL de Proxmox (no el valor configurado en el template).
+    # LVM thin-provisioned tiene ~5% de overhead: 2 GB configurado → 1.90 GiB real.
+    disk_gb    = round(status.get("disk",    0) / (1024 ** 3), 3)
+    maxdisk_gb = round(status.get("maxdisk", 0) / (1024 ** 3), 3)
 
     # Red: netin / netout en bytes acumulados
     net_in  = float(status.get("netin",  0))
     net_out = float(status.get("netout", 0))
+
+    # --- Actualizar IP del servicio si cambió ---
+    try:
+        ifaces = pve.api.nodes(node).lxc(vmid).interfaces.get()
+        for iface in ifaces:
+            inet = iface.get("inet", "")
+            if inet:
+                ip = inet.split("/")[0].strip()
+                if ip and not ip.startswith("127.") and ip != servicio.ip_address:
+                    servicio.ip_address = ip
+                    break
+    except Exception as exc:
+        logger.debug(f"No se pudo obtener IP de VMID={vmid}: {exc}")
 
     snapshot = MetricaSnapshot(
         servicio_id=servicio.id,
@@ -66,6 +81,9 @@ async def capturar_snapshot_servicio(
     db.add(snapshot)
     await db.commit()
     await db.refresh(snapshot)
+
+    # Adjuntar maxdisk real como atributo temporal (no persiste en DB)
+    snapshot._maxdisk_gb = maxdisk_gb  # type: ignore[attr-defined]
 
     return snapshot
 

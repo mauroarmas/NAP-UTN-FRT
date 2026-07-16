@@ -86,6 +86,8 @@ async def resumen_servicios(
     Devuelve todos los servicios con su último snapshot de métricas.
     Admin ve todos; cátedra ve solo los suyos.
     """
+    from app.services.proxmox_client import get_proxmox_client
+
     query = select(Servicio)
     if current_user.rol != RolUsuario.ADMIN:
         query = query.where(Servicio.catedra_id == current_user.catedra_id)
@@ -93,27 +95,42 @@ async def resumen_servicios(
     result = await db.execute(query)
     servicios = result.scalars().all()
 
+    pve = get_proxmox_client()
     resumen = []
+
     for srv in servicios:
         ultimo = await obtener_ultimo_snapshot(db, srv.id)
+
+        # Obtener maxdisk real de Proxmox para cálculo preciso del % de disco
+        disk_max_real_gb = float(srv.disk_asignado_gb)
+        if srv.proxmox_vmid and srv.proxmox_node and srv.estado.value in ("RUNNING", "STOPPED"):
+            try:
+                status = pve.get_lxc_status(srv.proxmox_node, int(srv.proxmox_vmid))
+                if status.get("maxdisk"):
+                    disk_max_real_gb = round(status["maxdisk"] / (1024 ** 3), 3)
+            except Exception:
+                pass
+
         resumen.append({
-            "servicio_id": srv.id,
-            "vmid": srv.proxmox_vmid,
-            "hostname": srv.hostname,
-            "node": srv.proxmox_node,
-            "estado": srv.estado.value,
-            "vcpus": srv.vcpus_asignados,
-            "ram_max_mb": srv.ram_asignada_mb,
-            "disk_max_gb": srv.disk_asignado_gb,
+            "servicio_id":       srv.id,
+            "vmid":              srv.proxmox_vmid,
+            "hostname":          srv.hostname,
+            "node":              srv.proxmox_node,
+            "estado":            srv.estado.value,
+            "ip_address":        srv.ip_address,
+            "vcpus":             srv.vcpus_asignados,
+            "ram_max_mb":        srv.ram_asignada_mb,
+            "disk_max_gb":       srv.disk_asignado_gb,
+            "disk_max_real_gb":  disk_max_real_gb,
             "ultimo_snapshot": {
-                "id": ultimo.id,
-                "servicio_id": ultimo.servicio_id,
+                "id":                ultimo.id,
+                "servicio_id":       ultimo.servicio_id,
                 "cpu_usage_percent": ultimo.cpu_usage_percent,
-                "ram_usage_mb": ultimo.ram_usage_mb,
-                "disk_usage_gb": ultimo.disk_usage_gb,
-                "net_in_bytes": ultimo.net_in_bytes,
-                "net_out_bytes": ultimo.net_out_bytes,
-                "timestamp": ultimo.timestamp,
+                "ram_usage_mb":      ultimo.ram_usage_mb,
+                "disk_usage_gb":     ultimo.disk_usage_gb,
+                "net_in_bytes":      ultimo.net_in_bytes,
+                "net_out_bytes":     ultimo.net_out_bytes,
+                "timestamp":         ultimo.timestamp,
             } if ultimo else None,
         })
 

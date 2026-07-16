@@ -10,9 +10,13 @@ import {
 } from '../services/api';
 
 // ── Helpers ──────────────────────────────────────────────────────
+// fmtTime: convierte a hora local. Si el string no tiene 'Z' ni offset
+// (como los timestamps de PostgreSQL sin zona horaria), le agrega 'Z'
+// para que el navegador lo interprete como UTC y no como hora local.
 const fmtTime = (iso) => {
   if (!iso) return '';
-  const d = new Date(iso);
+  const normalized = typeof iso === 'string' && !iso.endsWith('Z') && !iso.includes('+') ? iso + 'Z' : iso;
+  const d = new Date(normalized);
   return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`;
 };
 
@@ -31,7 +35,7 @@ const GaugeBar = ({ value, max, color, label }) => {
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
         <span className="stat-label">{label}</span>
         <span style={{ fontSize: 12, color: 'var(--text-primary)', fontWeight: 600 }}>
-          {pct.toFixed(1)}%
+          {pct.toFixed(2)}%
         </span>
       </div>
       <div className="progress-bar">
@@ -154,7 +158,7 @@ export default function Metricas({ user }) {
               onClick={handleCapturar}
               disabled={capturando}
             >
-              {capturando ? '⏳ Capturando...' : '📸 Capturar ahora'}
+              {capturando ? '⏳ Actualizando...' : '🔄 Actualizar'}
             </button>
           )}
         </div>
@@ -196,13 +200,23 @@ export default function Metricas({ user }) {
                       <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>
                         {srv.hostname || `VMID ${srv.vmid}`}
                       </div>
-                      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
                         CT {srv.vmid} · {srv.node}
                       </div>
+                      <div style={{ display: 'flex', gap: 10, marginTop: 4, fontSize: 12 }}>
+                        <span style={{ color: 'var(--accent)' }}>
+                          ⚡ {srv.vcpus} vCPU{srv.vcpus > 1 ? 's' : ''}
+                        </span>
+                        {srv.ip_address && (
+                          <span style={{ color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
+                            🌐 {srv.ip_address}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    <span className={`badge ${srv.estado === 'running' ? 'success' : 'neutral'}`}>
+                    <span className={`badge ${srv.estado === 'RUNNING' ? 'success' : 'neutral'}`}>
                       <span className="badge-dot"></span>
-                      {srv.estado}
+                      {srv.estado === 'RUNNING' ? 'running' : srv.estado.toLowerCase()}
                     </span>
                   </div>
 
@@ -212,19 +226,19 @@ export default function Metricas({ user }) {
                         value={snap.cpu_usage_percent}
                         max={100}
                         color="green"
-                        label={`CPU · ${snap.cpu_usage_percent.toFixed(1)}%`}
+                        label={`CPU · ${snap.cpu_usage_percent.toFixed(2)}%`}
                       />
                       <GaugeBar
                         value={snap.ram_usage_mb}
                         max={srv.ram_max_mb}
                         color="blue"
-                        label={`RAM · ${snap.ram_usage_mb.toFixed(0)} / ${srv.ram_max_mb} MB`}
+                        label={`RAM · ${snap.ram_usage_mb.toFixed(2)} / ${srv.ram_max_mb} MB`}
                       />
                       <GaugeBar
                         value={snap.disk_usage_gb}
-                        max={srv.disk_max_gb}
+                        max={srv.disk_max_real_gb || srv.disk_max_gb}
                         color="purple"
-                        label={`Disco · ${snap.disk_usage_gb.toFixed(2)} / ${srv.disk_max_gb} GB`}
+                        label={`Disco · ${snap.disk_usage_gb.toFixed(2)} / ${(srv.disk_max_real_gb || srv.disk_max_gb).toFixed(2)} GB`}
                       />
                       <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
                         <span>↑ {fmtBytes(snap.net_out_bytes)}</span>
@@ -259,7 +273,7 @@ export default function Metricas({ user }) {
                 <div className="empty-state" style={{ padding: 24 }}>
                   <p className="empty-state-text">
                     Se necesitan al menos 2 capturas para mostrar el gráfico.
-                    {isAdmin && ' Hacé clic en "Capturar ahora" algunas veces.'}
+                    {isAdmin && ' Hacé clic en "Actualizar" algunas veces.'}
                   </p>
                 </div>
               ) : (
