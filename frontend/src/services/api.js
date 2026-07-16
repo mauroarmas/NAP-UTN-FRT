@@ -75,6 +75,13 @@ export const createUsuario = (data) => api.post('/usuarios/', data);
 export const updateUsuario = (id, data) => api.patch(`/usuarios/${id}`, data);
 export const deleteUsuario = (id) => api.delete(`/usuarios/${id}`);
 
+// Métricas
+export const getResumenMetricas = () => api.get('/metricas/resumen');
+export const capturarMetricas = () => api.post('/metricas/capturar');
+export const capturarServicio = (id) => api.post(`/metricas/capturar/${id}`);
+export const getHistorialMetricas = (id, limit = 60) => api.get(`/metricas/${id}/historial`, { params: { limit } });
+export const getUltimoSnapshot = (id) => api.get(`/metricas/${id}/ultimo`);
+
 // Health
 export const healthCheck = () => api.get('/health');
 

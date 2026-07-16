@@ -44,6 +44,11 @@ export default function Sidebar({ user }) {
           Servicios
         </NavLink>
 
+        <NavLink to="/metricas" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+          <span className="nav-item-icon">📈</span>
+          Métricas
+        </NavLink>
+
         {isAdmin && (
           <>
             <div className="sidebar-section-label">Administración</div>
