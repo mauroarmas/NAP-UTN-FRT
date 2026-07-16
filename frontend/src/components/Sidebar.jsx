@@ -57,6 +57,11 @@ export default function Sidebar({ user }) {
               Templates
             </NavLink>
 
+            <NavLink to="/usuarios" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+              <span className="nav-item-icon">👥</span>
+              Usuarios
+            </NavLink>
+
             <NavLink to="/proxmox" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
               <span className="nav-item-icon">⚙️</span>
               Proxmox VE

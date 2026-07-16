@@ -69,6 +69,12 @@ export const detenerServicio = (id) => api.post(`/servicios/${id}/stop`);
 export const eliminarServicio = (id) => api.delete(`/servicios/${id}`);
 export const getStatusServicio = (id) => api.get(`/servicios/${id}/status`);
 
+// Usuarios
+export const getUsuarios = () => api.get('/usuarios/');
+export const createUsuario = (data) => api.post('/usuarios/', data);
+export const updateUsuario = (id, data) => api.patch(`/usuarios/${id}`, data);
+export const deleteUsuario = (id) => api.delete(`/usuarios/${id}`);
+
 // Health
 export const healthCheck = () => api.get('/health');
 

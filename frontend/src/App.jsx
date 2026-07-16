@@ -7,6 +7,7 @@ import Servicios from './pages/Servicios';
 import Catedras from './pages/Catedras';
 import Templates from './pages/Templates';
 import ProxmoxPanel from './pages/ProxmoxPanel';
+import Usuarios from './pages/Usuarios';
 import Sidebar from './components/Sidebar';
 import './index.css';
 
@@ -23,6 +24,7 @@ function ProtectedLayout({ user }) {
             <>
               <Route path="/catedras" element={<Catedras />} />
               <Route path="/templates" element={<Templates />} />
+              <Route path="/usuarios" element={<Usuarios user={user} />} />
               <Route path="/proxmox" element={<ProxmoxPanel />} />
             </>
           )}

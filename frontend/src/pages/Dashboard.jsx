@@ -1,21 +1,27 @@
 import { useState, useEffect } from 'react';
-import { getCatedras, getProxmoxStatus } from '../services/api';
+import { getCatedras, getProxmoxStatus, listarServicios, getPedidos } from '../services/api';
 
 export default function Dashboard({ user }) {
-  const [catedras, setCatedras] = useState([]);
-  const [proxmox, setProxmox] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [catedras, setCatedras]   = useState([]);
+  const [proxmox, setProxmox]     = useState(null);
+  const [servicios, setServicios] = useState([]);
+  const [pedidos, setPedidos]     = useState([]);
+  const [loading, setLoading]     = useState(true);
 
   const isAdmin = user?.rol === 'admin';
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [catRes] = await Promise.allSettled([
+        const results = await Promise.allSettled([
           getCatedras(),
+          listarServicios(),
+          getPedidos('solicitado'),
           isAdmin ? getProxmoxStatus().then(r => setProxmox(r.data)) : Promise.resolve(),
         ]);
-        if (catRes.status === 'fulfilled') setCatedras(catRes.value.data);
+        if (results[0].status === 'fulfilled') setCatedras(results[0].value.data);
+        if (results[1].status === 'fulfilled') setServicios(results[1].value.data);
+        if (results[2].status === 'fulfilled') setPedidos(results[2].value.data);
       } catch (err) {
         console.error(err);
       } finally {
@@ -52,13 +58,13 @@ export default function Dashboard({ user }) {
 
         <div className="stat-card">
           <div className="stat-icon green">🖥️</div>
-          <div className="stat-value">0</div>
+          <div className="stat-value">{loading ? '—' : servicios.filter(s => s.estado === 'running').length}</div>
           <div className="stat-label">Servicios activos</div>
         </div>
 
         <div className="stat-card">
           <div className="stat-icon blue">📋</div>
-          <div className="stat-value">0</div>
+          <div className="stat-value">{loading ? '—' : pedidos.length}</div>
           <div className="stat-label">Pedidos pendientes</div>
         </div>
 
