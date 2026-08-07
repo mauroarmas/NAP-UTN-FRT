@@ -27,19 +27,58 @@ const fmtBytes = (bytes) => {
   return `${bytes} B`;
 };
 
-const GaugeBar = ({ value, max, color, label }) => {
+const GaugeBar = ({ value, max, color, label, icon }) => {
   const pct = max > 0 ? Math.min((value / max) * 100, 100) : 0;
   const colorClass = pct > 85 ? 'red' : pct > 60 ? 'orange' : color;
+  
+  const glowColorMap = {
+    'green': 'var(--success)',
+    'blue': 'var(--info)',
+    'purple': 'var(--accent)',
+    'orange': 'var(--warning)',
+    'red': 'var(--error)'
+  };
+  
+  const activeColor = glowColorMap[colorClass] || glowColorMap[color];
+
   return (
-    <div style={{ marginBottom: 12 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-        <span className="stat-label">{label}</span>
-        <span style={{ fontSize: 12, color: 'var(--text-primary)', fontWeight: 600 }}>
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, alignItems: 'center' }}>
+        <span className="stat-label" style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-primary)', fontWeight: 500, fontSize: 13 }}>
+          {icon && <span style={{ display: 'flex', alignItems: 'center' }}>{icon}</span>}
+          {label}
+        </span>
+        <span style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 600, fontFamily: 'monospace' }}>
           {pct.toFixed(2)}%
         </span>
       </div>
-      <div className="progress-bar">
-        <div className={`progress-fill ${colorClass}`} style={{ width: `${pct}%`, transition: 'width 0.5s ease' }} />
+      <div className="progress-bar" style={{ height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 3, overflow: 'visible', position: 'relative' }}>
+        <div 
+          className={`progress-fill ${colorClass}`} 
+          style={{ 
+            width: `${pct}%`, 
+            height: '100%',
+            borderRadius: 3,
+            transition: 'width 0.8s cubic-bezier(0.4, 0, 0.2, 1)', 
+            position: 'relative',
+            boxShadow: `0 0 8px ${activeColor}`,
+            opacity: 0.9
+          }} 
+        >
+          {pct > 0 && (
+            <div style={{
+              position: 'absolute',
+              right: 0,
+              top: '50%',
+              transform: 'translate(50%, -50%)',
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              background: '#fff',
+              boxShadow: `0 0 10px ${activeColor}, 0 0 4px #fff`
+            }} />
+          )}
+        </div>
       </div>
     </div>
   );
@@ -188,66 +227,150 @@ export default function Metricas({ user }) {
                   className="stat-card"
                   style={{
                     cursor: 'pointer',
-                    borderColor: isSelected ? 'var(--accent)' : undefined,
-                    borderWidth: isSelected ? 2 : 1,
-                    transition: 'border-color 0.2s',
+                    borderColor: isSelected ? 'var(--accent)' : 'var(--border-color)',
+                    borderWidth: 1,
+                    boxShadow: isSelected ? '0 0 0 2px var(--accent)' : 'var(--shadow-sm)',
+                    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                    position: 'relative',
+                    overflow: 'hidden',
+                    background: isSelected ? 'linear-gradient(180deg, var(--bg-card-hover) 0%, var(--bg-card) 100%)' : 'var(--bg-card)',
+                    padding: '24px 24px 20px 24px'
                   }}
                   onClick={() => handleSeleccionar(srv)}
                 >
+                  {/* Subtly glow top border if running and selected */}
+                  {isSelected && (
+                    <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'var(--accent-gradient)', transition: 'background 0.3s' }} />
+                  )}
+
                   {/* Header de la tarjeta */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-                    <div>
-                      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>
-                        {srv.hostname || `VMID ${srv.vmid}`}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+                    <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+                      <div style={{
+                        width: 44, height: 44, borderRadius: 12,
+                        background: srv.estado === 'RUNNING' ? 'var(--success-bg)' : 'var(--border-color)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        color: srv.estado === 'RUNNING' ? 'var(--success)' : 'var(--text-muted)',
+                        boxShadow: srv.estado === 'RUNNING' ? '0 0 15px var(--success-bg)' : 'none',
+                        border: `1px solid ${srv.estado === 'RUNNING' ? 'rgba(34, 197, 94, 0.2)' : 'rgba(255,255,255,0.05)'}`
+                      }}>
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+                          <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+                          <line x1="6" y1="6" x2="6.01" y2="6"></line>
+                          <line x1="6" y1="18" x2="6.01" y2="18"></line>
+                        </svg>
                       </div>
-                      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                        CT {srv.vmid} · {srv.node}
-                      </div>
-                      <div style={{ display: 'flex', gap: 10, marginTop: 4, fontSize: 12 }}>
-                        <span style={{ color: 'var(--accent)' }}>
-                          ⚡ {srv.vcpus} vCPU{srv.vcpus > 1 ? 's' : ''}
-                        </span>
-                        {srv.ip_address && (
-                          <span style={{ color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
-                            🌐 {srv.ip_address}
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>
+                            {srv.hostname}
                           </span>
-                        )}
+                          <span className="badge neutral" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-color)', padding: '2px 8px', fontSize: 11 }}>
+                            CT {srv.vmid}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <line x1="2" y1="12" x2="22" y2="12"></line>
+                            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                          </svg>
+                          {srv.ip_address} <span style={{ opacity: 0.4 }}>•</span> {srv.node} 
+                        </div>
                       </div>
                     </div>
-                    <span className={`badge ${srv.estado === 'RUNNING' ? 'success' : 'neutral'}`}>
-                      <span className="badge-dot"></span>
-                      {srv.estado === 'RUNNING' ? 'running' : srv.estado.toLowerCase()}
+                    
+                    <span className={`badge ${srv.estado === 'RUNNING' ? 'success' : 'neutral'}`} style={{
+                      padding: '6px 12px',
+                      boxShadow: srv.estado === 'RUNNING' ? '0 0 10px var(--success-bg)' : 'none',
+                      border: srv.estado === 'RUNNING' ? '1px solid rgba(34, 197, 94, 0.2)' : '1px solid var(--border-color)',
+                      textTransform: 'capitalize'
+                    }}>
+                      <span className="badge-dot" style={{
+                        boxShadow: srv.estado === 'RUNNING' ? '0 0 8px var(--success)' : 'none',
+                        animation: srv.estado === 'RUNNING' ? 'pulse 2s infinite' : 'none'
+                      }}></span>
+                      {srv.estado === 'RUNNING' ? 'Running' : srv.estado.toLowerCase()}
                     </span>
                   </div>
 
                   {snap ? (
-                    <>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                       <GaugeBar
                         value={snap.cpu_usage_percent}
                         max={100}
                         color="green"
-                        label={`CPU · ${snap.cpu_usage_percent.toFixed(2)}%`}
+                        label={<>CPU <span style={{ opacity: 0.5, fontWeight: 400, fontSize: 12, marginLeft: 4 }}> {snap.cpu_usage_percent.toFixed(2)}% / {srv.vcpus} vCPU{srv.vcpus > 1 ? 's' : ''}</span></>}
+                        icon={
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect>
+                            <rect x="9" y="9" width="6" height="6"></rect>
+                            <line x1="9" y1="1" x2="9" y2="4"></line>
+                            <line x1="15" y1="1" x2="15" y2="4"></line>
+                            <line x1="9" y1="20" x2="9" y2="23"></line>
+                            <line x1="15" y1="20" x2="15" y2="23"></line>
+                            <line x1="20" y1="9" x2="23" y2="9"></line>
+                            <line x1="20" y1="14" x2="23" y2="14"></line>
+                            <line x1="1" y1="9" x2="4" y2="9"></line>
+                            <line x1="1" y1="14" x2="4" y2="14"></line>
+                          </svg>
+                        }
                       />
                       <GaugeBar
                         value={snap.ram_usage_mb}
                         max={srv.ram_max_mb}
                         color="blue"
-                        label={`RAM · ${snap.ram_usage_mb.toFixed(2)} / ${srv.ram_max_mb} MB`}
+                        label={<>RAM <span style={{ opacity: 0.5, fontWeight: 400, fontSize: 12, marginLeft: 4 }}> {snap.ram_usage_mb.toFixed(2)} / {srv.ram_max_mb} MB</span></>}
+                        icon={
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--info)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <line x1="4" y1="9" x2="20" y2="9"></line>
+                            <line x1="4" y1="15" x2="20" y2="15"></line>
+                            <line x1="10" y1="3" x2="8" y2="21"></line>
+                            <line x1="16" y1="3" x2="14" y2="21"></line>
+                          </svg>
+                        }
                       />
                       <GaugeBar
                         value={snap.disk_usage_gb}
                         max={srv.disk_max_real_gb || srv.disk_max_gb}
                         color="purple"
-                        label={`Disco · ${snap.disk_usage_gb.toFixed(2)} / ${(srv.disk_max_real_gb || srv.disk_max_gb).toFixed(2)} GB`}
+                        label={<>Disco <span style={{ opacity: 0.5, fontWeight: 400, fontSize: 12, marginLeft: 4 }}> {snap.disk_usage_gb.toFixed(2)} / {(srv.disk_max_real_gb || srv.disk_max_gb).toFixed(2)} GB</span></>}
+                        icon={
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M22 12A10 10 0 1 1 12 2a10 10 0 0 1 10 10z"></path>
+                            <path d="M12 12m-3 0a3 3 0 1 0 6 0 3 3 0 1 0 -6 0"></path>
+                          </svg>
+                        }
                       />
-                      <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
-                        <span>↑ {fmtBytes(snap.net_out_bytes)}</span>
-                        <span>↓ {fmtBytes(snap.net_in_bytes)}</span>
-                        <span style={{ marginLeft: 'auto' }}>{fmtTime(snap.timestamp)}</span>
+                      <div style={{ 
+                        display: 'flex', 
+                        justifyContent: 'space-between', 
+                        alignItems: 'center',
+                        marginTop: 12, 
+                        paddingTop: 16,
+                        borderTop: '1px solid var(--border-color)',
+                        fontSize: 12, 
+                        color: 'var(--text-muted)' 
+                      }}>
+                        <div style={{ display: 'flex', gap: 16 }}>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
+                            {fmtBytes(snap.net_out_bytes)}
+                          </span>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>
+                            {fmtBytes(snap.net_in_bytes)}
+                          </span>
+                        </div>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                          {fmtTime(snap.timestamp)}
+                        </span>
                       </div>
-                    </>
+                    </div>
                   ) : (
-                    <div style={{ textAlign: 'center', padding: '12px 0', color: 'var(--text-muted)', fontSize: 13 }}>
+                    <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-muted)', fontSize: 13, background: 'rgba(255,255,255,0.02)', borderRadius: 8 }}>
                       Sin datos — capturá una métrica
                     </div>
                   )}
