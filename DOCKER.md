@@ -72,7 +72,8 @@ PROXMOX_TOKEN_VALUE=tu-token-aqui
 
 ```
 .
-├── docker-compose.yml    # Configuración de servicios
+├── docker-compose.yml          # Configuración de servicios
+├── docker-compose.override.yml # Overrides de desarrollo (recarga automática)
 ├── dockerfile            # Imagen del backend
 ├── frontend.dockerfile   # Imagen del frontend
 ├── docker-dev.sh         # Script auxiliar
@@ -95,6 +96,32 @@ O usa el script:
 ./docker-dev.sh clean
 ```
 
-## 🚀 Desarrollo
+## 🚀 Desarrollo con recarga automática
 
-Para desarrollo con hot-reload del frontend, puedes modificar el `docker-compose.yml` para usar `npm run dev` en lugar de `serve`. La configuración actual está optimizada para producción.
+`docker compose up` ya levanta el stack en **modo desarrollo**: no hace falta reiniciar
+los contenedores para ver los cambios. Docker Compose carga automáticamente
+`docker-compose.override.yml`, que monta el código del host dentro de los contenedores.
+
+| Servicio | Qué corre | Al guardar un archivo |
+|----------|-----------|------------------------|
+| `api`    | `uvicorn --reload` (vigila `/app/app`) | Reinicia solo el proceso de la app, en ~1s |
+| `frontend` | dev server de Vite con HMR | Actualiza el navegador sin recargar la página |
+
+Solo hace falta reconstruir la imagen (`./docker-dev.sh build`) cuando cambian las
+**dependencias**: `backend/requirements.txt` o `frontend/package.json`.
+
+### Modo producción
+
+Para levantar con el build estático (sin recarga, frontend servido con `serve`),
+hay que ignorar el override:
+
+```bash
+./docker-dev.sh prod
+# equivalente a: docker compose -f docker-compose.yml up --build
+```
+
+### Si el frontend no detecta los cambios
+
+En Linux los eventos de archivo del bind mount funcionan directo. En WSL2, macOS o
+volúmenes de red puede hacer falta *polling*: poner `VITE_USE_POLLING: "true"` en
+`docker-compose.override.yml` y reiniciar el contenedor del frontend.

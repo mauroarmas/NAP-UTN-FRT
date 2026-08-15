@@ -4,7 +4,7 @@ from sqlalchemy import select
 
 from app.models.servicio import EstadoServicio, Servicio
 from tests import factories
-from tests.fakes import ProxmoxFalla
+from tests.fakes import ProxmoxFalla, ocupar
 
 
 async def _servicio(db, catedra, template, **kwargs):
@@ -58,6 +58,8 @@ async def test_fallo_de_proxmox_no_marca_la_baja(
 ):
     """FR-010 — si no se pudo liberar el recurso real, no se marca como dado de baja."""
     servicio = await _servicio(db, catedra, template, proxmox_vmid="122")
+    # El contenedor sigue vivo en el clúster: es lo que hace que el fallo importe.
+    proxmox.recursos.append(ocupar(122, servicio.hostname))
     proxmox.fallar_delete = ProxmoxFalla("el nodo no responde")
 
     r = await client.delete(f"/servicios/{servicio.id}", headers=auth_admin)
@@ -123,6 +125,41 @@ async def test_pedido_dado_de_baja_no_se_puede_desplegar(
 
     assert r.status_code == 404
     assert proxmox.creados == []
+
+
+async def test_contenedor_borrado_desde_proxmox_se_puede_dar_de_baja(
+    client, db, proxmox, catedra, template, auth_admin
+):
+    """
+    Si el contenedor ya no existe, el recurso está liberado: la baja procede.
+
+    Sin esto el registro quedaba trabado — Proxmox falla al operar sobre un
+    VMID inexistente y el 502 impedía cerrarlo desde el portal para siempre.
+    """
+    servicio = await _servicio(db, catedra, template, proxmox_vmid="125")
+    # No figura en el clúster (alguien lo borró desde Proxmox) y operar sobre él falla.
+    proxmox.fallar_delete = ProxmoxFalla("Configuration file 'nodes/pve1/lxc/125.conf' does not exist")
+
+    r = await client.delete(f"/servicios/{servicio.id}", headers=auth_admin)
+
+    assert r.status_code == 200, r.text
+    await db.refresh(servicio)
+    assert servicio.deleted_at is not None
+
+
+async def test_baja_no_procede_si_no_se_puede_verificar_el_cluster(
+    client, db, proxmox, catedra, template, auth_admin
+):
+    """Ante la duda, conservador: sin poder verificar, el registro no se cierra."""
+    servicio = await _servicio(db, catedra, template, proxmox_vmid="126")
+    proxmox.fallar_delete = ProxmoxFalla("timeout")
+    proxmox.fallar_recursos = ProxmoxFalla("clúster inalcanzable")
+
+    r = await client.delete(f"/servicios/{servicio.id}", headers=auth_admin)
+
+    assert r.status_code == 502, r.text
+    await db.refresh(servicio)
+    assert servicio.deleted_at is None
 
 
 async def test_servicio_sin_vmid_se_da_de_baja_sin_tocar_proxmox(

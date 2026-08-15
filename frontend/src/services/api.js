@@ -47,6 +47,10 @@ export const updateCatedra = (id, data) => api.patch(`/catedras/${id}`, data);
 export const getProxmoxStatus = () => api.get('/proxmox/status');
 export const getProxmoxNodes = () => api.get('/proxmox/nodes');
 export const getProxmoxResources = () => api.get('/proxmox/resources');
+// Espacio por storage. Ojo: no es lo mismo que el disco del nodo (ese es solo
+// su sistema de archivos raíz); los contenedores viven en el storage con
+// contenido rootdir/images.
+export const getProxmoxStorage = () => api.get('/proxmox/storage');
 export const getProxmoxTemplates = (storage = 'local') => api.get('/proxmox/templates', { params: { storage } });
 
 // Pedidos
@@ -67,8 +71,13 @@ export const obtenerServicio = (id) => api.get(`/servicios/${id}`);
 export const desplegarPedido = (pedidoId, data = {}) => api.post(`/servicios/desplegar/${pedidoId}`, data);
 export const iniciarServicio = (id) => api.post(`/servicios/${id}/start`);
 export const detenerServicio = (id) => api.post(`/servicios/${id}/stop`);
+export const reiniciarServicio = (id) => api.post(`/servicios/${id}/restart`);
 export const eliminarServicio = (id) => api.delete(`/servicios/${id}`);
 export const getStatusServicio = (id) => api.get(`/servicios/${id}/status`);
+// URL base de Proxmox, para que el admin abra la consola nativa en otra pestaña.
+export const getBaseConsolaProxmox = () => api.get('/servicios/consola/proxmox-base');
+// Consola embebida — EN PAUSA, sin uso hoy. Ver DUDAS-ENTREVISTA.md.
+export const obtenerTicketConsola = (id) => api.post(`/servicios/${id}/console-ticket`);
 
 // Usuarios
 export const getUsuarios = () => api.get('/usuarios/');

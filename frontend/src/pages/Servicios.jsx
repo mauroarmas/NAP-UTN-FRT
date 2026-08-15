@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { getPedidos, listarServicios, desplegarPedido, iniciarServicio, detenerServicio, getStatusServicio, getCatedras } from '../services/api';
+import { useState, useEffect, useRef } from 'react';
+import { getPedidos, listarServicios, desplegarPedido, iniciarServicio, detenerServicio, reiniciarServicio, eliminarServicio, getStatusServicio, getCatedras, getBaseConsolaProxmox } from '../services/api';
 
 const ESTADO_SERVICIO_CONFIG = {
   running:  { label: 'Corriendo',  badge: 'success', icon: '🟢' },
@@ -8,6 +8,11 @@ const ESTADO_SERVICIO_CONFIG = {
   error:    { label: 'Error',     badge: 'error',    icon: '⚠️' },
 };
 
+// Cada cuánto se re-consulta el estado real de los contenedores. El backend
+// reconcilia contra Proxmox en cada listado, así que este intervalo es lo que
+// hace que la vista siga al contenedor y no al revés.
+const INTERVALO_REFRESCO_MS = 10000;
+
 export default function Servicios({ user }) {
   const [servicios, setServicios] = useState([]);
   const [pedidosAprobados, setPedidosAprobados] = useState([]);
@@ -15,19 +20,32 @@ export default function Servicios({ user }) {
   const [loading, setLoading] = useState(true);
   const [accionando, setAccionando] = useState(null); // ID del servicio/pedido en acción
   const [statusDetalle, setStatusDetalle] = useState(null);
+  const [proxmoxBase, setProxmoxBase] = useState(null); // URL de Proxmox, solo admin
+  const [actualizadoAt, setActualizadoAt] = useState(null);
+  const accionandoRef = useRef(null); // el refresco automático no debe pisar una acción en curso
 
   const isAdmin = user?.rol === 'admin';
 
+  const marcarAccion = (valor) => {
+    accionandoRef.current = valor;
+    setAccionando(valor);
+  };
+
   const fetchData = async () => {
     try {
-      const [srvRes, pedRes, catRes] = await Promise.allSettled([
+      const [srvRes, pedRes, catRes, baseRes] = await Promise.allSettled([
         listarServicios(),
         isAdmin ? getPedidos('aprobado') : Promise.resolve({ data: [] }),
         isAdmin ? getCatedras() : Promise.resolve({ data: [] }),
+        isAdmin ? getBaseConsolaProxmox() : Promise.resolve({ data: {} }),
       ]);
-      if (srvRes.status === 'fulfilled') setServicios(srvRes.value.data);
+      if (srvRes.status === 'fulfilled') {
+        setServicios(srvRes.value.data);
+        setActualizadoAt(new Date());
+      }
       if (pedRes.status === 'fulfilled') setPedidosAprobados(pedRes.value.data);
       if (catRes.status === 'fulfilled') setCatedras(catRes.value.data);
+      if (baseRes.status === 'fulfilled') setProxmoxBase(baseRes.value.data.base_url || null);
     } catch (err) {
       console.error(err);
     } finally {
@@ -35,13 +53,25 @@ export default function Servicios({ user }) {
     }
   };
 
+  // Consola nativa de Proxmox (xterm.js). Solo para admin: requiere sesión
+  // propia en Proxmox, y la cátedra no debe llegar nunca a esa interfaz.
+  const urlConsolaProxmox = (s) =>
+    `${proxmoxBase}/?console=lxc&xtermjs=1&vmid=${s.proxmox_vmid}` +
+    `&vmname=${encodeURIComponent(s.hostname || '')}&node=${encodeURIComponent(s.proxmox_node || '')}&cmd=`;
+
   const catedraNombre = (id) => catedras.find(c => c.id === id)?.nombre || `Cátedra #${id}`;
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => {
+    fetchData();
+    const timer = setInterval(() => {
+      if (!accionandoRef.current) fetchData();
+    }, INTERVALO_REFRESCO_MS);
+    return () => clearInterval(timer);
+  }, []);
 
   const handleDesplegar = async (pedidoId) => {
     if (!confirm(`¿Desplegar pedido #${pedidoId} en Proxmox?`)) return;
-    setAccionando(`deploy-${pedidoId}`);
+    marcarAccion(`deploy-${pedidoId}`);
     try {
       await desplegarPedido(pedidoId);
       await fetchData();
@@ -49,32 +79,68 @@ export default function Servicios({ user }) {
     } catch (err) {
       alert(`❌ Error: ${err.response?.data?.detail || err.message}`);
     } finally {
-      setAccionando(null);
+      marcarAccion(null);
     }
   };
 
   const handleStart = async (id) => {
-    setAccionando(`start-${id}`);
+    marcarAccion(`start-${id}`);
     try {
       await iniciarServicio(id);
       await fetchData();
     } catch (err) {
       alert(`❌ ${err.response?.data?.detail || err.message}`);
+      await fetchData(); // el rechazo puede venir de un estado ya cambiado: re-sincronizar
     } finally {
-      setAccionando(null);
+      marcarAccion(null);
     }
   };
 
   const handleStop = async (id) => {
     if (!confirm('¿Detener el servicio?')) return;
-    setAccionando(`stop-${id}`);
+    marcarAccion(`stop-${id}`);
     try {
       await detenerServicio(id);
       await fetchData();
     } catch (err) {
       alert(`❌ ${err.response?.data?.detail || err.message}`);
+      await fetchData();
     } finally {
-      setAccionando(null);
+      marcarAccion(null);
+    }
+  };
+
+  const handleRestart = async (id) => {
+    if (!confirm('¿Reiniciar el servicio?')) return;
+    marcarAccion(`restart-${id}`);
+    try {
+      await reiniciarServicio(id);
+      await fetchData();
+    } catch (err) {
+      alert(`❌ ${err.response?.data?.detail || err.message}`);
+      await fetchData();
+    } finally {
+      marcarAccion(null);
+    }
+  };
+
+  // Cierra el registro del portal liberando el contenedor. Si el contenedor ya
+  // no existe (lo borraron desde Proxmox), el backend igual cierra el registro.
+  const handleEliminar = async (s) => {
+    const huerfano = s.existe_en_proxmox === false;
+    const aviso = huerfano
+      ? `El contenedor ${s.proxmox_vmid} ya no existe en Proxmox.\n¿Dar de baja el registro del servicio?`
+      : `¿Dar de baja el servicio y eliminar el contenedor ${s.proxmox_vmid} en Proxmox?\nEsta acción no se puede deshacer.`;
+    if (!confirm(aviso)) return;
+    marcarAccion(`delete-${s.id}`);
+    try {
+      await eliminarServicio(s.id);
+      await fetchData();
+    } catch (err) {
+      alert(`❌ ${err.response?.data?.detail || err.message}`);
+      await fetchData();
+    } finally {
+      marcarAccion(null);
     }
   };
 
@@ -89,9 +155,19 @@ export default function Servicios({ user }) {
 
   return (
     <div className="fade-in">
-      <div className="page-header">
-        <h1 className="page-title">Servicios</h1>
-        <p className="page-subtitle">Contenedores desplegados en Proxmox VE</p>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
+        <div>
+          <h1 className="page-title">Servicios</h1>
+          <p className="page-subtitle">Contenedores desplegados en Proxmox VE</p>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <button className="btn btn-secondary btn-sm" onClick={fetchData}>🔄 Actualizar</button>
+          <div className="stat-label" style={{ marginTop: 6, fontSize: 11 }}>
+            {actualizadoAt
+              ? `Estado real al ${actualizadoAt.toLocaleTimeString('es-AR')}`
+              : 'Consultando Proxmox...'}
+          </div>
+        </div>
       </div>
 
       {/* Stats rápidas */}
@@ -186,7 +262,7 @@ export default function Servicios({ user }) {
                   <th>Recursos</th>
                   <th>Estado</th>
                   <th>Desplegado</th>
-                  {isAdmin && <th>Acciones</th>}
+                  <th>Acciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -205,39 +281,113 @@ export default function Servicios({ user }) {
                         <span className="badge-dot"></span>
                         {ESTADO_SERVICIO_CONFIG[s.estado]?.icon} {ESTADO_SERVICIO_CONFIG[s.estado]?.label || s.estado}
                       </span>
+                      {/* Dos avisos distintos: el contenedor ya no existe (registro
+                          huérfano, hay que darlo de baja) o simplemente no se pudo
+                          confirmar el estado (Proxmox no respondió). */}
+                      {s.existe_en_proxmox === false ? (
+                        <div
+                          className="stat-label"
+                          style={{ fontSize: 11, marginTop: 4, color: 'var(--error, #ef4444)' }}
+                          title="El contenedor fue eliminado desde Proxmox. El registro sigue acá para el historial de consumo: dalo de baja para cerrarlo."
+                        >
+                          🗑️ ya no existe en Proxmox
+                        </div>
+                      ) : s.estado_sincronizado === false && (
+                        <div
+                          className="stat-label"
+                          style={{ fontSize: 11, marginTop: 4 }}
+                          title="Proxmox no respondió: este es el último estado conocido"
+                        >
+                          ⚠️ sin confirmar
+                        </div>
+                      )}
                     </td>
                     <td style={{ fontSize: 12 }}>
                       {s.deployed_at ? new Date(s.deployed_at).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}
                     </td>
-                    {isAdmin && (
-                      <td>
-                        <div style={{ display: 'flex', gap: 6 }}>
-                          <button
-                            className="btn btn-secondary btn-sm"
-                            onClick={() => handleStatus(s.id)}
-                            title="Ver estado en Proxmox"
-                          >📊</button>
-                          {s.estado === 'running' && (
+                    <td>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        {/* Sin contenedor detrás, las acciones de ciclo de vida
+                            solo pueden fallar: lo único que queda por hacer es
+                            cerrar el registro. */}
+                        {s.existe_en_proxmox === false ? (
+                          isAdmin ? (
                             <button
                               className="btn btn-danger btn-sm"
-                              onClick={() => handleStop(s.id)}
-                              disabled={accionando === `stop-${s.id}`}
+                              onClick={() => handleEliminar(s)}
+                              disabled={accionando === `delete-${s.id}`}
                             >
-                              {accionando === `stop-${s.id}` ? '⏳' : '⏹ Stop'}
+                              {accionando === `delete-${s.id}` ? '⏳' : '🗑️ Dar de baja'}
                             </button>
-                          )}
-                          {s.estado === 'stopped' && (
-                            <button
-                              className="btn btn-primary btn-sm"
-                              onClick={() => handleStart(s.id)}
-                              disabled={accionando === `start-${s.id}`}
-                            >
-                              {accionando === `start-${s.id}` ? '⏳' : '▶ Start'}
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    )}
+                          ) : (
+                            <span className="stat-label" style={{ fontSize: 11 }}>
+                              Avisá al administrador
+                            </span>
+                          )
+                        ) : (
+                        <>
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => handleStatus(s.id)}
+                          title="Ver estado en Proxmox"
+                        >📊</button>
+                        {/* Start disponible en todo estado que no sea "corriendo"
+                            (detenido, pausado o error): encender es la salida de
+                            todos ellos y la forma de recuperar un contenedor que
+                            quedó caído, por ejemplo tras reiniciar Proxmox. */}
+                        {s.estado !== 'running' && (
+                          <button
+                            className="btn btn-primary btn-sm"
+                            onClick={() => handleStart(s.id)}
+                            disabled={accionando === `start-${s.id}`}
+                            title="Encender el contenedor en Proxmox"
+                          >
+                            {accionando === `start-${s.id}` ? '⏳' : '▶ Start'}
+                          </button>
+                        )}
+                        {s.estado === 'running' && (
+                          <button
+                            className="btn btn-danger btn-sm"
+                            onClick={() => handleStop(s.id)}
+                            disabled={accionando === `stop-${s.id}`}
+                          >
+                            {accionando === `stop-${s.id}` ? '⏳' : '⏹ Stop'}
+                          </button>
+                        )}
+                        {s.estado === 'running' && (
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => handleRestart(s.id)}
+                            disabled={accionando === `restart-${s.id}`}
+                          >
+                            {accionando === `restart-${s.id}` ? '⏳' : '🔁 Reiniciar'}
+                          </button>
+                        )}
+                        {isAdmin && proxmoxBase && s.estado === 'running' && s.proxmox_vmid && (
+                          <a
+                            className="btn btn-secondary btn-sm"
+                            href={urlConsolaProxmox(s)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Abrir la consola de Proxmox en otra pestaña (requiere sesión en Proxmox)"
+                          >
+                            🖥️ Consola
+                          </a>
+                        )}
+                        {isAdmin && (
+                          <button
+                            className="btn btn-danger btn-sm"
+                            onClick={() => handleEliminar(s)}
+                            disabled={accionando === `delete-${s.id}`}
+                            title="Dar de baja el servicio y liberar el contenedor en Proxmox"
+                          >
+                            {accionando === `delete-${s.id}` ? '⏳' : '🗑️'}
+                          </button>
+                        )}
+                        </>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>

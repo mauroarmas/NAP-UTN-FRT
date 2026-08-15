@@ -8,8 +8,12 @@ COMMAND="${1:-up}"
 
 case "$COMMAND" in
   up)
-    echo "🚀 Levantando todos los servicios..."
+    echo "🚀 Levantando todos los servicios (modo desarrollo, recarga automática)..."
     docker compose up
+    ;;
+  prod)
+    echo "🚀 Levantando en modo producción (sin recarga automática)..."
+    docker compose -f docker-compose.yml up --build
     ;;
   down)
     echo "🛑 Deteniendo todos los servicios..."
@@ -55,7 +59,8 @@ case "$COMMAND" in
     echo "Uso: ./docker-dev.sh [comando]"
     echo ""
     echo "Comandos disponibles:"
-    echo "  up           - Levanta todos los servicios (default)"
+    echo "  up           - Levanta todos los servicios en modo dev con recarga automática (default)"
+    echo "  prod         - Levanta en modo producción (build estático, sin recarga)"
     echo "  down         - Detiene todos los servicios"
     echo "  build        - Construye las imágenes Docker"
     echo "  rebuild      - Reconstruye sin caché"

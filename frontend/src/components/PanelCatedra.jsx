@@ -1,7 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getPedidos, listarServicios, getCatedra, getTemplates } from '../services/api';
+import { getPedidos, listarServicios, getCatedra, getTemplates, iniciarServicio, detenerServicio } from '../services/api';
 import { ESTADO_PEDIDO_CONFIG, ESTADO_SERVICIO_SIMPLE } from '../constants/estados';
+
+// El backend reconcilia contra Proxmox en cada listado; este intervalo es lo
+// que mantiene la vista al día cuando el contenedor cambia por fuera del portal
+// (por ejemplo, si el clúster se apaga y vuelve).
+const INTERVALO_REFRESCO_MS = 10000;
 
 export default function PanelCatedra({ user }) {
   const navigate = useNavigate();
@@ -10,6 +15,17 @@ export default function PanelCatedra({ user }) {
   const [templates, setTemplates] = useState([]);
   const [catedra, setCatedra]     = useState(null);
   const [loading, setLoading]     = useState(true);
+  const [accionando, setAccionando] = useState(null);
+  const accionandoRef = useRef(null); // el refresco automático no debe pisar una acción en curso
+
+  const cargarServicios = async () => {
+    try {
+      const { data } = await listarServicios();
+      setServicios(data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -31,7 +47,33 @@ export default function PanelCatedra({ user }) {
       }
     };
     fetchData();
+
+    const timer = setInterval(() => {
+      if (!accionandoRef.current) cargarServicios();
+    }, INTERVALO_REFRESCO_MS);
+    return () => clearInterval(timer);
   }, [user?.catedra_id]);
+
+  // Encender / apagar el propio servicio, sin pasar por Proxmox (Principio I).
+  const ejecutarAccion = async (id, accion, llamada) => {
+    accionandoRef.current = `${accion}-${id}`;
+    setAccionando(`${accion}-${id}`);
+    try {
+      await llamada(id);
+    } catch (err) {
+      alert(`❌ ${err.response?.data?.detail || err.message}`);
+    } finally {
+      await cargarServicios();
+      accionandoRef.current = null;
+      setAccionando(null);
+    }
+  };
+
+  const encender = (id) => ejecutarAccion(id, 'start', iniciarServicio);
+  const apagar = (id) => {
+    if (!confirm('¿Apagar el servicio?')) return;
+    ejecutarAccion(id, 'stop', detenerServicio);
+  };
 
   const pedidosRecientes = [...pedidos]
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
@@ -105,6 +147,7 @@ export default function PanelCatedra({ user }) {
           <div className="card" style={{ marginBottom: 24 }}>
             <div className="card-header">
               <h3 className="card-title">Mis Servicios</h3>
+              <button className="btn btn-secondary btn-sm" onClick={cargarServicios}>🔄 Actualizar</button>
             </div>
             {servicios.length > 0 ? (
               <div className="table-container">
@@ -113,11 +156,13 @@ export default function PanelCatedra({ user }) {
                     <tr>
                       <th>Servicio</th>
                       <th>Estado</th>
+                      <th>Acciones</th>
                     </tr>
                   </thead>
                   <tbody>
                     {servicios.map((s) => {
                       const cfg = ESTADO_SERVICIO_SIMPLE[s.estado] || { label: s.estado, badge: 'neutral', icon: '•' };
+                      const corriendo = s.estado === 'running';
                       return (
                         <tr key={s.id}>
                           <td style={{ color: 'var(--text-primary)', fontWeight: 500 }}>
@@ -128,6 +173,50 @@ export default function PanelCatedra({ user }) {
                               <span className="badge-dot"></span>
                               {cfg.icon} {cfg.label}
                             </span>
+                            {s.existe_en_proxmox === false ? (
+                              <div
+                                className="stat-label"
+                                style={{ fontSize: 11, marginTop: 4, color: 'var(--error, #ef4444)' }}
+                                title="El servicio ya no existe en el servidor. Pedile al administrador que lo dé de baja o lo vuelva a crear."
+                              >
+                                🗑️ ya no existe en el servidor
+                              </div>
+                            ) : s.estado_sincronizado === false && (
+                              <div
+                                className="stat-label"
+                                style={{ fontSize: 11, marginTop: 4 }}
+                                title="No pudimos confirmar el estado con el servidor de virtualización"
+                              >
+                                ⚠️ sin confirmar
+                              </div>
+                            )}
+                          </td>
+                          <td>
+                            {/* Encender está disponible en todo estado que no sea
+                                "activo": es la forma de recuperar un servicio que
+                                quedó apagado o con problemas. Si el contenedor ya
+                                no existe, no hay nada que encender. */}
+                            {s.existe_en_proxmox === false ? (
+                              <span className="stat-label" style={{ fontSize: 11 }}>
+                                Avisá al administrador
+                              </span>
+                            ) : corriendo ? (
+                              <button
+                                className="btn btn-danger btn-sm"
+                                onClick={() => apagar(s.id)}
+                                disabled={accionando === `stop-${s.id}`}
+                              >
+                                {accionando === `stop-${s.id}` ? '⏳' : '⏹ Apagar'}
+                              </button>
+                            ) : (
+                              <button
+                                className="btn btn-primary btn-sm"
+                                onClick={() => encender(s.id)}
+                                disabled={accionando === `start-${s.id}`}
+                              >
+                                {accionando === `start-${s.id}` ? '⏳' : '▶ Encender'}
+                              </button>
+                            )}
                           </td>
                         </tr>
                       );

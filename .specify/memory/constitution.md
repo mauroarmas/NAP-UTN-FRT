@@ -43,7 +43,7 @@ pendiente, fuera de la constitución, iniciar la spec que rediseñe el
 dashboard de cátedra conforme al principio VI.
 -->
 
-# Constitución del Portal de Gestión — Nube Privada UTN FRT
+# Constitución del Portal de Gestión — Nube Acaedmia Personal UTN FRT
 
 ## Core Principles
 

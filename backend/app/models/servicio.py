@@ -48,6 +48,12 @@ class Servicio(Base):
     deployed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
+    # No mapeado (sin anotación Mapped, SQLAlchemy lo ignora): marca si el
+    # `estado` de esta instancia se confirmó contra Proxmox en la consulta
+    # actual. Lo setea `sincronizar_estados` y viaja en ServicioResponse.
+    estado_sincronizado = False
+    existe_en_proxmox = None
+
     # Relaciones
     catedra: Mapped["Catedra"] = relationship(back_populates="servicios")
     pedido: Mapped["Pedido | None"] = relationship(back_populates="servicio")

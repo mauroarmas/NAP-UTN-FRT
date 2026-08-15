@@ -60,7 +60,7 @@ async def client(engine, db) -> AsyncClient:
     app.dependency_overrides.clear()
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def proxmox(monkeypatch) -> FakeProxmoxClient:
     """
     Sustituye el cliente Proxmox por el doble de prueba.
@@ -68,6 +68,11 @@ def proxmox(monkeypatch) -> FakeProxmoxClient:
     Se pisa el singleton del módulo en lugar de la función: así queda cubierto
     todo sitio que llame a ``get_proxmox_client()``, sin importar cómo lo haya
     importado (a nivel de módulo o dentro de una función).
+
+    Es ``autouse`` a propósito: un test que no lo pedía salía a hablar con el
+    clúster real en cuanto el código empezó a consultar el estado antes de cada
+    acción, y llegó a pasar por casualidad porque el VMID de las factories
+    coincidía con uno real. Ninguna prueba debe depender de la red.
     """
     fake = FakeProxmoxClient()
     monkeypatch.setattr("app.services.proxmox_client._proxmox_client", fake)

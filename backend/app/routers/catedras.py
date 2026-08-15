@@ -67,6 +67,60 @@ def _validar_contra_capacidad(
         )
 
 
+async def _uso_actual(db: AsyncSession, catedra_id: int) -> dict:
+    """
+    Recursos que la cátedra tiene efectivamente ocupados ahora mismo.
+
+    Mismo criterio que `obtener_catedra`: servicios vigentes y en ejecución.
+    """
+    servicios = (
+        await db.execute(
+            select(Servicio).where(
+                Servicio.catedra_id == catedra_id,
+                Servicio.estado == EstadoServicio.RUNNING,
+                Servicio.deleted_at.is_(None),
+            )
+        )
+    ).scalars().all()
+    return {
+        "vcpus": sum(s.vcpus_asignados for s in servicios),
+        "ram_mb": sum(s.ram_asignada_mb for s in servicios),
+        "storage_gb": sum(s.disk_asignado_gb for s in servicios),
+    }
+
+
+async def _validar_cuota_cubre_lo_usado(
+    db: AsyncSession, catedra_id: int, vcpus: int, ram_mb: int, storage_gb: int
+) -> None:
+    """
+    Impide dejar una cuota por debajo de lo que la cátedra ya está usando.
+
+    Editar cuotas hacia abajo es legítimo, pero una cuota menor al uso real deja
+    a la cátedra en un estado imposible de sostener (barras al 120%, pedidos
+    rechazados sin explicación). Para achicar por debajo del uso hay que dar de
+    baja servicios primero.
+    """
+    uso = await _uso_actual(db, catedra_id)
+    chequeos = [
+        ("vcpus", "vCPUs", "", vcpus),
+        ("ram_mb", "RAM", " MB", ram_mb),
+        ("storage_gb", "Disco", " GB", storage_gb),
+    ]
+    errores = [
+        f"{etiqueta}: {valor}{unidad} es menor que los {uso[clave]}{unidad} en uso"
+        for clave, etiqueta, unidad, valor in chequeos
+        if valor < uso[clave]
+    ]
+    if errores:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "La cuota no puede quedar por debajo de los recursos en uso "
+                "(dá de baja servicios primero): " + "; ".join(errores)
+            ),
+        )
+
+
 async def _validar_cuota_o_advertir(
     db: AsyncSession,
     pve: ProxmoxClient,
@@ -218,6 +272,14 @@ async def actualizar_catedra(
         k in update_data for k in ("cuota_vcpus", "cuota_ram_mb", "cuota_storage_gb")
     )
     reactiva = update_data.get("activa") is True and not catedra.activa
+    if cambia_cuota:
+        await _validar_cuota_cubre_lo_usado(
+            db,
+            catedra_id,
+            update_data.get("cuota_vcpus", catedra.cuota_vcpus),
+            update_data.get("cuota_ram_mb", catedra.cuota_ram_mb),
+            update_data.get("cuota_storage_gb", catedra.cuota_storage_gb),
+        )
     if cambia_cuota or reactiva:
         await _validar_cuota_o_advertir(
             db,

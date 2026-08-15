@@ -12,6 +12,7 @@ pyotp==2.9.*
 proxmoxer==2.2.*
 requests==2.32.*
 python-multipart==0.0.*
+websockets==16.*
 
 # --- Testing ---
 pytest==9.1.*
