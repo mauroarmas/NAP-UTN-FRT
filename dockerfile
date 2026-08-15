@@ -9,7 +9,6 @@ COPY backend/app ./app
 COPY backend/alembic ./alembic
 COPY backend/alembic.ini .
 COPY backend/scripts ./scripts
-COPY .env ./../.env
 
 COPY backend/scripts/startup.sh /app/startup.sh
 RUN chmod +x /app/startup.sh

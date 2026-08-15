@@ -1,0 +1,42 @@
+# --- Control de versiones ---
+.git/
+.gitignore
+
+# --- Entorno y variables sensibles ---
+.env
+.env.*
+!.env.example
+
+# --- Python / Backend ---
+backend/venv/
+backend/.venv/
+venv/
+.venv/
+ENV/
+env/
+**/__pycache__/
+**/*.py[cod]
+**/*$py.class
+backend/.pytest_cache/
+backend/.coverage
+backend/htmlcov/
+backend/tests/__pycache__/
+
+# --- Node / Frontend ---
+frontend/node_modules/
+node_modules/
+frontend/dist/
+frontend/dist-ssr/
+frontend/*.local
+
+# --- Herramientas de sistema y editores ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# --- Documentación y specs (no hacen falta dentro de la imagen) ---
+docs/
+specs/
+*.md

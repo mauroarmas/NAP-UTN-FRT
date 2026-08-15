@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getTemplates, createTemplate } from '../services/api';
+import { getTemplates, createTemplate, getProxmoxTemplates } from '../services/api';
 
 export default function Templates() {
   const [templates, setTemplates] = useState([]);
@@ -11,6 +11,9 @@ export default function Templates() {
     os_template: '',
   });
   const [saving, setSaving] = useState(false);
+  const [osTemplates, setOsTemplates] = useState([]);
+  const [loadingOsTemplates, setLoadingOsTemplates] = useState(true);
+  const [osTemplatesError, setOsTemplatesError] = useState(false);
 
   const fetchTemplates = async () => {
     try {
@@ -23,7 +26,19 @@ export default function Templates() {
     }
   };
 
-  useEffect(() => { fetchTemplates(); }, []);
+  const fetchOsTemplates = async () => {
+    try {
+      const { data } = await getProxmoxTemplates();
+      setOsTemplates(data);
+    } catch (err) {
+      console.error(err);
+      setOsTemplatesError(true);
+    } finally {
+      setLoadingOsTemplates(false);
+    }
+  };
+
+  useEffect(() => { fetchTemplates(); fetchOsTemplates(); }, []);
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -89,7 +104,16 @@ export default function Templates() {
               </div>
               <div className="form-group">
                 <label className="form-label">OS Template (Proxmox)</label>
-                <input className="form-input" value={form.os_template} onChange={e => setForm({...form, os_template: e.target.value})} placeholder="local:vztmpl/ubuntu-22.04-standard_22.04-1_amd64.tar.zst" />
+                {osTemplatesError ? (
+                  <input className="form-input" value={form.os_template} onChange={e => setForm({...form, os_template: e.target.value})} placeholder="local:vztmpl/ubuntu-22.04-standard_22.04-1_amd64.tar.zst" />
+                ) : (
+                  <select className="form-input" value={form.os_template} onChange={e => setForm({...form, os_template: e.target.value})} disabled={loadingOsTemplates}>
+                    <option value="">{loadingOsTemplates ? 'Cargando...' : 'Sin template'}</option>
+                    {osTemplates.map(t => (
+                      <option key={t.volid} value={t.volid}>{t.volid.split('/').pop()}</option>
+                    ))}
+                  </select>
+                )}
               </div>
             </div>
             <button type="submit" className="btn btn-primary" disabled={saving}>

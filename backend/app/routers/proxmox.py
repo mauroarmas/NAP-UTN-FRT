@@ -59,6 +59,39 @@ async def listar_contenedores(
         raise HTTPException(status_code=502, detail=f"Error: {str(e)}")
 
 
+@router.get("/templates")
+async def listar_templates_disponibles(
+    node: str | None = None,
+    storage: str = "local",
+    current_user: Usuario = Depends(require_admin),
+    pve: ProxmoxClient = Depends(get_proxmox_client),
+):
+    """Lista los OS templates (vztmpl) disponibles en un storage de Proxmox. Solo administradores."""
+    try:
+        target_node = node
+        if not target_node:
+            nodes = pve.get_nodes()
+            online = [n for n in nodes if n.get("status") == "online"]
+            if not online:
+                raise HTTPException(status_code=502, detail="No hay nodos Proxmox disponibles")
+            target_node = online[0]["node"]
+
+        content = pve.get_available_templates(target_node, storage)
+        return [
+            {
+                "volid": item["volid"],
+                "size": item.get("size"),
+                "format": item.get("format"),
+            }
+            for item in content
+            if item.get("content") == "vztmpl"
+        ]
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Error: {str(e)}")
+
+
 @router.get("/resources")
 async def recursos_cluster(
     current_user: Usuario = Depends(require_admin),

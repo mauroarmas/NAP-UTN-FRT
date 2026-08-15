@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { getCatedras, getProxmoxStatus, listarServicios, getPedidos } from '../services/api';
+import PanelCatedra from '../components/PanelCatedra';
 
 export default function Dashboard({ user }) {
   const [catedras, setCatedras]   = useState([]);
@@ -11,13 +12,14 @@ export default function Dashboard({ user }) {
   const isAdmin = user?.rol === 'admin';
 
   useEffect(() => {
+    if (!isAdmin) return;
     const fetchData = async () => {
       try {
         const results = await Promise.allSettled([
           getCatedras(),
           listarServicios(),
           getPedidos('solicitado'),
-          isAdmin ? getProxmoxStatus().then(r => setProxmox(r.data)) : Promise.resolve(),
+          getProxmoxStatus().then(r => setProxmox(r.data)),
         ]);
         if (results[0].status === 'fulfilled') setCatedras(results[0].value.data);
         if (results[1].status === 'fulfilled') setServicios(results[1].value.data);
@@ -30,6 +32,10 @@ export default function Dashboard({ user }) {
     };
     fetchData();
   }, [isAdmin]);
+
+  if (!isAdmin) {
+    return <PanelCatedra user={user} />;
+  }
 
   const formatBytes = (bytes) => {
     if (!bytes) return '0 B';
@@ -44,7 +50,7 @@ export default function Dashboard({ user }) {
       <div className="page-header">
         <h1 className="page-title">Dashboard</h1>
         <p className="page-subtitle">
-          Bienvenido, {user?.nombre}. {isAdmin ? 'Vista de administrador.' : 'Vista de cátedra.'}
+          Bienvenido, {user?.nombre}. Vista de administrador.
         </p>
       </div>
 
@@ -68,29 +74,27 @@ export default function Dashboard({ user }) {
           <div className="stat-label">Pedidos pendientes</div>
         </div>
 
-        {isAdmin && (
-          <div className="stat-card">
-            <div className="stat-icon orange">⚡</div>
-            <div className="stat-value">
-              {proxmox?.status === 'connected' ? (
-                <span className="badge success">
-                  <span className="badge-dot"></span>
-                  Conectado
-                </span>
-              ) : (
-                <span className="badge error">
-                  <span className="badge-dot"></span>
-                  Desconectado
-                </span>
-              )}
-            </div>
-            <div className="stat-label">Proxmox VE</div>
+        <div className="stat-card">
+          <div className="stat-icon orange">⚡</div>
+          <div className="stat-value">
+            {proxmox?.status === 'connected' ? (
+              <span className="badge success">
+                <span className="badge-dot"></span>
+                Conectado
+              </span>
+            ) : (
+              <span className="badge error">
+                <span className="badge-dot"></span>
+                Desconectado
+              </span>
+            )}
           </div>
-        )}
+          <div className="stat-label">Proxmox VE</div>
+        </div>
       </div>
 
-      {/* Proxmox Node Info (admin only) */}
-      {isAdmin && node && (
+      {/* Info del nodo Proxmox */}
+      {node && (
         <div className="card" style={{ marginBottom: 24 }}>
           <div className="card-header">
             <h3 className="card-title">Nodo: {node.node}</h3>

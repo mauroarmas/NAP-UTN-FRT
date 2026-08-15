@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getCatedras, createCatedra } from '../services/api';
+import { getCatedras, createCatedra, getProxmoxStatus } from '../services/api';
 
 export default function Catedras() {
   const [catedras, setCatedras] = useState([]);
@@ -9,6 +9,7 @@ export default function Catedras() {
     nombre: '', descripcion: '', cuota_vcpus: 2, cuota_ram_mb: 1024, cuota_storage_gb: 8,
   });
   const [saving, setSaving] = useState(false);
+  const [capacidad, setCapacidad] = useState(null); // { vcpus, ram_mb, storage_gb } del clúster
 
   const fetchCatedras = async () => {
     try {
@@ -21,16 +22,52 @@ export default function Catedras() {
     }
   };
 
-  useEffect(() => { fetchCatedras(); }, []);
+  const fetchCapacidad = async () => {
+    try {
+      const { data } = await getProxmoxStatus();
+      const online = (data.nodes || []).filter(n => n.status === 'online');
+      setCapacidad({
+        vcpus: online.reduce((acc, n) => acc + (n.maxcpu || 0), 0),
+        ram_mb: online.reduce((acc, n) => acc + (n.maxmem || 0), 0) / (1024 * 1024),
+        storage_gb: online.reduce((acc, n) => acc + (n.maxdisk || 0), 0) / (1024 ** 3),
+      });
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  useEffect(() => { fetchCatedras(); fetchCapacidad(); }, []);
+
+  // Cuota ya reservada por cátedras activas: lo que queda disponible es capacidad - comprometido.
+  const comprometido = catedras.filter(c => c.activa).reduce((acc, c) => ({
+    vcpus: acc.vcpus + c.cuota_vcpus,
+    ram_mb: acc.ram_mb + c.cuota_ram_mb,
+    storage_gb: acc.storage_gb + c.cuota_storage_gb,
+  }), { vcpus: 0, ram_mb: 0, storage_gb: 0 });
+
+  const disponible = capacidad ? {
+    vcpus: Math.max(0, Math.floor(capacidad.vcpus - comprometido.vcpus)),
+    ram_mb: Math.max(0, Math.floor(capacidad.ram_mb - comprometido.ram_mb)),
+    storage_gb: Math.max(0, Math.floor(capacidad.storage_gb - comprometido.storage_gb)),
+  } : null;
 
   const handleCreate = async (e) => {
     e.preventDefault();
+    if (disponible && (
+      form.cuota_vcpus > disponible.vcpus ||
+      form.cuota_ram_mb > disponible.ram_mb ||
+      form.cuota_storage_gb > disponible.storage_gb
+    )) {
+      alert('La cuota solicitada supera la capacidad disponible del clúster Proxmox');
+      return;
+    }
     setSaving(true);
     try {
       await createCatedra(form);
       setShowForm(false);
       setForm({ nombre: '', descripcion: '', cuota_vcpus: 2, cuota_ram_mb: 1024, cuota_storage_gb: 8 });
       fetchCatedras();
+      fetchCapacidad();
     } catch (err) {
       alert(err.response?.data?.detail || 'Error al crear cátedra');
     } finally {
@@ -65,15 +102,30 @@ export default function Catedras() {
               </div>
               <div className="form-group">
                 <label className="form-label">vCPUs</label>
-                <input className="form-input" type="number" min="1" value={form.cuota_vcpus} onChange={e => setForm({...form, cuota_vcpus: parseInt(e.target.value)})} />
+                <input className="form-input" type="number" min="1" max={disponible?.vcpus || undefined} value={form.cuota_vcpus} onChange={e => setForm({...form, cuota_vcpus: parseInt(e.target.value)})} />
+                {disponible && (
+                  <div className="stat-label" style={{ marginTop: 4 }}>
+                    Disponible: {disponible.vcpus} de {capacidad.vcpus} (clúster Proxmox)
+                  </div>
+                )}
               </div>
               <div className="form-group">
                 <label className="form-label">RAM (MB)</label>
-                <input className="form-input" type="number" min="128" step="128" value={form.cuota_ram_mb} onChange={e => setForm({...form, cuota_ram_mb: parseInt(e.target.value)})} />
+                <input className="form-input" type="number" min="128" step="128" max={disponible?.ram_mb || undefined} value={form.cuota_ram_mb} onChange={e => setForm({...form, cuota_ram_mb: parseInt(e.target.value)})} />
+                {disponible && (
+                  <div className="stat-label" style={{ marginTop: 4 }}>
+                    Disponible: {disponible.ram_mb} de {Math.floor(capacidad.ram_mb)} MB
+                  </div>
+                )}
               </div>
               <div className="form-group">
                 <label className="form-label">Disco (GB)</label>
-                <input className="form-input" type="number" min="1" value={form.cuota_storage_gb} onChange={e => setForm({...form, cuota_storage_gb: parseInt(e.target.value)})} />
+                <input className="form-input" type="number" min="1" max={disponible?.storage_gb || undefined} value={form.cuota_storage_gb} onChange={e => setForm({...form, cuota_storage_gb: parseInt(e.target.value)})} />
+                {disponible && (
+                  <div className="stat-label" style={{ marginTop: 4 }}>
+                    Disponible: {disponible.storage_gb} de {Math.floor(capacidad.storage_gb)} GB
+                  </div>
+                )}
               </div>
             </div>
             <button type="submit" className="btn btn-primary" disabled={saving}>

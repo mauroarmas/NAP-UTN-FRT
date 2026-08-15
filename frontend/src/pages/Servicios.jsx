@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getPedidos, listarServicios, desplegarPedido, iniciarServicio, detenerServicio, getStatusServicio } from '../services/api';
+import { getPedidos, listarServicios, desplegarPedido, iniciarServicio, detenerServicio, getStatusServicio, getCatedras } from '../services/api';
 
 const ESTADO_SERVICIO_CONFIG = {
   running:  { label: 'Corriendo',  badge: 'success', icon: '🟢' },
@@ -11,6 +11,7 @@ const ESTADO_SERVICIO_CONFIG = {
 export default function Servicios({ user }) {
   const [servicios, setServicios] = useState([]);
   const [pedidosAprobados, setPedidosAprobados] = useState([]);
+  const [catedras, setCatedras] = useState([]);
   const [loading, setLoading] = useState(true);
   const [accionando, setAccionando] = useState(null); // ID del servicio/pedido en acción
   const [statusDetalle, setStatusDetalle] = useState(null);
@@ -19,18 +20,22 @@ export default function Servicios({ user }) {
 
   const fetchData = async () => {
     try {
-      const [srvRes, pedRes] = await Promise.allSettled([
+      const [srvRes, pedRes, catRes] = await Promise.allSettled([
         listarServicios(),
         isAdmin ? getPedidos('aprobado') : Promise.resolve({ data: [] }),
+        isAdmin ? getCatedras() : Promise.resolve({ data: [] }),
       ]);
       if (srvRes.status === 'fulfilled') setServicios(srvRes.value.data);
       if (pedRes.status === 'fulfilled') setPedidosAprobados(pedRes.value.data);
+      if (catRes.status === 'fulfilled') setCatedras(catRes.value.data);
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
   };
+
+  const catedraNombre = (id) => catedras.find(c => c.id === id)?.nombre || `Cátedra #${id}`;
 
   useEffect(() => { fetchData(); }, []);
 
@@ -132,7 +137,7 @@ export default function Servicios({ user }) {
                 {pedidosAprobados.map(p => (
                   <tr key={p.id}>
                     <td style={{ color: 'var(--text-primary)', fontWeight: 600 }}>#{p.id}</td>
-                    <td>Cátedra #{p.catedra_id}</td>
+                    <td>{catedraNombre(p.catedra_id)}</td>
                     <td>Template #{p.template_id}</td>
                     <td>
                       <button

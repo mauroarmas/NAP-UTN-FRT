@@ -1,16 +1,7 @@
 import { useState, useEffect } from 'react';
-import { getPedidos, getPedido, createPedido, cambiarEstadoPedido, getTemplates } from '../services/api';
-
-const ESTADO_CONFIG = {
-  solicitado:    { label: 'Solicitado',    badge: 'info',    icon: '📨' },
-  en_revision:   { label: 'En Revisión',   badge: 'warning', icon: '🔍' },
-  aprobado:      { label: 'Aprobado',      badge: 'success', icon: '✅' },
-  en_despliegue: { label: 'En Despliegue', badge: 'info',    icon: '🚀' },
-  activo:        { label: 'Activo',        badge: 'success', icon: '🟢' },
-  rechazado:     { label: 'Rechazado',     badge: 'error',   icon: '❌' },
-  error:         { label: 'Error',         badge: 'error',   icon: '⚠️' },
-  suspendido:    { label: 'Suspendido',    badge: 'neutral',  icon: '⏸️' },
-};
+import { useLocation } from 'react-router-dom';
+import { getPedidos, getPedido, createPedido, cambiarEstadoPedido, getTemplates, getCatedras } from '../services/api';
+import { ESTADO_PEDIDO_CONFIG as ESTADO_CONFIG } from '../constants/estados';
 
 const TRANSICIONES = {
   solicitado:    ['en_revision', 'rechazado'],
@@ -24,11 +15,14 @@ const TRANSICIONES = {
 };
 
 export default function Pedidos({ user }) {
+  const location = useLocation();
   const [pedidos, setPedidos] = useState([]);
   const [templates, setTemplates] = useState([]);
+  const [catedras, setCatedras] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filtroEstado, setFiltroEstado] = useState('');
-  const [showNuevo, setShowNuevo] = useState(false);
+  // Llega abierto de una: acceso directo desde el panel de cátedra (FR-003).
+  const [showNuevo, setShowNuevo] = useState(Boolean(location.state?.abrirNuevo));
   const [detalle, setDetalle] = useState(null);
   const [form, setForm] = useState({ template_id: '', parametros_extra: {} });
   const [saving, setSaving] = useState(false);
@@ -58,7 +52,16 @@ export default function Pedidos({ user }) {
     }
   };
 
-  useEffect(() => { fetchPedidos(); fetchTemplates(); }, [filtroEstado]);
+  const fetchCatedras = async () => {
+    try {
+      const { data } = await getCatedras();
+      setCatedras(data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  useEffect(() => { fetchPedidos(); fetchTemplates(); if (isAdmin) fetchCatedras(); }, [filtroEstado]);
 
   const handleCrear = async (e) => {
     e.preventDefault();
@@ -109,6 +112,7 @@ export default function Pedidos({ user }) {
   };
 
   const templateNombre = (id) => templates.find(t => t.id === id)?.nombre || `#${id}`;
+  const catedraNombre = (id) => catedras.find(c => c.id === id)?.nombre || `Cátedra #${id}`;
 
   const formatDate = (iso) => {
     if (!iso) return '—';
@@ -182,6 +186,7 @@ export default function Pedidos({ user }) {
           <div className="card-header">
             <h3 className="card-title">
               Pedido #{detalle.id} — {templateNombre(detalle.template_id)}
+              {isAdmin && ` (${catedraNombre(detalle.catedra_id)})`}
             </h3>
             <button className="btn btn-secondary btn-sm" onClick={() => setDetalle(null)}>✕ Cerrar</button>
           </div>
@@ -284,6 +289,7 @@ export default function Pedidos({ user }) {
               <thead>
                 <tr>
                   <th>#</th>
+                  {isAdmin && <th>Cátedra</th>}
                   <th>Template</th>
                   <th>Estado</th>
                   <th>Fecha</th>
@@ -294,6 +300,7 @@ export default function Pedidos({ user }) {
                 {pedidos.map(p => (
                   <tr key={p.id}>
                     <td style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{p.id}</td>
+                    {isAdmin && <td>{catedraNombre(p.catedra_id)}</td>}
                     <td>{templateNombre(p.template_id)}</td>
                     <td>
                       <span className={`badge ${ESTADO_CONFIG[p.estado]?.badge || 'neutral'}`}>

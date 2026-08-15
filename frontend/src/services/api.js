@@ -47,6 +47,7 @@ export const updateCatedra = (id, data) => api.patch(`/catedras/${id}`, data);
 export const getProxmoxStatus = () => api.get('/proxmox/status');
 export const getProxmoxNodes = () => api.get('/proxmox/nodes');
 export const getProxmoxResources = () => api.get('/proxmox/resources');
+export const getProxmoxTemplates = (storage = 'local') => api.get('/proxmox/templates', { params: { storage } });
 
 // Pedidos
 export const getPedidos = (estado) => api.get('/pedidos/', { params: estado ? { estado } : {} });
