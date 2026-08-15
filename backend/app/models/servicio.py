@@ -1,7 +1,8 @@
 from datetime import datetime
 
-from sqlalchemy import String, Integer, DateTime, ForeignKey, Enum as SAEnum
+from sqlalchemy import String, Integer, DateTime, ForeignKey, Index, Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.sql import text
 import enum
 
 from app.database import Base
@@ -16,6 +17,14 @@ class EstadoServicio(str, enum.Enum):
 
 class Servicio(Base):
     __tablename__ = "servicios"
+    __table_args__ = (
+        # Índice parcial: los listados solo consultan filas vigentes.
+        Index(
+            "ix_servicios_vigentes",
+            "deleted_at",
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     catedra_id: Mapped[int] = mapped_column(ForeignKey("catedras.id"), nullable=False)
@@ -37,6 +46,7 @@ class Servicio(Base):
     disk_asignado_gb: Mapped[int] = mapped_column(Integer, default=2)
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
     deployed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     # Relaciones
     catedra: Mapped["Catedra"] = relationship(back_populates="servicios")

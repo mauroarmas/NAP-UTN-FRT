@@ -15,6 +15,7 @@ from app.services.metricas_service import (
     obtener_historial,
     obtener_ultimo_snapshot,
 )
+from app.utils.soft_delete import excluir_dados_de_baja, vigente_o_404
 
 router = APIRouter(prefix="/metricas", tags=["Métricas"])
 
@@ -64,9 +65,9 @@ async def capturar_servicio(
     db: AsyncSession = Depends(get_db),
 ):
     """Captura métricas de un servicio específico ahora mismo."""
-    servicio = await db.get(Servicio, servicio_id)
-    if not servicio:
-        raise HTTPException(status_code=404, detail="Servicio no encontrado")
+    servicio = vigente_o_404(
+        await db.get(Servicio, servicio_id), "Servicio no encontrado"
+    )
 
     snap = await capturar_snapshot_servicio(db, servicio)
     if not snap:
@@ -88,7 +89,7 @@ async def resumen_servicios(
     """
     from app.services.proxmox_client import get_proxmox_client
 
-    query = select(Servicio)
+    query = excluir_dados_de_baja(select(Servicio), Servicio)
     if current_user.rol != RolUsuario.ADMIN:
         query = query.where(Servicio.catedra_id == current_user.catedra_id)
 
@@ -145,9 +146,9 @@ async def historial_servicio(
     db: AsyncSession = Depends(get_db),
 ):
     """Devuelve el historial de métricas de un servicio (orden cronológico)."""
-    servicio = await db.get(Servicio, servicio_id)
-    if not servicio:
-        raise HTTPException(status_code=404, detail="Servicio no encontrado")
+    servicio = vigente_o_404(
+        await db.get(Servicio, servicio_id), "Servicio no encontrado"
+    )
 
     if current_user.rol != RolUsuario.ADMIN and servicio.catedra_id != current_user.catedra_id:
         raise HTTPException(status_code=403, detail="Sin permisos")
@@ -162,9 +163,9 @@ async def ultimo_snapshot(
     db: AsyncSession = Depends(get_db),
 ):
     """Devuelve el último snapshot de métricas de un servicio."""
-    servicio = await db.get(Servicio, servicio_id)
-    if not servicio:
-        raise HTTPException(status_code=404, detail="Servicio no encontrado")
+    servicio = vigente_o_404(
+        await db.get(Servicio, servicio_id), "Servicio no encontrado"
+    )
 
     snap = await obtener_ultimo_snapshot(db, servicio_id)
     if not snap:

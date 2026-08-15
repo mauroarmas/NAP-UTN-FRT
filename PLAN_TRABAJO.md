@@ -30,12 +30,14 @@ Para entornos académicos y multi-usuario, es crítico saber *quién* hizo *qué
 ### Hito 3: Refinamiento de la Máquina de Estados y UX
 Mejorar el manejo de estados de error y el feedback visual que recibe el usuario al interactuar con el sistema.
 
-*   **Frontend:**
+> **Estado:** la mitad de backend está completa; la de frontend sigue pendiente.
+
+*   **Frontend:** ⏳ Pendiente
     *   **Sistema de Notificaciones (Toasts):** Reemplazar los `alert()` nativos por una librería moderna de notificaciones (ej. `react-toastify` o `sonner`) para dar feedback asíncrono y no bloqueante tras despliegues, encendidos o errores.
     *   **Feedback de Carga Granular:** Implementar *spinners* o indicadores de carga específicos por fila en las tablas cuando una acción (como desplegar un contenedor) está en progreso, en lugar de bloquear toda la pantalla.
-*   **Backend:**
-    *   **Soft Delete:** Implementar eliminación lógica (flag `deleted_at`) en pedidos y servicios para mantener el historial académico de recursos consumidos por cátedras en años anteriores, aunque el CT se elimine en Proxmox.
-    *   **Recuperación de Errores:** Añadir rutinas o endpoints para reintentar despliegues que quedaron atrapados en estado `ERROR`.
+*   **Backend:** ✅ **Completo** — ver [`specs/001-pedido-soft-delete-retry/`](specs/001-pedido-soft-delete-retry/)
+    *   ~~**Soft Delete:**~~ ✅ Implementado. Columna `deleted_at` en `Pedido` y `Servicio`, con exclusión por defecto en listados, cuotas y métricas. `DELETE /pedidos/{id}` nuevo; `DELETE /servicios/{id}` pasó de borrado físico a lógico.
+    *   ~~**Recuperación de Errores:**~~ ✅ Implementado. `POST /pedidos/{id}/reintentar`, pseudo-idempotente: persiste el VMID reservado antes de llamar a Proxmox y, al reintentar, lo reutiliza si sigue libre o adopta el contenedor si quedó huérfano de un fallo parcial.
 
 ---
 

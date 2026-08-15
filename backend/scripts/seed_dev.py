@@ -23,36 +23,46 @@ from app.utils.security import get_password_hash
 async def seed():
     async with AsyncSessionLocal() as session:
 
-        # Verificar que existe al menos una cátedra
+        # Verificar que existe al menos una cátedra, si no, crear una por defecto
         result = await session.execute(select(Catedra))
         catedra = result.scalars().first()
         if not catedra:
-            print("⚠️  No hay cátedras. Corré primero el servidor y creá una cátedra desde /catedras.")
-            return
+            catedra = Catedra(
+                nombre="Cátedra de Prueba",
+                descripcion="Cátedra creada automáticamente por el seed de desarrollo",
+                cuota_vcpus=4,
+                cuota_ram_mb=4096,
+                cuota_storage_gb=40,
+                activa=True,
+            )
+            session.add(catedra)
+            await session.commit()
+            await session.refresh(catedra)
+            print(f"✅ Cátedra creada: [{catedra.id}] {catedra.nombre}")
+        else:
+            print(f"✅ Usando cátedra: [{catedra.id}] {catedra.nombre}")
 
-        print(f"✅ Usando cátedra: [{catedra.id}] {catedra.nombre}")
-
-        # Crear usuario solicitante si no existe
+        # Crear usuario cátedra si no existe
         result = await session.execute(
-            select(Usuario).where(Usuario.username == "solicitante")
+            select(Usuario).where(Usuario.username == "catedra")
         )
         if result.scalar_one_or_none():
-            print("⚠️  El usuario 'solicitante' ya existe.")
+            print("⚠️  El usuario 'catedra' ya existe.")
         else:
-            solicitante = Usuario(
-                username="solicitante",
-                email="solicitante@utn.frt.edu.ar",
-                nombre="Juan Pérez",
-                password_hash=get_password_hash("solicitante123"),
+            catedra_user = Usuario(
+                username="catedra",
+                email="catedra@utn.frt.edu.ar",
+                nombre="Usuario Cátedra",
+                password_hash=get_password_hash("catedra"),
                 rol=RolUsuario.CATEDRA_ADMIN,
                 catedra_id=catedra.id,
                 activo=True,
             )
-            session.add(solicitante)
+            session.add(catedra_user)
             await session.commit()
-            print("✅ Usuario solicitante creado:")
-            print(f"   Username : solicitante")
-            print(f"   Password : solicitante123")
+            print("✅ Usuario cátedra creado:")
+            print(f"   Username : catedra")
+            print(f"   Password : catedra")
             print(f"   Rol      : catedra_admin")
             print(f"   Cátedra  : [{catedra.id}] {catedra.nombre}")
 
@@ -69,8 +79,8 @@ async def seed():
             print(f"✅ Admin ya tiene cátedra [{admin.catedra_id}]")
 
         print("\n🎉 Seed completado. Podés iniciar sesión con:")
-        print("   admin / admin123         → Administrador")
-        print("   solicitante / solicitante123  → Cátedra (puede crear pedidos)")
+        print("   admin / admin         → Administrador")
+        print("   catedra / catedra     → Cátedra (puede crear pedidos)")
 
 
 if __name__ == "__main__":

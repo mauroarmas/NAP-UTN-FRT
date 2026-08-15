@@ -63,6 +63,8 @@ async def obtener_catedra(
         select(Servicio).where(
             Servicio.catedra_id == catedra_id,
             Servicio.estado == EstadoServicio.RUNNING,
+            # Lo dado de baja no cuenta como uso de recursos (FR-012)
+            Servicio.deleted_at.is_(None),
         )
     )
     servicios = servicios_result.scalars().all()

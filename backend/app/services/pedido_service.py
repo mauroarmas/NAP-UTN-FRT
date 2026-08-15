@@ -60,6 +60,8 @@ async def verificar_cuota(
         ).where(
             Servicio.catedra_id == catedra_id,
             Servicio.estado == EstadoServicio.RUNNING,
+            # Lo dado de baja no ocupa cuota (FR-012)
+            Servicio.deleted_at.is_(None),
         )
     )
     uso_vcpus, uso_ram, uso_disk = result.one()
@@ -139,6 +141,55 @@ async def crear_pedido(
     await db.refresh(pedido)
 
     return pedido
+
+
+async def dar_de_baja_pedido(
+    db: AsyncSession,
+    pedido_id: int,
+    admin: Usuario,
+) -> dict:
+    """
+    Da de baja lógicamente un pedido, cualquiera sea su estado (FR-013).
+
+    Se rechaza si el pedido todavía tiene un servicio vigente: primero hay que
+    darlo de baja para liberar el recurso real en la infraestructura, de modo
+    que no queden contenedores huérfanos sin registro operativo (FR-014).
+    """
+    pedido = await db.get(Pedido, pedido_id)
+    if not pedido:
+        raise HTTPException(status_code=404, detail="Pedido no encontrado")
+
+    if pedido.deleted_at is not None:
+        return {
+            "message": f"El pedido {pedido_id} ya estaba dado de baja",
+            "deleted_at": pedido.deleted_at,
+        }
+
+    servicio_vigente = (
+        await db.execute(
+            select(Servicio).where(
+                Servicio.pedido_id == pedido_id,
+                Servicio.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+
+    if servicio_vigente is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"El pedido tiene un servicio vigente (id={servicio_vigente.id}). "
+                "Dé de baja el servicio primero para liberar el recurso."
+            ),
+        )
+
+    pedido.deleted_at = datetime.utcnow()
+    await db.commit()
+
+    return {
+        "message": f"Pedido {pedido_id} dado de baja",
+        "deleted_at": pedido.deleted_at,
+    }
 
 
 async def cambiar_estado(

@@ -1,36 +1,46 @@
 <!--
-Sync Impact Report — 2026-08-07
+Sync Impact Report — 2026-08-15
 =================================
-Version change: (plantilla sin ratificar) → 1.0.0
-Bump rationale: MAJOR (0→1). Primera ratificación real; se reemplazan todos los
-placeholders de la plantilla por principios vinculantes del proyecto.
+Version change: 1.0.0 → 1.1.0
+Bump rationale: MINOR. Se agrega un principio nuevo (no se redefine ni remueve
+ninguno de los cinco existentes); corresponde a una ampliación material de la
+guía vigente, no a una corrección de redacción.
 
-Principios definidos (los cinco son nuevos; la plantilla no tenía ninguno):
-  I.   Proxmox es el back-end, nunca la interfaz
-  II.  La máquina de estados es la única fuente de verdad
-  III. Toda operación contra la infraestructura debe ser recuperable
-  IV.  Aislamiento y cuota por cátedra
-  V.   El historial académico no se destruye
+Principio agregado:
+  VI. La cátedra pide y observa; el administrador gestiona
 
-Secciones agregadas:
-  - Restricciones Técnicas y de Seguridad
-  - Flujo de Desarrollo y Compuertas de Calidad
-  - Governance
+Motivación (entrada del usuario): el dashboard actual muestra a un usuario
+cátedra la misma pantalla orientada a infraestructura que ve el administrador
+(tabla global de cátedras, conteos agregados), sin priorizar sus dos tareas
+reales: cargar un pedido rápido y ver cómo vienen sus servicios. No todas las
+cátedras son técnicas, así que esa pantalla no aporta valor y es fricción.
 
-Secciones removidas: ninguna (la plantilla estaba vacía).
+Secciones agregadas: ninguna nueva a nivel de encabezado; el principio VI se
+agrega dentro de "Core Principles".
+
+Secciones removidas: ninguna.
 
 Templates y artefactos revisados:
-  ✅ .specify/templates/plan-template.md — la compuerta referencia el archivo de
-     constitución de forma genérica; alinea por construcción, sin cambios
+  ✅ .specify/templates/plan-template.md — la Constitution Check se completa
+     dinámicamente contra el archivo de constitución vigente; no requiere
+     hardcodear principios, sin cambios
   ✅ .specify/templates/spec-template.md — sin secciones obligatorias nuevas
-     derivadas de estos principios, sin cambios
-  ✅ .specify/templates/tasks-template.md — la categorización de tareas ya admite
-     las tareas de prueba que exige la compuerta de calidad, sin cambios
+     derivadas de este principio (es una guía de diseño de UI, no una sección
+     de spec nueva), sin cambios
+  ✅ .specify/templates/tasks-template.md — la categorización por historia de
+     usuario ya admite tareas de frontend por rol, sin cambios
   ✅ .claude/skills/speckit-*/SKILL.md — sin referencias agent-specific obsoletas
-  ✅ specs/001-pedido-soft-delete-retry/plan.md — la Constitution Check decía
-     "PASS por vacuidad"; reevaluada contra los principios ya ratificados
+  ✅ specs/001-pedido-soft-delete-retry/plan.md — feature exclusivamente de
+     backend (soft delete y reintento); no toca UI ni distingue vista por rol,
+     el principio VI no le aplica, se mantiene el PASS ya registrado
+  ⚠ frontend/src/pages/Dashboard.jsx — implementación actual viola el
+     principio VI recién ratificado (ver detalle abajo); código preexistente,
+     no queda en infracción retroactiva automática, pero corresponde abrir un
+     feature (`/speckit-specify`) para remediarlo
 
-Follow-up TODOs: ninguno. No quedan tokens sin resolver.
+Follow-up TODOs: ninguno pendiente de definición en este documento. Queda
+pendiente, fuera de la constitución, iniciar la spec que rediseñe el
+dashboard de cátedra conforme al principio VI.
 -->
 
 # Constitución del Portal de Gestión — Nube Privada UTN FRT
@@ -120,6 +130,32 @@ El sistema conserva el rastro de lo que ocurrió, aunque el recurso físico ya n
 "cuántos recursos consumió esta cátedra el cuatrimestre pasado" mucho después de que los
 contenedores se hayan eliminado.
 
+### VI. La cátedra pide y observa; el administrador gestiona
+
+El rol cátedra no es un operador de infraestructura. Su pantalla principal se diseña alrededor de
+dos tareas, no alrededor de lo que el sistema sabe mostrar.
+
+- La pantalla principal del rol cátedra MUST limitarse a: acceso directo para crear un pedido, y
+  el estado/comportamiento de sus propios servicios (activo, con problemas, consumo dentro de su
+  cuota). MUST NOT mostrar información cuyo dominio es el administrador: listado de otras
+  cátedras, conteos agregados de todo el sistema, o estado del nodo/clúster Proxmox.
+- El flujo de creación de un pedido MUST ser operable por una persona sin formación técnica: MUST
+  NOT exigir que la cátedra conozca o complete parámetros de infraestructura (VMID, nodo, template
+  ID de Proxmox); se limita a elegir qué necesita y cuánto, dentro de su cuota asignada.
+- Todo pedido nuevo MUST quedar visible en la bandeja de gestión del administrador sin acción
+  manual de sincronización. Aprobar, rechazar y gestionar el ciclo de vida del pedido es
+  responsabilidad exclusiva del administrador; la cátedra consulta el estado, no lo cambia.
+- El "comportamiento de sus servicios" que ve la cátedra MUST presentarse en términos entendibles
+  sin conocimientos de administración de sistemas (activo/inactivo, consumo respecto de su cuota);
+  MUST NOT requerir que interprete métricas de infraestructura cruda (uso físico del nodo, CPU
+  steal, particionado de disco), que quedan reservadas a la vista de administrador.
+
+**Rationale**: No todas las cátedras son técnicas — es una condición explícita del proyecto, no un
+detalle de estilo. Una pantalla que expone el mismo panorama de infraestructura al administrador y
+a la cátedra fuerza a esta última a interpretar información que no puede accionar y que no
+responde a su necesidad real (pedir rápido, ver cómo viene su servicio), lo que degrada la
+adopción por parte de quien menos margen tiene para lidiar con fricción técnica.
+
 ## Restricciones Técnicas y de Seguridad
 
 **Stack fijo** (decisiones ya tomadas, no se revisan sin enmienda a esta constitución):
@@ -183,4 +219,4 @@ violación aceptada MUST registrarse en la tabla de Complexity Tracking con su j
 alternativa más simple que se descartó; una violación sin justificación registrada bloquea la
 implementación.
 
-**Version**: 1.0.0 | **Ratified**: 2026-08-07 | **Last Amended**: 2026-08-07
+**Version**: 1.1.0 | **Ratified**: 2026-08-07 | **Last Amended**: 2026-08-15

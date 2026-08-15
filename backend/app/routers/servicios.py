@@ -13,6 +13,7 @@ from app.services.orquestacion_service import (
     iniciar_servicio,
     eliminar_servicio,
 )
+from app.utils.soft_delete import excluir_dados_de_baja, vigente_o_404
 
 router = APIRouter(prefix="/servicios", tags=["Servicios"])
 
@@ -22,8 +23,10 @@ async def listar_servicios(
     current_user: Usuario = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Lista servicios. Admin ve todos, cátedra ve solo los suyos."""
-    query = select(Servicio).order_by(Servicio.deployed_at.desc())
+    """Lista servicios vigentes. Admin ve todos, cátedra ve solo los suyos."""
+    query = excluir_dados_de_baja(select(Servicio), Servicio).order_by(
+        Servicio.deployed_at.desc()
+    )
 
     if current_user.rol != RolUsuario.ADMIN:
         query = query.where(Servicio.catedra_id == current_user.catedra_id)
@@ -38,10 +41,10 @@ async def obtener_servicio(
     current_user: Usuario = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Obtiene un servicio por ID."""
-    servicio = await db.get(Servicio, servicio_id)
-    if not servicio:
-        raise HTTPException(status_code=404, detail="Servicio no encontrado")
+    """Obtiene un servicio vigente por ID."""
+    servicio = vigente_o_404(
+        await db.get(Servicio, servicio_id), "Servicio no encontrado"
+    )
 
     if current_user.rol != RolUsuario.ADMIN and servicio.catedra_id != current_user.catedra_id:
         raise HTTPException(status_code=403, detail="Sin permisos")
@@ -95,7 +98,17 @@ async def eliminar(
     current_user: Usuario = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """Elimina un servicio y su contenedor de Proxmox."""
+    """
+    Da de baja un servicio: libera su contenedor en Proxmox y marca el registro.
+
+    La baja es lógica: la fila permanece para poder reconstruir el consumo
+    histórico de la cátedra. Si no se pudo liberar el recurso real, el registro
+    no se marca (evita contenedores vivos sin registro operativo).
+
+    Códigos: 200 baja exitosa (o ya estaba dada de baja, idempotente) ·
+    403 sin permisos de administrador · 404 servicio inexistente ·
+    502 falló la liberación en Proxmox (el registro queda intacto).
+    """
     return await eliminar_servicio(db, servicio_id, current_user)
 
 
@@ -108,9 +121,9 @@ async def estado_en_proxmox(
     """Consulta el estado real del contenedor directamente en Proxmox."""
     from app.services.proxmox_client import get_proxmox_client
 
-    servicio = await db.get(Servicio, servicio_id)
-    if not servicio:
-        raise HTTPException(status_code=404, detail="Servicio no encontrado")
+    servicio = vigente_o_404(
+        await db.get(Servicio, servicio_id), "Servicio no encontrado"
+    )
 
     if current_user.rol != RolUsuario.ADMIN and servicio.catedra_id != current_user.catedra_id:
         raise HTTPException(status_code=403, detail="Sin permisos")

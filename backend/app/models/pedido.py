@@ -1,7 +1,17 @@
 from datetime import datetime
 
-from sqlalchemy import String, Integer, DateTime, ForeignKey, Text, JSON, Enum as SAEnum
+from sqlalchemy import (
+    String,
+    Integer,
+    DateTime,
+    ForeignKey,
+    Index,
+    Text,
+    JSON,
+    Enum as SAEnum,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.sql import text
 import enum
 
 from app.database import Base
@@ -20,6 +30,14 @@ class EstadoPedido(str, enum.Enum):
 
 class Pedido(Base):
     __tablename__ = "pedidos"
+    __table_args__ = (
+        # Índice parcial: los listados solo consultan filas vigentes.
+        Index(
+            "ix_pedidos_vigentes",
+            "deleted_at",
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     catedra_id: Mapped[int] = mapped_column(ForeignKey("catedras.id"), nullable=False)
@@ -39,6 +57,10 @@ class Pedido(Base):
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
     )
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # VMID reservado en el clúster antes de intentar crear el contenedor.
+    # Se persiste para que un reintento pueda reutilizarlo tras un fallo.
+    vmid_reservado: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
     # Relaciones
     catedra: Mapped["Catedra"] = relationship(back_populates="pedidos")

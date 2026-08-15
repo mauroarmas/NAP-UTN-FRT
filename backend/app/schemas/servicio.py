@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel
 
 
@@ -15,7 +17,8 @@ class ServicioResponse(BaseModel):
     ram_asignada_mb: int
     disk_asignado_gb: int
     ip_address: str | None
-    deployed_at: str | None
+    deployed_at: datetime | None
+    deleted_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 

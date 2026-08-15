@@ -94,7 +94,11 @@ async def capturar_todos_los_servicios(db: AsyncSession) -> dict:
     Ideal para llamar periódicamente (ej: cada 60s).
     """
     result = await db.execute(
-        select(Servicio).where(Servicio.estado == EstadoServicio.RUNNING)
+        select(Servicio).where(
+            Servicio.estado == EstadoServicio.RUNNING,
+            # No medir recursos ya liberados
+            Servicio.deleted_at.is_(None),
+        )
     )
     servicios = result.scalars().all()
 
