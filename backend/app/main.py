@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from app.config import get_settings
-from app.routers import auth, catedras, proxmox, pedidos, templates
+from app.routers import auth, catedras, proxmox, pedidos, templates, servicios, usuarios, metricas
 
 settings = get_settings()
 
@@ -45,6 +45,9 @@ app.include_router(catedras.router, prefix="/api/v1")
 app.include_router(proxmox.router, prefix="/api/v1")
 app.include_router(pedidos.router, prefix="/api/v1")
 app.include_router(templates.router, prefix="/api/v1")
+app.include_router(servicios.router, prefix="/api/v1")
+app.include_router(usuarios.router, prefix="/api/v1")
+app.include_router(metricas.router, prefix="/api/v1")
 
 
 @app.get("/")

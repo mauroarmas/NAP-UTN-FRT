@@ -6,7 +6,8 @@ import Pedidos from './pages/Pedidos';
 import Servicios from './pages/Servicios';
 import Catedras from './pages/Catedras';
 import Templates from './pages/Templates';
-import ProxmoxPanel from './pages/ProxmoxPanel';
+import Usuarios from './pages/Usuarios';
+import Metricas from './pages/Metricas';
 import Sidebar from './components/Sidebar';
 import './index.css';
 
@@ -18,12 +19,13 @@ function ProtectedLayout({ user }) {
         <Routes>
           <Route path="/" element={<Dashboard user={user} />} />
           <Route path="/pedidos" element={<Pedidos user={user} />} />
-          <Route path="/servicios" element={<Servicios />} />
+          <Route path="/servicios" element={<Servicios user={user} />} />
+          <Route path="/metricas" element={<Metricas user={user} />} />
           {user?.rol === 'admin' && (
             <>
               <Route path="/catedras" element={<Catedras />} />
               <Route path="/templates" element={<Templates />} />
-              <Route path="/proxmox" element={<ProxmoxPanel />} />
+              <Route path="/usuarios" element={<Usuarios user={user} />} />
             </>
           )}
           <Route path="*" element={<Navigate to="/" replace />} />

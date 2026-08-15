@@ -49,6 +49,20 @@ class ProxmoxClient:
         """Detiene un contenedor LXC."""
         return self.api.nodes(node).lxc(vmid).status.stop.post()
 
+    def reboot_lxc(self, node: str, vmid: int) -> str:
+        """Reinicia un contenedor LXC (apagado + encendido gestionado por Proxmox)."""
+        return self.api.nodes(node).lxc(vmid).status.reboot.post()
+
+    def abrir_termproxy(self, node: str, vmid: int) -> dict:
+        """
+        Pide a Proxmox un ticket de consola para un LXC.
+
+        Devuelve ``{"user": ..., "ticket": ..., "port": ...}``, usado para abrir la
+        conexión WebSocket saliente hacia el ``vncwebsocket`` de Proxmox (ver
+        research.md R2/R3 de la spec 003). El navegador nunca ve esta respuesta.
+        """
+        return self.api.nodes(node).lxc(vmid).termproxy.post()
+
     def delete_lxc(self, node: str, vmid: int) -> str:
         """Elimina un contenedor LXC."""
         return self.api.nodes(node).lxc(vmid).delete()
@@ -82,6 +96,19 @@ class ProxmoxClient:
     def get_cluster_status(self) -> list[dict]:
         """Obtiene el estado general del clúster."""
         return self.api.cluster.status.get()
+
+    def listar_lxc_del_cluster(self) -> list[dict]:
+        """
+        Todos los contenedores LXC del clúster, de todos los nodos, en una llamada.
+
+        `cluster/resources` NO acepta `type=lxc`: su enumeración es
+        `vm, storage, node, sdn` y responde 400 con cualquier otra cosa. Los
+        contenedores llegan dentro de `vm`, cada fila con su propio campo
+        `type` ("lxc" o "qemu"), así que el filtro va acá y no en el parámetro.
+        """
+        return [
+            r for r in self.get_cluster_resources("vm") if r.get("type") == "lxc"
+        ]
 
     # --- Storage ---
 

@@ -28,7 +28,7 @@ async def create_admin():
             username="admin",
             email="admin@utn.frt.edu.ar",
             nombre="Administrador",
-            password_hash=get_password_hash("admin123"),
+            password_hash=get_password_hash("admin"),
             rol=RolUsuario.ADMIN,
             activo=True,
         )
@@ -37,7 +37,7 @@ async def create_admin():
         await session.commit()
         print("✅ Usuario administrador creado:")
         print(f"   Username: admin")
-        print(f"   Password: admin123")
+        print(f"   Password: admin")
         print(f"   Rol: admin")
         print(f"   ⚠️  Cambiá la contraseña en producción!")
 

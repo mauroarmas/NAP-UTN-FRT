@@ -24,6 +24,8 @@ class PedidoResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     resolved_at: datetime | None
+    vmid_reservado: str | None = None
+    deleted_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 

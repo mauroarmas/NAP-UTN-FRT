@@ -1,0 +1,31 @@
+# Overrides de DESARROLLO — Docker Compose lo carga automáticamente
+# junto a docker-compose.yml al ejecutar `docker compose up`.
+#
+# Efecto: el código del host se monta dentro de los contenedores y ambos
+# servicios recargan solos al guardar un archivo (no hace falta reiniciar).
+#
+# Para levantar en modo producción (sin estos overrides):
+#   docker compose -f docker-compose.yml up --build
+
+services:
+  api:
+    volumes:
+      - ./backend/app:/app/app
+      - ./backend/alembic:/app/alembic
+      - ./backend/scripts:/app/scripts
+      - ./backend/alembic.ini:/app/alembic.ini
+    environment:
+      APP_RELOAD: "true"
+
+  frontend:
+    build:
+      target: dev
+    volumes:
+      - ./frontend:/app
+      # Volumen anónimo: conserva los node_modules instalados en la imagen
+      # (alpine/musl) y evita que los del host los pisen.
+      - /app/node_modules
+    environment:
+      VITE_API_URL: http://localhost:8000
+      # Poner en "true" solo si el HMR no detecta cambios
+      VITE_USE_POLLING: "false"

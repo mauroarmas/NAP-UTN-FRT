@@ -47,6 +47,11 @@ export const updateCatedra = (id, data) => api.patch(`/catedras/${id}`, data);
 export const getProxmoxStatus = () => api.get('/proxmox/status');
 export const getProxmoxNodes = () => api.get('/proxmox/nodes');
 export const getProxmoxResources = () => api.get('/proxmox/resources');
+// Espacio por storage. Ojo: no es lo mismo que el disco del nodo (ese es solo
+// su sistema de archivos raíz); los contenedores viven en el storage con
+// contenido rootdir/images.
+export const getProxmoxStorage = () => api.get('/proxmox/storage');
+export const getProxmoxTemplates = (storage = 'local') => api.get('/proxmox/templates', { params: { storage } });
 
 // Pedidos
 export const getPedidos = (estado) => api.get('/pedidos/', { params: estado ? { estado } : {} });
@@ -59,6 +64,33 @@ export const getEstadosPedido = () => api.get('/pedidos/estados');
 export const getTemplates = () => api.get('/templates/');
 export const getTemplate = (id) => api.get(`/templates/${id}`);
 export const createTemplate = (data) => api.post('/templates/', data);
+
+// Servicios / Orquestación
+export const listarServicios = () => api.get('/servicios/');
+export const obtenerServicio = (id) => api.get(`/servicios/${id}`);
+export const desplegarPedido = (pedidoId, data = {}) => api.post(`/servicios/desplegar/${pedidoId}`, data);
+export const iniciarServicio = (id) => api.post(`/servicios/${id}/start`);
+export const detenerServicio = (id) => api.post(`/servicios/${id}/stop`);
+export const reiniciarServicio = (id) => api.post(`/servicios/${id}/restart`);
+export const eliminarServicio = (id) => api.delete(`/servicios/${id}`);
+export const getStatusServicio = (id) => api.get(`/servicios/${id}/status`);
+// URL base de Proxmox, para que el admin abra la consola nativa en otra pestaña.
+export const getBaseConsolaProxmox = () => api.get('/servicios/consola/proxmox-base');
+// Consola embebida — EN PAUSA, sin uso hoy. Ver DUDAS-ENTREVISTA.md.
+export const obtenerTicketConsola = (id) => api.post(`/servicios/${id}/console-ticket`);
+
+// Usuarios
+export const getUsuarios = () => api.get('/usuarios/');
+export const createUsuario = (data) => api.post('/usuarios/', data);
+export const updateUsuario = (id, data) => api.patch(`/usuarios/${id}`, data);
+export const deleteUsuario = (id) => api.delete(`/usuarios/${id}`);
+
+// Métricas
+export const getResumenMetricas = () => api.get('/metricas/resumen');
+export const capturarMetricas = () => api.post('/metricas/capturar');
+export const capturarServicio = (id) => api.post(`/metricas/capturar/${id}`);
+export const getHistorialMetricas = (id, limit = 60) => api.get(`/metricas/${id}/historial`, { params: { limit } });
+export const getUltimoSnapshot = (id) => api.get(`/metricas/${id}/ultimo`);
 
 // Health
 export const healthCheck = () => api.get('/health');
