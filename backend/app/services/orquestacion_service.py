@@ -9,17 +9,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from fastapi import HTTPException
 
-from app.models.pedido import Pedido, PedidoHistorial, EstadoPedido
+from app.models.pedido import Pedido, PedidoHistorial, EstadoPedido, TipoPedido
 from app.models.servicio import Servicio, EstadoServicio
 from app.models.recurso_template import RecursoTemplate, TipoRecurso
 from app.models.usuario import Usuario, RolUsuario
-from app.schemas.servicio import ConsolaTicketResponse
-from app.services.proxmox_client import get_proxmox_client
+from app.services.proxmox_client import (
+    TASK_TIMEOUT_ACCION_SEGUNDOS,
+    get_proxmox_client,
+)
+from app.services import historial_service
+from app.services.acceso_service import es_visible
+from app.services.vencimiento_service import vencimiento_por_defecto
 from app.services.pedido_service import cambiar_estado
 
 logger = logging.getLogger(__name__)
 
-TICKET_CONSOLA_TTL_SEGUNDOS = 30
 
 # Traducción del `status` que reporta Proxmox al estado que persiste el portal.
 # Lo que Proxmox no sepa clasificar no se mapea: preferimos no tocar el registro
@@ -31,13 +35,11 @@ _ESTADO_POR_STATUS_PROXMOX = {
     "suspended": EstadoServicio.PAUSED,
 }
 
-# Tickets de consola propios del portal: de un solo uso, corta vida, en memoria del
-# proceso (no se persisten — ver data-model.md de la spec 003). ticket -> datos de
-# conexión hacia Proxmox necesarios para el proxy de WebSocket.
-_tickets_consola: dict[str, dict] = {}
 
 
-def requiere_propio_o_admin(servicio: Servicio, usuario: Usuario) -> None:
+async def requiere_propio_o_admin(
+    db: AsyncSession, servicio: Servicio, usuario: Usuario
+) -> None:
     """
     Autorización de servicios: admin pasa siempre; cátedra solo sobre lo suyo.
 
@@ -45,8 +47,14 @@ def requiere_propio_o_admin(servicio: Servicio, usuario: Usuario) -> None:
     lectura (``obtener_servicio``, ``estado_en_proxmox``) y que las acciones
     de apagar/encender/reiniciar/consola multiplicarían si se siguiera
     duplicando.
+
+    "Lo suyo" pasó de ser una cátedra a ser un conjunto: una persona puede
+    tener varias. La pertenencia se resuelve en ``acceso_service``, que es la
+    única fuente de esa respuesta.
     """
-    if usuario.rol != RolUsuario.ADMIN and servicio.catedra_id != usuario.catedra_id:
+    if usuario.rol == RolUsuario.ADMIN:
+        return
+    if not await es_visible(db, usuario, servicio.catedra_id):
         raise HTTPException(status_code=403, detail="Sin permisos")
 
 
@@ -76,6 +84,31 @@ def _estados_reales_del_cluster() -> dict[int, EstadoServicio] | None:
     return estados
 
 
+def _estado_confirmado(vmid: int, node: str) -> EstadoServicio | None:
+    """Estado autoritativo de un contenedor, preguntado al nodo que lo hospeda.
+
+    `cluster/resources` no es un espejo instantáneo: es un resumen que pvestatd
+    refresca cada ~10 s, así que un contenedor recién encendido sigue figurando
+    ahí como detenido durante varios segundos. Reconciliar contra ese resumen
+    deshacía la acción que el portal acababa de confirmar —la fila volvía a
+    "Detenido" un segundo después de encender, y el botón parecía no haber hecho
+    nada— así que cualquier desacuerdo se contrasta con el estado del propio
+    nodo, que sí responde el estado del momento.
+
+    Solo se consulta cuando hay desacuerdo: en régimen normal el resumen alcanza
+    y esto no cuesta ninguna llamada extra.
+
+    Devuelve ``None`` si no se pudo confirmar; en ese caso no se toca el
+    registro, porque un resumen atrasado no es motivo para contradecirlo.
+    """
+    try:
+        status = get_proxmox_client().get_lxc_status(node, vmid).get("status")
+    except Exception as exc:
+        logger.warning(f"No se pudo confirmar el estado del VMID {vmid}: {exc}")
+        return None
+    return _ESTADO_POR_STATUS_PROXMOX.get(status)
+
+
 def _existe_en_el_cluster(pve, vmid: int) -> bool | None:
     """
     ¿El contenedor sigue existiendo en el clúster? ``None`` si no se pudo saber.
@@ -90,6 +123,25 @@ def _existe_en_el_cluster(pve, vmid: int) -> bool | None:
     except Exception as exc:
         logger.warning(f"No se pudo verificar si el VMID {vmid} sigue en el clúster: {exc}")
         return None
+
+
+async def esperar_accion(pve, node: str, task_id: str) -> None:
+    """Espera a que una acción de ciclo de vida termine realmente en Proxmox.
+
+    `start`/`stop`/`reboot` devuelven un identificador de tarea y vuelven al
+    instante, mucho antes de que el contenedor haya cambiado de estado. Sin esta
+    espera el portal respondía "running" sobre un contenedor que todavía estaba
+    arrancando, y el refresco siguiente —que sí consulta el clúster— lo mostraba
+    de nuevo detenido: el botón parecía no haber hecho nada. Esperar acá hace
+    que la respuesta describa el estado real (Principio II) y que un fallo
+    dentro de la tarea llegue como error en vez de perderse.
+
+    Corre en un hilo aparte: `esperar_task` hace polling bloqueante y en el
+    event loop congelaría al resto de las peticiones mientras dura.
+    """
+    await asyncio.to_thread(
+        pve.esperar_task, node, task_id, TASK_TIMEOUT_ACCION_SEGUNDOS
+    )
 
 
 async def sincronizar_estados(
@@ -131,13 +183,40 @@ async def sincronizar_estados(
         desconocido = reales is None or not servicio.proxmox_vmid
         servicio.existe_en_proxmox = None if desconocido else real is not None
 
-        if real is not None and servicio.estado != real:
-            logger.info(
-                f"Servicio {servicio.id} (VMID={servicio.proxmox_vmid}): estado "
-                f"registrado {servicio.estado.value} → real {real.value}"
-            )
-            servicio.estado = real
-            cambios += 1
+        if real is None or servicio.estado == real:
+            continue
+
+        # El resumen del clúster contradice al registro: antes de darle la
+        # razón hay que preguntarle al nodo, porque el desfase más frecuente no
+        # es el del portal sino el del propio resumen (ver `_estado_confirmado`).
+        real = _estado_confirmado(int(servicio.proxmox_vmid), servicio.proxmox_node)
+        servicio.estado_sincronizado = real is not None
+        if real is None or servicio.estado == real:
+            continue
+
+        # Una pausa del portal se ejecuta deteniendo el contenedor, así que
+        # Proxmox lo reporta como "stopped" — igual que si lo hubiera apagado la
+        # cátedra. Sin esta excepción, la sincronización borraría la marca de
+        # pausa en la primera consulta y se perdería la distinción entre "lo
+        # apagué yo" y "me lo pausó el sistema", que es justamente lo que la
+        # cátedra necesita saber. La distinción vive en el portal porque en
+        # Proxmox no existe.
+        if servicio.pausado_auto_at is not None and real == EstadoServicio.STOPPED:
+            continue
+
+        # Si en cambio el contenedor volvió a arrancar (alguien lo encendió
+        # desde Proxmox), la pausa dejó de ser cierta y la marca se limpia.
+        if servicio.pausado_auto_at is not None and real == EstadoServicio.RUNNING:
+            servicio.pausado_auto_at = None
+            servicio.pausa_programada_at = None
+            servicio.aviso_pausa_at = None
+
+        logger.info(
+            f"Servicio {servicio.id} (VMID={servicio.proxmox_vmid}): estado "
+            f"registrado {servicio.estado.value} → real {real.value}"
+        )
+        servicio.estado = real
+        cambios += 1
 
     if cambios:
         await db.commit()
@@ -160,19 +239,30 @@ def _construir_config_lxc(
     vmid: int,
     hostname: str,
     template: RecursoTemplate,
+    pedido: Pedido,
     node: str,
     storage: str = "local-lvm",
 ) -> dict:
     """
     Construye los parámetros de creación del LXC para la API de Proxmox.
-    Los valores base vienen del template; config_extra puede sobreescribir.
+
+    Los recursos (cores, memoria, disco) salen de lo que el pedido **reservó al
+    aprobarse**, no de los valores actuales del template. La plantilla aporta el
+    resto: la imagen del sistema operativo y los overrides de `config_extra`.
+
+    El motivo es la correspondencia entre lo aprobado y lo entregado (FR-018):
+    aprobar compromete capacidad y guarda esos tres números en el pedido. Si acá
+    se leyera el template, editarlo entre la aprobación y el despliegue haría que
+    el contenedor naciera con recursos que nadie aprobó, sobrecomprometiendo el
+    clúster sin dejar rastro. La reserva es el contrato; el template solo define
+    el punto de partida en el momento de pedir.
     """
     config = {
         "vmid": vmid,
         "hostname": hostname,
-        "cores": template.default_vcpus,
-        "memory": template.default_ram_mb,
-        "rootfs": f"{storage}:{template.default_disk_gb}",
+        "cores": pedido.reserva_vcpus,
+        "memory": pedido.reserva_ram_mb,
+        "rootfs": f"{storage}:{pedido.reserva_disk_gb}",
         "net0": "name=eth0,bridge=vmbr0,ip=dhcp",
         "start": 1,          # arranca automáticamente al crear
         "unprivileged": 1,   # contenedor sin privilegios (más seguro)
@@ -288,15 +378,22 @@ async def _ejecutar_despliegue(
                 # Elegir el nodo con menos carga de CPU
                 node = min(online, key=lambda n: n.get("cpu", 1))["node"]
 
-            config = _construir_config_lxc(vmid, hostname, template, node, storage)
+            config = _construir_config_lxc(
+                vmid, hostname, template, pedido, node, storage
+            )
 
             logger.info(
                 f"Desplegando LXC: VMID={vmid}, hostname={hostname}, node={node}, "
                 f"template={template.nombre}"
             )
 
-            # Crear el LXC (síncrono con proxmoxer; Proxmox devuelve un task ID)
+            # Proxmox devuelve un identificador de tarea y vuelve enseguida: la
+            # creación real ocurre después. Hay que esperarla, o un fallo dentro
+            # de la tarea (plantilla inexistente, disco lleno, VMID en conflicto)
+            # pasaría inadvertido y el portal registraría como desplegado un
+            # contenedor que nunca existió.
             task_id = pve.create_lxc(node, **config)
+            pve.esperar_task(node, task_id)
 
             logger.info(f"LXC creado en Proxmox. Task: {task_id}, VMID: {vmid}")
 
@@ -311,6 +408,7 @@ async def _ejecutar_despliegue(
             nuevo_estado_str=EstadoPedido.ERROR.value,
             usuario=admin,
             comentario=f"Error Proxmox: {error_msg[:200]}",
+            origen_sistema=True,
         )
 
         raise HTTPException(
@@ -328,10 +426,17 @@ async def _ejecutar_despliegue(
         tipo=template.tipo.value,
         estado=EstadoServicio.RUNNING,
         hostname=hostname,
-        vcpus_asignados=template.default_vcpus,
-        ram_asignada_mb=template.default_ram_mb,
-        disk_asignado_gb=template.default_disk_gb,
+        # Lo reservado, lo desplegado y lo registrado tienen que coincidir
+        # siempre (FR-018): si acá se guardara el template, el consumo que el
+        # portal contabiliza dejaría de ser el que el clúster tiene de verdad.
+        vcpus_asignados=pedido.reserva_vcpus,
+        ram_asignada_mb=pedido.reserva_ram_mb,
+        disk_asignado_gb=pedido.reserva_disk_gb,
         deployed_at=datetime.utcnow(),
+        # Todo servicio nace con fecha de fin conocida. Es la vía determinista
+        # de recuperación de capacidad: no depende de medir nada, y la cátedra
+        # sabe desde el primer día hasta cuándo lo tiene.
+        vence_at=vencimiento_por_defecto(),
     )
     db.add(servicio)
     await db.flush()
@@ -346,6 +451,7 @@ async def _ejecutar_despliegue(
         comentario=(
             f"Contenedor {detalle}: VMID={vmid}, nodo={node}, hostname={hostname}"
         ),
+        origen_sistema=True,
     )
 
     await db.commit()
@@ -380,15 +486,87 @@ async def desplegar_pedido(
             detail=f"Solo se pueden desplegar pedidos APROBADOS. Estado actual: {pedido.estado.value}",
         )
 
+    # Un alta y una renovación atraviesan la misma máquina de estados, pero la
+    # transición a ACTIVO la concreta un ejecutor distinto: una crea un
+    # contenedor, la otra solo corre la fecha de fin de uno que ya existe.
+    # Reutilizar el circuito es lo que hace que "renovar es pedirlo de nuevo"
+    # sea literal y no una copia parecida.
+    es_renovacion = pedido.tipo == TipoPedido.RENOVACION
+    comentario = (
+        "Aplicando renovación" if es_renovacion else "Iniciando despliegue en Proxmox VE"
+    )
+
     await cambiar_estado(
         db=db,
         pedido_id=pedido_id,
         nuevo_estado_str=EstadoPedido.EN_DESPLIEGUE.value,
         usuario=admin,
-        comentario="Iniciando despliegue en Proxmox VE",
+        comentario=comentario,
+        origen_sistema=True,
     )
 
+    if es_renovacion:
+        return await _ejecutar_renovacion(db, pedido, admin)
+
     return await _ejecutar_despliegue(db, pedido, admin, node, storage)
+
+
+async def _ejecutar_renovacion(
+    db: AsyncSession, pedido: Pedido, admin: Usuario
+) -> Servicio:
+    """Corre la fecha de vencimiento del servicio. No toca Proxmox.
+
+    El servicio conserva su id, sus datos y su contenedor: renovar no recrea
+    nada. Si lo recreara, la cátedra perdería todo lo que tenía adentro cada vez
+    que le extienden el plazo.
+    """
+    servicio = await db.get(Servicio, pedido.servicio_id) if pedido.servicio_id else None
+    if servicio is None or servicio.deleted_at is not None:
+        await cambiar_estado(
+            db=db,
+            pedido_id=pedido.id,
+            nuevo_estado_str=EstadoPedido.ERROR.value,
+            usuario=admin,
+            comentario="El servicio a renovar ya no existe",
+            origen_sistema=True,
+        )
+        raise HTTPException(
+            status_code=409, detail="El servicio a renovar ya no existe"
+        )
+
+    anterior = servicio.vence_at
+    # Se extiende desde hoy, no desde el vencimiento viejo: una renovación
+    # aprobada tarde no debería valer menos que una aprobada a tiempo.
+    servicio.vence_at = vencimiento_por_defecto()
+    servicio.aviso_vencimiento_at = None
+
+    db.add(
+        historial_service.registrar_servicio(
+            servicio.id,
+            servicio.estado.value,
+            servicio.estado.value,
+            comentario=(
+                f"Renovado: vencía el {anterior:%Y-%m-%d}, "
+                f"ahora vence el {servicio.vence_at:%Y-%m-%d}"
+                if anterior
+                else f"Renovado: vence el {servicio.vence_at:%Y-%m-%d}"
+            ),
+            usuario=admin,
+        )
+    )
+    await db.commit()
+
+    await cambiar_estado(
+        db=db,
+        pedido_id=pedido.id,
+        nuevo_estado_str=EstadoPedido.ACTIVO.value,
+        usuario=admin,
+        comentario=f"Renovación aplicada hasta el {servicio.vence_at:%Y-%m-%d}",
+        origen_sistema=True,
+    )
+
+    await db.refresh(servicio)
+    return servicio
 
 
 async def reintentar_despliegue(
@@ -427,6 +605,7 @@ async def reintentar_despliegue(
         nuevo_estado_str=EstadoPedido.EN_DESPLIEGUE.value,
         usuario=admin,
         comentario="Reintentando despliegue en Proxmox VE",
+        origen_sistema=True,
     )
 
     return await _ejecutar_despliegue(db, pedido, admin, node, storage)
@@ -442,7 +621,7 @@ async def detener_servicio(
     if not servicio or servicio.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Servicio no encontrado")
 
-    requiere_propio_o_admin(servicio, usuario)
+    await requiere_propio_o_admin(db, servicio, usuario)
 
     # Contra el estado real, no contra el que quedó guardado: si el contenedor
     # ya está apagado en Proxmox, el 409 dice la verdad.
@@ -457,7 +636,7 @@ async def detener_servicio(
     pve = get_proxmox_client()
     try:
         vmid = int(servicio.proxmox_vmid)
-        pve.stop_lxc(servicio.proxmox_node, vmid)
+        await esperar_accion(pve, servicio.proxmox_node, pve.stop_lxc(servicio.proxmox_node, vmid))
         servicio.estado = EstadoServicio.STOPPED
         servicio.estado_sincronizado = True
         await db.commit()
@@ -487,7 +666,7 @@ async def iniciar_servicio(
     if not servicio or servicio.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Servicio no encontrado")
 
-    requiere_propio_o_admin(servicio, usuario)
+    await requiere_propio_o_admin(db, servicio, usuario)
 
     await sincronizar_estado(db, servicio)
 
@@ -500,7 +679,7 @@ async def iniciar_servicio(
     pve = get_proxmox_client()
     try:
         vmid = int(servicio.proxmox_vmid)
-        pve.start_lxc(servicio.proxmox_node, vmid)
+        await esperar_accion(pve, servicio.proxmox_node, pve.start_lxc(servicio.proxmox_node, vmid))
         servicio.estado = EstadoServicio.RUNNING
         servicio.estado_sincronizado = True
         await db.commit()
@@ -522,7 +701,7 @@ async def reiniciar_servicio(
     if not servicio or servicio.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Servicio no encontrado")
 
-    requiere_propio_o_admin(servicio, usuario)
+    await requiere_propio_o_admin(db, servicio, usuario)
 
     await sincronizar_estado(db, servicio)
 
@@ -535,7 +714,7 @@ async def reiniciar_servicio(
     pve = get_proxmox_client()
     try:
         vmid = int(servicio.proxmox_vmid)
-        pve.reboot_lxc(servicio.proxmox_node, vmid)
+        await esperar_accion(pve, servicio.proxmox_node, pve.reboot_lxc(servicio.proxmox_node, vmid))
         # El servicio sigue RUNNING antes y después: el reinicio lo gestiona
         # Proxmox internamente, no hay estado intermedio que persistir.
         logger.info(f"Servicio {servicio_id} reiniciado (VMID={vmid})")
@@ -545,63 +724,6 @@ async def reiniciar_servicio(
     return servicio
 
 
-async def emitir_ticket_consola(
-    db: AsyncSession,
-    servicio_id: int,
-    usuario: Usuario,
-) -> ConsolaTicketResponse:
-    """
-    Emite un ticket de consola propio del portal para un servicio en ejecución.
-
-    Deliberadamente NO llama todavía a Proxmox (``abrir_termproxy``): ese ticket de
-    Proxmox está atado a un puerto que su lado solo mantiene abierto un rato corto
-    esperando una conexión, así que pedirlo acá y usarlo recién cuando el navegador
-    complete el round-trip de abrir el WebSocket puede llegar tarde. En cambio, este
-    ticket propio solo guarda node/vmid; la llamada a Proxmox se hace recién en la
-    ruta WebSocket, inmediatamente antes de conectar (ver research.md R2-R4 de la
-    spec 003).
-    """
-    servicio = await db.get(Servicio, servicio_id)
-    if not servicio or servicio.deleted_at is not None:
-        raise HTTPException(status_code=404, detail="Servicio no encontrado")
-
-    requiere_propio_o_admin(servicio, usuario)
-
-    if servicio.estado != EstadoServicio.RUNNING:
-        raise HTTPException(
-            status_code=409,
-            detail=f"El servicio debe estar en ejecución para abrir la consola (estado: {servicio.estado.value})",
-        )
-
-    ticket = secrets.token_urlsafe(32)
-    _tickets_consola[ticket] = {
-        "servicio_id": servicio_id,
-        "usuario_id": usuario.id,
-        "node": servicio.proxmox_node,
-        "vmid": int(servicio.proxmox_vmid),
-        "expira_at": datetime.utcnow() + timedelta(seconds=TICKET_CONSOLA_TTL_SEGUNDOS),
-    }
-    logger.info(f"Ticket de consola emitido para servicio {servicio_id} (usuario={usuario.id})")
-
-    return ConsolaTicketResponse(ticket=ticket, expira_en_segundos=TICKET_CONSOLA_TTL_SEGUNDOS)
-
-
-def consumir_ticket_consola(servicio_id: int, ticket: str) -> dict | None:
-    """
-    Valida y consume un ticket de consola: un solo uso, no vencido, del servicio pedido.
-
-    Devuelve ``{"node": ..., "vmid": ...}`` si es válido, o ``None`` si no (ticket
-    inexistente, vencido, ya usado, o de otro servicio) — la ruta WebSocket cierra
-    la conexión inmediatamente en ese caso.
-    """
-    datos = _tickets_consola.pop(ticket, None)
-    if datos is None:
-        return None
-    if datos["servicio_id"] != servicio_id:
-        return None
-    if datos["expira_at"] < datetime.utcnow():
-        return None
-    return datos
 
 
 async def eliminar_servicio(
@@ -636,14 +758,17 @@ async def eliminar_servicio(
         vmid = int(servicio.proxmox_vmid)
         node = servicio.proxmox_node
         try:
-            # Detener primero si está corriendo
+            # Detener primero si está corriendo: Proxmox se niega a destruir un
+            # contenedor vivo. Hay que **esperar la tarea** de apagado, no dormir
+            # un rato y confiar: el apagado es asíncrono como todo en Proxmox, y
+            # una pausa fija falla en cuanto el clúster está cargado (visto en la
+            # validación T041 del 2026-08-30: "unable to destroy CT - container
+            # is running", con el stop ya enviado).
             status = pve.get_lxc_status(node, vmid)
             if status.get("status") == "running":
-                pve.stop_lxc(node, vmid)
-                # Pequeña pausa para que Proxmox procese el stop
-                await asyncio.sleep(2)
+                pve.esperar_task(node, pve.stop_lxc(node, vmid))
 
-            pve.delete_lxc(node, vmid)
+            pve.esperar_task(node, pve.delete_lxc(node, vmid))
             logger.info(f"Servicio {servicio_id} eliminado de Proxmox (VMID={vmid})")
 
         except Exception as exc:

@@ -26,6 +26,6 @@ services:
       # (alpine/musl) y evita que los del host los pisen.
       - /app/node_modules
     environment:
-      VITE_API_URL: http://localhost:8000
+      VITE_API_URL: http://localhost:8001
       # Poner en "true" solo si el HMR no detecta cambios
       VITE_USE_POLLING: "false"

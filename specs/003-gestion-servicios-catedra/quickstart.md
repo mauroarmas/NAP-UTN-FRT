@@ -47,33 +47,39 @@ cobertura formal de US3 (consola), declarada así en el Constitution Check.
 
 **Resultado esperado**: cumple FR-002, SC-002.
 
-## Escenario 5 — Abrir la consola de un servicio propio (US3)
+## Escenario 5 — Abrir la consola de un servicio propio (US3, alcance v3.0.0)
 
-1. Sobre un servicio propio en ejecución, elegir "Consola".
-2. Verificar que se abre una terminal interactiva dentro del portal (sin salir de la pestaña, sin
-   ninguna URL visible hacia Proxmox).
-3. Escribir un comando simple (por ejemplo `whoami` o `ls`) y verificar que aparece su resultado.
-4. Cronometrar desde el clic en "Consola" hasta ver el resultado del comando: debe ser menor a 15
-   segundos.
+> **Redefinido el 2026-08-30.** Estos escenarios medían una terminal embebida en el portal, que
+> resultó no ser implementable: Proxmox no acepta API tokens para el WebSocket de consola. El
+> acceso se resuelve derivando a la consola de Proxmox, y esa derivación es la única excepción
+> nombrada al Principio I de la constitución.
 
-**Resultado esperado**: cumple FR-003, FR-004, SC-003, SC-005.
+1. Con una cuenta de **cátedra**, sobre un servicio propio en ejecución, verificar que aparece la
+   acción de consola.
+2. Verificar que el destino es la consola del **contenedor concreto** —su VMID y su nodo—, no un
+   panel de gestión de Proxmox.
+3. Verificar que el portal no ofrece la acción sobre servicios de otras cátedras (no aparecen
+   siquiera en el listado).
 
-## Escenario 6 — Cerrar la consola al navegar (US3, FR-009)
+**Resultado esperado**: cumple FR-003 y FR-004 con el alcance vigente. La sesión del otro lado la
+resuelve Proxmox contra la identidad de la persona, delimitada a su pool.
 
-1. Con la consola abierta del Escenario 5, navegar a otra pantalla del portal (por ejemplo,
-   Dashboard).
-2. Volver a Servicios y reabrir la consola del mismo servicio.
-3. Verificar que se trata de una sesión nueva (no una reconexión automática a la anterior).
+## Escenario 6 — La derivación no ensancha la excepción (US3, Principio I)
 
-**Resultado esperado**: cumple FR-009.
+1. Recorrer la pantalla de Servicios con una cuenta de cátedra.
+2. Verificar que **ninguna otra acción** sale del portal: apagar, encender, reiniciar, renovar y
+   consultar estado siguen resolviéndose dentro.
+3. Verificar que no hay enlaces hacia paneles, listados ni pantallas de gestión de Proxmox.
+
+**Resultado esperado**: la excepción se limita a la sesión interactiva, como exige el Principio I
+enmendado.
 
 ## Escenario 7 — Consola sobre un servicio detenido (US3, edge case)
 
-1. Sobre un servicio propio detenido, intentar abrir "Consola".
-2. Verificar que el sistema explica que el servicio debe estar en ejecución, sin ofrecer un acceso
-   que no puede funcionar.
+1. Sobre un servicio propio detenido, verificar que la acción de consola **no se ofrece**.
+2. Verificar que el servicio sí ofrece "Iniciar", que es la acción que corresponde.
 
-**Resultado esperado**: cumple FR-008.
+**Resultado esperado**: no se ofrece un acceso que no puede funcionar (FR-008).
 
 ## Escenario 8 — Aislamiento entre cátedras (FR-005, SC-004)
 
@@ -92,3 +98,28 @@ cobertura formal de US3 (consola), declarada así en el Constitution Check.
    cátedra (no solo la propia), tal como ya podía con apagar/encender antes de esta feature.
 
 **Resultado esperado**: cumple FR-006.
+
+
+---
+
+## Estado de la validación de US3 (2026-08-30)
+
+Ejecutada con Playwright sobre el frontend real, con cuenta de **cátedra**, contra el clúster
+Proxmox VE 9.2.2. Tres servicios: dos en ejecución y uno detenido.
+
+| Verificación | Resultado |
+|---|---|
+| La cátedra ve la acción de consola en sus servicios en ejecución | ✅ 2 de 2 |
+| El destino apunta al contenedor concreto (`vmid` + `node`), no a un panel | ✅ `?console=lxc&vmid=102&node=proxmox` |
+| El servicio detenido **no** ofrece consola, y sí ofrece "Iniciar" | ✅ |
+| Ningún otro enlace sale del portal | ✅ los 2 únicos externos son de consola |
+| `GET /servicios/consola/proxmox-base` con rol cátedra | ✅ 200 (antes 403) |
+| `POST /servicios/{id}/console-ticket` | ✅ 404 — la consola embebida se retiró entera |
+
+**Lo que se retiró**: `ConsolaServicio.jsx`, el relay de WebSocket, el endpoint de ticket, el
+emisor y consumidor de tickets en el servicio de orquestación, el schema `ConsolaTicketResponse`
+y las dependencias `@xterm/xterm` y `@xterm/addon-fit`. No quedó superficie muerta.
+
+**Lo que sigue sosteniendo el portal**: la pertenencia del servicio. Un servicio de otra cátedra no
+se lista ni se resuelve por id, así que el enlace nunca se ofrece. La excepción del Principio I
+cubre la sesión interactiva, no el aislamiento.

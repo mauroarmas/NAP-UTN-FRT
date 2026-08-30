@@ -3,33 +3,37 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Pedidos from './pages/Pedidos';
+import Catalogo from './pages/Catalogo';
 import Servicios from './pages/Servicios';
 import Catedras from './pages/Catedras';
 import Templates from './pages/Templates';
 import Usuarios from './pages/Usuarios';
 import Metricas from './pages/Metricas';
-import Sidebar from './components/Sidebar';
+import TopNav from './components/TopNav';
 import './index.css';
 
 function ProtectedLayout({ user }) {
   return (
-    <div className="app-layout">
-      <Sidebar user={user} />
-      <main className="main-content">
-        <Routes>
-          <Route path="/" element={<Dashboard user={user} />} />
-          <Route path="/pedidos" element={<Pedidos user={user} />} />
-          <Route path="/servicios" element={<Servicios user={user} />} />
-          <Route path="/metricas" element={<Metricas user={user} />} />
-          {user?.rol === 'admin' && (
-            <>
-              <Route path="/catedras" element={<Catedras />} />
-              <Route path="/templates" element={<Templates />} />
-              <Route path="/usuarios" element={<Usuarios user={user} />} />
-            </>
-          )}
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+    <div className="app-shell">
+      <TopNav user={user} />
+      <main className="app-main">
+        <div className="app-main-inner">
+          <Routes>
+            <Route path="/" element={<Dashboard user={user} />} />
+            <Route path="/pedidos" element={<Pedidos user={user} />} />
+            <Route path="/catalogo" element={<Catalogo user={user} />} />
+            <Route path="/servicios" element={<Servicios user={user} />} />
+            <Route path="/metricas" element={<Metricas user={user} />} />
+            {user?.rol === 'admin' && (
+              <>
+                <Route path="/catedras" element={<Catedras />} />
+                <Route path="/templates" element={<Templates />} />
+                <Route path="/usuarios" element={<Usuarios user={user} />} />
+              </>
+            )}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </div>
       </main>
     </div>
   );
@@ -55,15 +59,11 @@ export default function App() {
       <Routes>
         <Route
           path="/login"
-          element={
-            user ? <Navigate to="/" replace /> : <Login onLogin={setUser} />
-          }
+          element={user ? <Navigate to="/" replace /> : <Login onLogin={setUser} />}
         />
         <Route
           path="/*"
-          element={
-            user ? <ProtectedLayout user={user} /> : <Navigate to="/login" replace />
-          }
+          element={user ? <ProtectedLayout user={user} /> : <Navigate to="/login" replace />}
         />
       </Routes>
     </BrowserRouter>

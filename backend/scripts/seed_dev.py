@@ -1,11 +1,15 @@
 """
 Seed: crea datos de prueba para el entorno de desarrollo.
-Crea usuario solicitante + lo asigna a la cátedra existente.
+
+Crea un usuario de cátedra y le asigna la titularidad de una cátedra.
+
+La relación se invirtió: antes el usuario apuntaba a su (única) cátedra, ahora
+la cátedra apunta a su titular. Por eso hay que crear la persona primero y
+después colgarle la cátedra, no al revés.
 
 Uso:
     cd backend
-    source venv/bin/activate
-    python scripts/seed_dev.py
+    ./venv/bin/python scripts/seed_dev.py
 """
 import asyncio
 import sys
@@ -22,31 +26,13 @@ from app.utils.security import get_password_hash
 
 async def seed():
     async with AsyncSessionLocal() as session:
-
-        # Verificar que existe al menos una cátedra, si no, crear una por defecto
-        result = await session.execute(select(Catedra))
-        catedra = result.scalars().first()
-        if not catedra:
-            catedra = Catedra(
-                nombre="Cátedra de Prueba",
-                descripcion="Cátedra creada automáticamente por el seed de desarrollo",
-                cuota_vcpus=4,
-                cuota_ram_mb=4096,
-                cuota_storage_gb=40,
-                activa=True,
-            )
-            session.add(catedra)
-            await session.commit()
-            await session.refresh(catedra)
-            print(f"✅ Cátedra creada: [{catedra.id}] {catedra.nombre}")
-        else:
-            print(f"✅ Usando cátedra: [{catedra.id}] {catedra.nombre}")
-
-        # Crear usuario cátedra si no existe
+        # --- Usuario de cátedra ---
         result = await session.execute(
             select(Usuario).where(Usuario.username == "catedra")
         )
-        if result.scalar_one_or_none():
+        catedra_user = result.scalar_one_or_none()
+
+        if catedra_user:
             print("⚠️  El usuario 'catedra' ya existe.")
         else:
             catedra_user = Usuario(
@@ -55,28 +41,50 @@ async def seed():
                 nombre="Usuario Cátedra",
                 password_hash=get_password_hash("catedra"),
                 rol=RolUsuario.CATEDRA_ADMIN,
-                catedra_id=catedra.id,
                 activo=True,
             )
             session.add(catedra_user)
             await session.commit()
-            print("✅ Usuario cátedra creado:")
-            print(f"   Username : catedra")
-            print(f"   Password : catedra")
-            print(f"   Rol      : catedra_admin")
-            print(f"   Cátedra  : [{catedra.id}] {catedra.nombre}")
+            await session.refresh(catedra_user)
+            print("✅ Usuario cátedra creado (catedra / catedra)")
 
-        # Asegurarse de que admin también tiene cátedra asignada
+        # --- Cátedra a su nombre ---
+        result = await session.execute(
+            select(Catedra).where(Catedra.titular_id == catedra_user.id)
+        )
+        propia = result.scalars().first()
+
+        if propia:
+            print(f"✅ Ya es titular de: [{propia.id}] {propia.nombre}")
+        else:
+            # Se reutiliza una cátedra sin responsable si la hay; si no, se crea.
+            result = await session.execute(
+                select(Catedra).where(Catedra.titular_id.is_(None))
+            )
+            libre = result.scalars().first()
+
+            if libre:
+                libre.titular_id = catedra_user.id
+                await session.commit()
+                print(f"✅ Cátedra [{libre.id}] {libre.nombre} asignada a 'catedra'")
+            else:
+                nueva = Catedra(
+                    nombre="Cátedra de Prueba",
+                    descripcion="Creada automáticamente por el seed de desarrollo",
+                    titular_id=catedra_user.id,
+                    activa=True,
+                )
+                session.add(nueva)
+                await session.commit()
+                await session.refresh(nueva)
+                print(f"✅ Cátedra creada: [{nueva.id}] {nueva.nombre}")
+
+        # El administrador no necesita cátedras: su alcance es el sistema entero.
         result = await session.execute(
             select(Usuario).where(Usuario.username == "admin")
         )
-        admin = result.scalar_one_or_none()
-        if admin and not admin.catedra_id:
-            admin.catedra_id = catedra.id
-            await session.commit()
-            print(f"✅ Admin asignado a cátedra [{catedra.id}]")
-        elif admin:
-            print(f"✅ Admin ya tiene cátedra [{admin.catedra_id}]")
+        if result.scalar_one_or_none():
+            print("✅ Administrador presente (no requiere cátedra asignada)")
 
         print("\n🎉 Seed completado. Podés iniciar sesión con:")
         print("   admin / admin         → Administrador")

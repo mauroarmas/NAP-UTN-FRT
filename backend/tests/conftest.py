@@ -1,5 +1,7 @@
 """Fixtures compartidas: base en memoria, cliente HTTP y doble de Proxmox."""
 
+from types import SimpleNamespace
+
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -83,19 +85,68 @@ def proxmox(monkeypatch) -> FakeProxmoxClient:
 
 
 @pytest_asyncio.fixture
-async def catedra(db) -> Catedra:
-    return await factories.crear_catedra(db)
-
-
-@pytest_asyncio.fixture
 async def admin(db) -> Usuario:
     return await factories.crear_usuario(db, "admin", rol=RolUsuario.ADMIN)
 
 
 @pytest_asyncio.fixture
-async def usuario_catedra(db, catedra) -> Usuario:
-    return await factories.crear_usuario(
-        db, "profe", rol=RolUsuario.CATEDRA_ADMIN, catedra_id=catedra.id
+async def usuario_catedra(db) -> Usuario:
+    """Responsable de cátedra. La cátedra se le cuelga en el fixture `catedra`."""
+    return await factories.crear_usuario(db, "profe", rol=RolUsuario.CATEDRA_ADMIN)
+
+
+@pytest_asyncio.fixture
+async def catedra(db, usuario_catedra) -> Catedra:
+    """Cátedra cuyo titular es `usuario_catedra`.
+
+    El orden se invirtió respecto del modelo anterior: antes el usuario apuntaba
+    a su cátedra, ahora la cátedra apunta a su titular, así que hay que crear a
+    la persona primero.
+    """
+    return await factories.crear_catedra(db, titular_id=usuario_catedra.id)
+
+
+@pytest_asyncio.fixture
+async def usuario_multicatedra(db):
+    """Persona con dos cátedras propias, más una tercera cátedra ajena poblada.
+
+    Es el escenario base de las pruebas de aislamiento: sin una cátedra ajena
+    con datos reales, un filtro roto pasa desapercibido porque no hay nada que
+    se pueda filtrar de más.
+    """
+    titular = await factories.crear_usuario(db, "multi", rol=RolUsuario.CATEDRA_ADMIN)
+    propias = [
+        await factories.crear_catedra(db, nombre="Propia A", titular_id=titular.id),
+        await factories.crear_catedra(db, nombre="Propia B", titular_id=titular.id),
+    ]
+
+    ajeno = await factories.crear_usuario(db, "ajeno", rol=RolUsuario.CATEDRA_ADMIN)
+    ajena = await factories.crear_catedra(db, nombre="Ajena", titular_id=ajeno.id)
+
+    template = await factories.crear_template(db, nombre="LXC para aislamiento")
+    for cat in (*propias, ajena):
+        solicitante = ajeno if cat is ajena else titular
+        pedido = await factories.crear_pedido(
+            db,
+            catedra_id=cat.id,
+            solicitante_id=solicitante.id,
+            template_id=template.id,
+        )
+        await factories.crear_servicio(
+            db,
+            catedra_id=cat.id,
+            template_id=template.id,
+            pedido_id=pedido.id,
+            proxmox_vmid=str(200 + cat.id),
+        )
+
+    return SimpleNamespace(
+        titular=titular,
+        propias=propias,
+        ajeno=ajeno,
+        ajena=ajena,
+        template=template,
+        headers=_headers(titular),
     )
 
 

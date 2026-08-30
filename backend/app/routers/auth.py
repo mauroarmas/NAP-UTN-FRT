@@ -7,6 +7,7 @@ from app.database import get_db
 from app.models.usuario import Usuario, RolUsuario
 from app.schemas.auth import Token, LoginRequest, Setup2FAResponse, Verify2FARequest
 from app.schemas.usuario import UsuarioCreate, UsuarioResponse
+from app.services.usuario_service import con_catedras
 from app.utils.security import (
     verify_password,
     get_password_hash,
@@ -90,9 +91,17 @@ async def login(
 
 
 @router.get("/me", response_model=UsuarioResponse)
-async def get_me(current_user: Usuario = Depends(get_current_user)):
-    """Devuelve la información del usuario autenticado."""
-    return current_user
+async def get_me(
+    current_user: Usuario = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Información del usuario autenticado, con sus cátedras a cargo.
+
+    Se serializa con el ayudante en lugar de devolver el objeto del ORM: las
+    cátedras son una relación de carga diferida y resolverla durante la
+    serialización falla en contexto async.
+    """
+    return await con_catedras(db, current_user)
 
 
 @router.post("/2fa/setup", response_model=Setup2FAResponse)
@@ -141,28 +150,12 @@ async def register_user(
     current_user: Usuario = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """Registra un nuevo usuario. Solo administradores."""
-    # Verificar que no exista
-    result = await db.execute(
-        select(Usuario).where(Usuario.username == user_data.username)
-    )
-    if result.scalar_one_or_none():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="El nombre de usuario ya existe",
-        )
+    """Registra un nuevo usuario. Solo administradores.
 
-    new_user = Usuario(
-        username=user_data.username,
-        email=user_data.email,
-        nombre=user_data.nombre,
-        password_hash=get_password_hash(user_data.password),
-        rol=RolUsuario(user_data.rol),
-        catedra_id=user_data.catedra_id,
-    )
+    Delega en el alta de `/usuarios/` en lugar de duplicarla: son el mismo
+    hecho, y tener dos caminos que crean usuarios es cómo se termina con uno de
+    los dos sin la validación de titularidad de cátedras.
+    """
+    from app.routers.usuarios import crear_usuario
 
-    db.add(new_user)
-    await db.commit()
-    await db.refresh(new_user)
-
-    return new_user
+    return await crear_usuario(user_data, current_user=current_user, db=db)

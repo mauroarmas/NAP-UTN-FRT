@@ -1,6 +1,14 @@
 from datetime import datetime
 
-from sqlalchemy import String, Integer, DateTime, ForeignKey, Index, Enum as SAEnum
+from sqlalchemy import (
+    String,
+    Integer,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Enum as SAEnum,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import text
 import enum
@@ -48,6 +56,28 @@ class Servicio(Base):
     deployed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
+    # --- Vencimiento ---
+    # NULL solo en los servicios anteriores a esta feature: un servicio que
+    # nunca supo que tenía fecha no se apaga por vencimiento.
+    vence_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    aviso_vencimiento_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
+
+    # --- Pausado por inactividad ---
+    # "Siempre encendido": excluye del pausado automático, no del vencimiento.
+    exento_pausado: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
+    # Fin del período de gracia. NULL = no hay pausa programada.
+    pausa_programada_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
+    aviso_pausa_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Marca que distingue "lo pausó el sistema" de "lo apagó la cátedra". Vive
+    # en el portal porque Proxmox reporta ambos casos como "stopped".
+    pausado_auto_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
     # No mapeado (sin anotación Mapped, SQLAlchemy lo ignora): marca si el
     # `estado` de esta instancia se confirmó contra Proxmox en la consulta
     # actual. Lo setea `sincronizar_estados` y viaja en ServicioResponse.
@@ -56,7 +86,12 @@ class Servicio(Base):
 
     # Relaciones
     catedra: Mapped["Catedra"] = relationship(back_populates="servicios")
-    pedido: Mapped["Pedido | None"] = relationship(back_populates="servicio")
+    pedido: Mapped["Pedido | None"] = relationship(
+        back_populates="servicio", foreign_keys=[pedido_id]
+    )
+    historial: Mapped[list["ServicioHistorial"]] = relationship(
+        back_populates="servicio", order_by="ServicioHistorial.created_at"
+    )
     template: Mapped["RecursoTemplate"] = relationship(back_populates="servicios")
     metricas: Mapped[list["MetricaSnapshot"]] = relationship(back_populates="servicio")
 

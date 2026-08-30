@@ -1,5 +1,17 @@
+import time
+
 from proxmoxer import ProxmoxAPI
 from app.config import get_settings
+
+# Cuánto esperar a que una tarea de Proxmox termine antes de darla por colgada.
+# Crear un contenedor sobre una plantilla ya descargada tarda segundos; el margen
+# cubre un clúster cargado sin dejar la petición esperando para siempre.
+TASK_TIMEOUT_SEGUNDOS = 180
+# Encender, apagar o reiniciar es mucho más corto que crear un contenedor. Con
+# el tope de despliegue, un arranque trabado dejaría la petición HTTP —y a la
+# persona mirando "Iniciando…"— colgada tres minutos antes de decir nada.
+TASK_TIMEOUT_ACCION_SEGUNDOS = 60
+TASK_POLL_SEGUNDOS = 1.0
 
 
 class ProxmoxClient:
@@ -36,6 +48,40 @@ class ProxmoxClient:
     def create_lxc(self, node: str, **kwargs) -> str:
         """Crea un contenedor LXC. Proxmox asigna el VMID automáticamente."""
         return self.api.nodes(node).lxc.create(**kwargs)
+
+    def esperar_task(
+        self, node: str, task_id: str, timeout: float = TASK_TIMEOUT_SEGUNDOS
+    ) -> None:
+        """Espera a que una tarea de Proxmox termine y falla si terminó mal.
+
+        Las operaciones de Proxmox son **asíncronas**: la llamada devuelve un
+        identificador de tarea y vuelve enseguida, mucho antes de que el trabajo
+        real haya ocurrido. Sin esta espera, un fallo dentro de la tarea —una
+        plantilla que no existe, un almacenamiento lleno, un VMID en conflicto—
+        es completamente invisible para el portal, que registra el servicio como
+        desplegado y en marcha mientras el clúster no creó nada.
+
+        Ese desajuste rompe dos principios a la vez: el registro de un recurso
+        que no existe (III) y un estado que no se corresponde con la realidad
+        (II). Además consume capacidad reservada que ningún contenedor usa.
+        """
+        limite = time.monotonic() + timeout
+        while True:
+            estado = self.api.nodes(node).tasks(task_id).status.get()
+            if estado.get("status") == "stopped":
+                salida = estado.get("exitstatus", "")
+                # Proxmox usa "OK" para el éxito limpio y "WARNINGS: n" para el
+                # éxito con advertencias (típico al arrancar un contenedor sin
+                # algunas features del host). Ninguna de las dos es un fallo.
+                if salida == "OK" or salida.startswith("WARNINGS"):
+                    return
+                raise RuntimeError(f"La tarea de Proxmox falló: {salida}")
+
+            if time.monotonic() > limite:
+                raise RuntimeError(
+                    f"La tarea de Proxmox no terminó en {timeout:.0f} s"
+                )
+            time.sleep(TASK_POLL_SEGUNDOS)
 
     def get_lxc_status(self, node: str, vmid: int) -> dict:
         """Obtiene el estado actual de un contenedor LXC."""

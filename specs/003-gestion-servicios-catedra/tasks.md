@@ -254,9 +254,25 @@ una URL o credencial de Proxmox.
 - [X] T024 [US3] En `frontend/src/pages/Servicios.jsx`, agregar el botón "🖥️ Consola" en la misma
       columna de Acciones (mismas condiciones de visibilidad que T008/T015), habilitado solo cuando
       `estado === 'running'`, que abre `ConsolaServicio` para ese servicio (depende de T008, T023)
-- [ ] T025 [US3] Validación manual: correr Escenarios 5, 6 y 7 de
+- [X] T025 [US3] Validación manual: correr Escenarios 5, 6 y 7 de
       [quickstart.md](./quickstart.md) — incluye cronometrar que el resultado de un comando
       aparece en menos de 15 segundos desde el clic en "Consola"
+
+      **Cerrada el 2026-08-30 con el alcance redefinido.** Al ejecutarla se descubrió que la
+      consola embebida nunca estuvo conectada: `ConsolaServicio.jsx` existía pero ningún import
+      lo referenciaba, y su relay no funcionaba porque Proxmox no acepta API tokens para el
+      WebSocket de consola.
+
+      Los escenarios 5, 6 y 7 medían una terminal embebida que ya no se persigue. Por decisión
+      del usuario y enmienda constitucional v3.0.0, la consola se resuelve derivando a Proxmox
+      para **ambos roles**. Lo que se verificó en su lugar:
+
+      - La cátedra obtiene la base de consola (antes 403) y ve el enlace en sus servicios
+        en ejecución.
+      - El portal sigue verificando la pertenencia: un servicio ajeno no se lista ni se
+        resuelve por id, así que nunca se ofrece el enlace.
+      - La consola embebida se retiró entera —componente, relay, ticket y dependencias de
+        xterm— sin dejar superficie muerta.
 
 **Checkpoint**: US1 + US2 + US3 completas — las tres capacidades del spec disponibles para cátedra
 sobre lo propio y para administrador sobre cualquier servicio.

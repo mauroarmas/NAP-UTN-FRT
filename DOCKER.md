@@ -9,9 +9,9 @@ docker compose up
 ```
 
 Eso es todo. El proyecto estará disponible en:
-- 🌐 Frontend: http://localhost:5173
-- 🔌 API: http://localhost:8000
-- 🐘 Database: localhost:5432
+- 🌐 Frontend: http://localhost:5174
+- 🔌 API: http://localhost:8001
+- 🐘 Database: localhost:5434
 
 ## 📦 Con el Script Auxiliar
 
@@ -49,11 +49,11 @@ Si prefieres un script más amigable con más opciones:
 
 El proyecto incluye 3 servicios que se levantan automáticamente:
 
-| Servicio | Puerto | Tecnología | Descripción |
+| Servicio | Puerto (host) | Tecnología | Descripción |
 |----------|--------|-----------|-------------|
-| **db** | 5432 | PostgreSQL 16 | Base de datos |
-| **api** | 8000 | Python/FastAPI | Backend |
-| **frontend** | 5173 | Node/Vite | Frontend |
+| **db** | 5434 | PostgreSQL 16 | Base de datos |
+| **api** | 8001 | Python/FastAPI | Backend |
+| **frontend** | 5174 | Node/Vite | Frontend |
 
 ## 🔐 Credenciales por Defecto
 

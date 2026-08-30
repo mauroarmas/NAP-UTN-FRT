@@ -14,11 +14,16 @@ from app.utils.security import get_password_hash
 
 async def create_admin():
     async with AsyncSessionLocal() as session:
-        # Verificar si ya existe un admin
+        # Verificar si ya existe un admin.
+        # `first()` y no `scalar_one_or_none()`: la pregunta es "¿hay alguno?",
+        # y el portal permite crear más de un administrador. Exigir que haya
+        # exactamente uno hacía que el arranque abortara con
+        # MultipleResultsFound en cuanto existía un segundo admin, dejando el
+        # backend en bucle de reinicio (startup.sh corre con `set -e`).
         result = await session.execute(
-            select(Usuario).where(Usuario.rol == RolUsuario.ADMIN)
+            select(Usuario).where(Usuario.rol == RolUsuario.ADMIN).limit(1)
         )
-        existing = result.scalar_one_or_none()
+        existing = result.scalars().first()
 
         if existing:
             print(f"⚠️  Ya existe un administrador: {existing.username}")

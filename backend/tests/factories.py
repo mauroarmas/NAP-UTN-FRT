@@ -15,16 +15,9 @@ from app.utils.security import get_password_hash
 async def crear_catedra(
     db: AsyncSession,
     nombre: str = "Cátedra de Prueba",
-    cuota_vcpus: int = 4,
-    cuota_ram_mb: int = 4096,
-    cuota_storage_gb: int = 16,
+    titular_id: int | None = None,
 ) -> Catedra:
-    catedra = Catedra(
-        nombre=nombre,
-        cuota_vcpus=cuota_vcpus,
-        cuota_ram_mb=cuota_ram_mb,
-        cuota_storage_gb=cuota_storage_gb,
-    )
+    catedra = Catedra(nombre=nombre, titular_id=titular_id)
     db.add(catedra)
     await db.commit()
     await db.refresh(catedra)
@@ -35,7 +28,6 @@ async def crear_usuario(
     db: AsyncSession,
     username: str,
     rol: RolUsuario = RolUsuario.CATEDRA_ADMIN,
-    catedra_id: int | None = None,
     password: str = "secreto123",
 ) -> Usuario:
     usuario = Usuario(
@@ -44,7 +36,6 @@ async def crear_usuario(
         nombre=username.title(),
         password_hash=get_password_hash(password),
         rol=rol,
-        catedra_id=catedra_id,
     )
     db.add(usuario)
     await db.commit()
