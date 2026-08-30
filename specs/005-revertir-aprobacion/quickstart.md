@@ -28,12 +28,15 @@ CAT=$(curl -s -X POST http://localhost:8001/api/v1/auth/login \
 cd backend && ./venv/bin/python -m pytest -q
 ```
 
-Deben pasar las existentes (250 al cierre de la feature 006) más las nuevas:
+Deben pasar las existentes (250 al cierre de la feature 006) más las nuevas. Al cierre de esta feature la suite tiene **280**:
 
 | Archivo | Cubre |
 |---|---|
-| `test_reversion_aprobacion.py` | FR-001 a FR-003, FR-006 a FR-014 |
-| `test_reversion_concurrencia.py` | **FR-004, FR-005, SC-006 — compuerta de capacidad** |
+| `test_liberar_reserva.py` | Definición única de liberar una reserva (R2) |
+| `test_reversion_aprobacion.py` | FR-001 a FR-003, FR-006, FR-007, FR-012 a FR-014 |
+| `test_reversion_concurrencia.py` | **FR-004, FR-005, SC-006 — compuerta de capacidad** (doble liberación y rollback) |
+| `test_reversion_visible_catedra.py` | FR-010, FR-011 — lo que ve la cátedra |
+| `test_historial_reversion.py` | FR-008, FR-009 — autor, motivo y distinción de los tres casos |
 
 ```bash
 cd frontend && npm run build   # sin errores
@@ -175,3 +178,47 @@ Tras revertir, `reservado` debe haber bajado exactamente lo que ese pedido tení
 **E4 es el más importante**: es el único que puede dejar el sistema peor que antes de la feature. Una
 capacidad libre inflada hace que el administrador apruebe sobre recursos que no existen, que es
 exactamente el defecto que la feature 004 vino a cerrar.
+
+---
+
+## Resultado de la validación (2026-08-30)
+
+Ejecutada contra el entorno real: PostgreSQL 16 y Proxmox alcanzable, con
+`libre = 4 vCPU · 7892 MB · 56 GB` como foto inicial.
+
+| Escenario | Resultado |
+|---|---|
+| Suite automatizada | ✅ 280 pruebas en verde (250 → 280) |
+| **E1** — deshacer un sobrecompromiso | ✅ **parcial** — ver abajo |
+| E2 — la reversión exige motivo | ✅ 400 sin motivo y con motivo en blanco; el pedido siguió aprobado con su reserva intacta |
+| **E3** — el historial distingue los tres casos | ✅ **parcial** — rechazo original (`solicitado`, persona) y reversión (`aprobado`, persona) verificados; el vencimiento no |
+| **E4** — dos reversiones simultáneas | ✅ exactamente un 200 y un 409 `ya_revertido`; `libre` subió **una sola vez** (3 → 4 vCPU) |
+| E5 — despliegue en curso | ⏭ no ejecutado: exige crear un contenedor real |
+| E6 — nunca se aprobó | ✅ 409 `pedido_no_aprobado` |
+| E7 — la reserva ya venció sola | ⏭ no ejecutado: exige adelantar `reserva_expira_at` a mano |
+| **E8** — la cátedra entiende qué pasó | ✅ ve el estado, el motivo que escribió el administrador, y la entrada de la aprobación original sigue presente |
+| E9 — volver a pedir lo mismo | ✅ el pedido nuevo se acepta y aparece en la bandeja del administrador |
+| E10 — revertir una renovación | ⏭ no ejecutado: no había servicio en ejecución para renovar |
+| E11 — solo el administrador revierte | ✅ 403 para la cátedra sobre un pedido propio |
+
+**Sobre E1**: se reprodujo el sobrecompromiso deliberado —dos aprobaciones de
+4 vCPU sobre 4 libres, la segunda con justificación— dejando el clúster en
+**-4 vCPU y -300 MB**, tal como el 2026-08-29. Las dos reversiones devolvieron
+`libre` **exactamente** a la foto inicial, y `reservado` a cero (SC-002 ✅).
+
+Lo que **no** se pudo reproducir es la otra mitad: que el sobrecompromiso bloquee
+a otra cátedra. La verificación de capacidad al reactivar solo corre sobre
+servicios en `paused`, y llegar a ese estado exige que el trabajo de inactividad
+avise y espere su período de gracia. Está cubierto por
+`test_reactivacion_sin_capacidad.py` y ya se había reproducido en vivo durante
+T091.
+
+**Sobre E3, E7 y E10**: los tres necesitan condiciones que no se pueden crear por
+API —adelantar el vencimiento de una reserva, tener un servicio corriendo para
+renovar—. Adelantarlas editando la base a mano contradice la constitución, así
+que quedan cubiertas por las pruebas automatizadas (`test_historial_reversion.py`,
+`test_reversion_aprobacion.py`) y pendientes de una corrida manual cuando el
+entorno tenga esos estados de forma natural.
+
+Los seis pedidos creados para esta validación (#17 a #22) quedaron dados de baja
+lógicamente, y la capacidad volvió a su valor inicial.

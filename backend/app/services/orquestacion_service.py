@@ -1,5 +1,6 @@
 """Servicio de orquestación: despliega y gestiona recursos reales en Proxmox VE."""
 
+import asyncio
 import logging
 import secrets
 from datetime import datetime, timedelta
@@ -12,7 +13,10 @@ from app.models.pedido import Pedido, PedidoHistorial, EstadoPedido, TipoPedido
 from app.models.servicio import Servicio, EstadoServicio
 from app.models.recurso_template import RecursoTemplate, TipoRecurso
 from app.models.usuario import Usuario, RolUsuario
-from app.services.proxmox_client import get_proxmox_client
+from app.services.proxmox_client import (
+    TASK_TIMEOUT_ACCION_SEGUNDOS,
+    get_proxmox_client,
+)
 from app.services import historial_service
 from app.services.acceso_service import es_visible
 from app.services.vencimiento_service import vencimiento_por_defecto
@@ -80,6 +84,31 @@ def _estados_reales_del_cluster() -> dict[int, EstadoServicio] | None:
     return estados
 
 
+def _estado_confirmado(vmid: int, node: str) -> EstadoServicio | None:
+    """Estado autoritativo de un contenedor, preguntado al nodo que lo hospeda.
+
+    `cluster/resources` no es un espejo instantáneo: es un resumen que pvestatd
+    refresca cada ~10 s, así que un contenedor recién encendido sigue figurando
+    ahí como detenido durante varios segundos. Reconciliar contra ese resumen
+    deshacía la acción que el portal acababa de confirmar —la fila volvía a
+    "Detenido" un segundo después de encender, y el botón parecía no haber hecho
+    nada— así que cualquier desacuerdo se contrasta con el estado del propio
+    nodo, que sí responde el estado del momento.
+
+    Solo se consulta cuando hay desacuerdo: en régimen normal el resumen alcanza
+    y esto no cuesta ninguna llamada extra.
+
+    Devuelve ``None`` si no se pudo confirmar; en ese caso no se toca el
+    registro, porque un resumen atrasado no es motivo para contradecirlo.
+    """
+    try:
+        status = get_proxmox_client().get_lxc_status(node, vmid).get("status")
+    except Exception as exc:
+        logger.warning(f"No se pudo confirmar el estado del VMID {vmid}: {exc}")
+        return None
+    return _ESTADO_POR_STATUS_PROXMOX.get(status)
+
+
 def _existe_en_el_cluster(pve, vmid: int) -> bool | None:
     """
     ¿El contenedor sigue existiendo en el clúster? ``None`` si no se pudo saber.
@@ -94,6 +123,25 @@ def _existe_en_el_cluster(pve, vmid: int) -> bool | None:
     except Exception as exc:
         logger.warning(f"No se pudo verificar si el VMID {vmid} sigue en el clúster: {exc}")
         return None
+
+
+async def esperar_accion(pve, node: str, task_id: str) -> None:
+    """Espera a que una acción de ciclo de vida termine realmente en Proxmox.
+
+    `start`/`stop`/`reboot` devuelven un identificador de tarea y vuelven al
+    instante, mucho antes de que el contenedor haya cambiado de estado. Sin esta
+    espera el portal respondía "running" sobre un contenedor que todavía estaba
+    arrancando, y el refresco siguiente —que sí consulta el clúster— lo mostraba
+    de nuevo detenido: el botón parecía no haber hecho nada. Esperar acá hace
+    que la respuesta describa el estado real (Principio II) y que un fallo
+    dentro de la tarea llegue como error en vez de perderse.
+
+    Corre en un hilo aparte: `esperar_task` hace polling bloqueante y en el
+    event loop congelaría al resto de las peticiones mientras dura.
+    """
+    await asyncio.to_thread(
+        pve.esperar_task, node, task_id, TASK_TIMEOUT_ACCION_SEGUNDOS
+    )
 
 
 async def sincronizar_estados(
@@ -135,6 +183,14 @@ async def sincronizar_estados(
         desconocido = reales is None or not servicio.proxmox_vmid
         servicio.existe_en_proxmox = None if desconocido else real is not None
 
+        if real is None or servicio.estado == real:
+            continue
+
+        # El resumen del clúster contradice al registro: antes de darle la
+        # razón hay que preguntarle al nodo, porque el desfase más frecuente no
+        # es el del portal sino el del propio resumen (ver `_estado_confirmado`).
+        real = _estado_confirmado(int(servicio.proxmox_vmid), servicio.proxmox_node)
+        servicio.estado_sincronizado = real is not None
         if real is None or servicio.estado == real:
             continue
 
@@ -580,7 +636,7 @@ async def detener_servicio(
     pve = get_proxmox_client()
     try:
         vmid = int(servicio.proxmox_vmid)
-        pve.stop_lxc(servicio.proxmox_node, vmid)
+        await esperar_accion(pve, servicio.proxmox_node, pve.stop_lxc(servicio.proxmox_node, vmid))
         servicio.estado = EstadoServicio.STOPPED
         servicio.estado_sincronizado = True
         await db.commit()
@@ -623,7 +679,7 @@ async def iniciar_servicio(
     pve = get_proxmox_client()
     try:
         vmid = int(servicio.proxmox_vmid)
-        pve.start_lxc(servicio.proxmox_node, vmid)
+        await esperar_accion(pve, servicio.proxmox_node, pve.start_lxc(servicio.proxmox_node, vmid))
         servicio.estado = EstadoServicio.RUNNING
         servicio.estado_sincronizado = True
         await db.commit()
@@ -658,7 +714,7 @@ async def reiniciar_servicio(
     pve = get_proxmox_client()
     try:
         vmid = int(servicio.proxmox_vmid)
-        pve.reboot_lxc(servicio.proxmox_node, vmid)
+        await esperar_accion(pve, servicio.proxmox_node, pve.reboot_lxc(servicio.proxmox_node, vmid))
         # El servicio sigue RUNNING antes y después: el reinicio lo gestiona
         # Proxmox internamente, no hay estado intermedio que persistir.
         logger.info(f"Servicio {servicio_id} reiniciado (VMID={vmid})")

@@ -39,6 +39,7 @@ class FakeProxmoxClient:
         fallar_recursos: Exception | None = None,
         recursos: list[dict] | None = None,
         nodos: list[dict] | None = None,
+        retraso_resumen: bool = False,
     ):
         self.next_vmid = next_vmid
         self.fallar_create = fallar_create
@@ -50,6 +51,10 @@ class FakeProxmoxClient:
         self.fallar_stop = fallar_stop
         self.fallar_reboot = fallar_reboot
         self.fallar_recursos = fallar_recursos
+        # Simula el retraso real de `cluster/resources`: pvestatd lo refresca
+        # cada ~10 s, así que durante esa ventana el resumen sigue reportando el
+        # estado anterior aunque el contenedor ya haya cambiado.
+        self.retraso_resumen = retraso_resumen
         self.recursos = recursos if recursos is not None else []
         self.nodos = nodos if nodos is not None else [
             {"node": "pve1", "status": "online", "cpu": 0.1},
@@ -93,26 +98,53 @@ class FakeProxmoxClient:
         )
         return f"UPID:{node}:task:create"
 
-    def esperar_task(self, node, task_id):
+    def esperar_task(self, node, task_id, timeout=None):
         if self.fallar_task is not None:
             raise self.fallar_task
         self.tasks_esperadas.append((node, task_id))
 
+    def _marcar(self, vmid: int, status: str) -> None:
+        """Cambia el estado del contenedor en las dos vistas que expone el doble.
+
+        `get_lxc_status` y `cluster/resources` describen el mismo contenedor: si
+        el doble las deja divergir, deja pasar justamente el desfase que la
+        reconciliación existe para corregir.
+        """
+        self.estados[vmid] = status
+        if self.retraso_resumen:
+            return
+        for recurso in self.recursos:
+            if int(recurso.get("vmid", -1)) == vmid:
+                recurso["status"] = status
+
     def get_lxc_status(self, node: str, vmid: int) -> dict:
-        return {"status": self.estados.get(int(vmid), "stopped")}
+        """Estado del contenedor según el nodo que lo hospeda.
+
+        Cae de vuelta a lo que declara el resumen del clúster para los VMIDs que
+        una prueba montó ahí directamente: las dos vistas describen el mismo
+        contenedor y solo deben diferir cuando la prueba pide expresamente
+        simular el retraso del resumen.
+        """
+        vmid = int(vmid)
+        if vmid in self.estados:
+            return {"status": self.estados[vmid]}
+        for recurso in self.recursos:
+            if int(recurso.get("vmid", -1)) == vmid:
+                return {"status": recurso.get("status", "stopped")}
+        return {"status": "stopped"}
 
     def start_lxc(self, node: str, vmid: int) -> str:
         if self.fallar_start is not None:
             raise self.fallar_start
         self.iniciados.append((node, int(vmid)))
-        self.estados[int(vmid)] = "running"
+        self._marcar(int(vmid), "running")
         return f"UPID:{node}:task:start"
 
     def stop_lxc(self, node: str, vmid: int) -> str:
         if self.fallar_stop is not None:
             raise self.fallar_stop
         self.detenidos.append((node, int(vmid)))
-        self.estados[int(vmid)] = "stopped"
+        self._marcar(int(vmid), "stopped")
         return f"UPID:{node}:task:stop"
 
     def reboot_lxc(self, node: str, vmid: int) -> str:

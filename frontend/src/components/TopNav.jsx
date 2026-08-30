@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   Activity, Building2, ChevronDown, ClipboardCheck, LogOut,
-  Package, Server, Settings, Users,
+  Moon, Package, Server, Settings, Sun, Users,
 } from 'lucide-react';
 import useTheme from '../hooks/useTheme';
 import { iniciales } from './ui';
@@ -23,7 +23,7 @@ const ADMIN_LINKS = [
 export default function TopNav({ user }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { toggle: toggleTheme } = useTheme();
+  const { theme, toggle: toggleTheme } = useTheme();
   const [adminOpen, setAdminOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [hidden, setHidden] = useState(false);
@@ -32,6 +32,7 @@ export default function TopNav({ user }) {
   const lastY = useRef(0);
 
   const isAdmin = user?.rol === 'admin';
+  const isDark = theme === 'dark';
 
   // La barra se retira al bajar y vuelve al subir: gana lectura vertical en las
   // pantallas largas sin sacar la navegación de un gesto.
@@ -82,8 +83,8 @@ export default function TopNav({ user }) {
         <button className="topnav-brand" onClick={() => navigate('/')} title="Ir al Dashboard">
           <img src={utnLogo} alt="UTN FRT" />
           <span className="topnav-brand-text">
-            <span className="k">Facultad Regional Tucumán</span>
-            <span className="n">Portal de Gestión</span>
+            <span className="k">UTN-FRT</span>
+            <span className="n">NAP</span>
           </span>
         </button>
 
@@ -122,17 +123,6 @@ export default function TopNav({ user }) {
         </nav>
 
         <div className="topnav-right">
-          <button
-            className="theme-switch"
-            onClick={toggleTheme}
-            aria-label="Cambiar tema"
-            title="Cambiar tema claro / oscuro"
-          >
-            <span className="knob" />
-          </button>
-
-          <div className="topnav-divider" />
-
           <div className="menu" ref={menuRef}>
             <button
               className="avatar"
@@ -151,6 +141,40 @@ export default function TopNav({ user }) {
                     <span className="role" title={rolLabel}>{rolLabel}</span>
                   </span>
                 </div>
+
+                {/* Separador */}
+                <div style={{ height: 1, background: 'var(--color-divider)', margin: '4px 0' }} />
+
+                {/* Toggle de tema dentro del menú del usuario */}
+                <button
+                  className="menu-item"
+                  onClick={() => { toggleTheme(); }}
+                  style={{ justifyContent: 'space-between' }}
+                >
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {isDark ? <Moon size={15} /> : <Sun size={15} />}
+                    {isDark ? 'Modo oscuro' : 'Modo claro'}
+                  </span>
+                  {/* Mini switch visual */}
+                  <span style={{
+                    display: 'inline-flex', alignItems: 'center',
+                    width: 32, height: 18, borderRadius: 9,
+                    background: isDark ? 'var(--color-accent)' : 'var(--color-divider)',
+                    padding: 2, transition: 'background 0.2s', flexShrink: 0,
+                  }}>
+                    <span style={{
+                      width: 14, height: 14, borderRadius: '50%',
+                      background: 'var(--color-surface)',
+                      transform: isDark ? 'translateX(14px)' : 'translateX(0)',
+                      transition: 'transform 0.2s',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                    }} />
+                  </span>
+                </button>
+
+                {/* Separador */}
+                <div style={{ height: 1, background: 'var(--color-divider)', margin: '4px 0' }} />
+
                 <button className="menu-item danger" onClick={logout}>
                   <LogOut size={15} />
                   Cerrar sesión
@@ -163,3 +187,4 @@ export default function TopNav({ user }) {
     </header>
   );
 }
+

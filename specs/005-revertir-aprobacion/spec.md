@@ -8,6 +8,8 @@
 
 **Input**: User description: "Un pedido ya aprobado no se puede deshacer. La transición APROBADO → RECHAZADO existe en la tabla de transiciones válidas pero está reservada al sistema (TRANSICIONES_SISTEMA), que la usa solo cuando vence la reserva de capacidad; si un administrador la intenta recibe 409 'la ejecuta el sistema durante el despliegue'. Consecuencia real, reproducida durante la validación T091 del 2026-08-29: el administrador aprobó un pedido que excedía la capacidad (algo que FR-015 permite deliberadamente, con justificación registrada), el clúster quedó en -12 vCPU y -24 GB de RAM comprometidos, y eso bloqueó la reactivación de un servicio pausado de OTRA cátedra con 409 sin_capacidad. El administrador no tiene ninguna vía para liberar esa capacidad: las únicas salidas desde APROBADO son desplegar el pedido (materializando el sobrecompromiso) o esperar hasta 24 horas a que el trabajo expirar_reservas libere la reserva sola. Durante esa ventana el error de una cátedra degrada el servicio de las demás. Se necesita que el administrador pueda revertir una aprobación antes del despliegue, liberando la reserva en el acto, con el motivo registrado en el historial y avisando a la cátedra afectada; hay que definir qué pasa si el despliegue ya empezó, si la reversión debe distinguirse de un rechazo original en el historial, y si la cátedra puede volver a pedir lo mismo."
 
+> **Nota de lectura**: el `FR-015` que se menciona en el texto de entrada es el de la **feature 004** (sobrecompromiso deliberado con justificación registrada), no un requisito de esta spec. Los requisitos de esta feature son FR-001 a FR-014.
+
 ## Resumen del problema
 
 Aprobar un pedido **compromete capacidad del clúster en el acto**, aunque el servicio todavía no

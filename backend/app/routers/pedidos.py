@@ -13,9 +13,12 @@ from app.schemas.pedido import (
     PedidoCreate,
     PedidoCambiarEstado,
     PedidoAprobar,
+    CapacidadLiberada,
     PedidoRechazar,
+    PedidoRevertir,
     PedidoResponse,
     PedidoDetalleResponse,
+    PedidoRevertidoResponse,
 )
 from app.schemas.servicio import ServicioResponse, DesplegarRequest
 from app.services import capacidad_service
@@ -27,6 +30,7 @@ from app.services.pedido_service import (
     dar_de_baja_pedido,
     aprobar_pedido,
     rechazar_pedido,
+    revertir_aprobacion,
     TRANSICIONES_VALIDAS,
 )
 from app.utils.soft_delete import excluir_dados_de_baja, vigente_o_404
@@ -223,6 +227,38 @@ async def rechazar(
         .where(Pedido.id == pedido.id)
     )
     return result.scalar_one()
+
+
+@router.post("/{pedido_id}/revertir-aprobacion", response_model=PedidoRevertidoResponse)
+async def revertir(
+    pedido_id: int,
+    data: PedidoRevertir,
+    current_user: Usuario = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Deshace una aprobación antes del despliegue y libera su capacidad.
+
+    Es una operación con nombre propio y no un cambio de estado a mano: mover el
+    estado sin liberar la reserva dejaría capacidad huérfana, que es lo que
+    `PATCH /estado` sigue impidiendo.
+
+    Códigos: 200 revertido, con la capacidad que volvió · 400 falta el motivo ·
+    403 sin permisos de administrador · 404 pedido inexistente o dado de baja ·
+    409 con un código propio por caso: `pedido_no_aprobado`,
+    `despliegue_en_curso`, `reserva_ya_vencida` o `ya_revertido`.
+    """
+    vigente_o_404(await db.get(Pedido, pedido_id), "Pedido no encontrado")
+    pedido, liberado = await revertir_aprobacion(
+        db=db, pedido_id=pedido_id, admin=current_user, motivo=data.motivo
+    )
+    result = await db.execute(
+        select(Pedido)
+        .options(selectinload(Pedido.historial), selectinload(Pedido.catedra))
+        .where(Pedido.id == pedido.id)
+    )
+    respuesta = PedidoRevertidoResponse.model_validate(result.scalar_one())
+    respuesta.capacidad_liberada = CapacidadLiberada(**liberado)
+    return respuesta
 
 
 @router.patch("/{pedido_id}/estado", response_model=PedidoDetalleResponse)

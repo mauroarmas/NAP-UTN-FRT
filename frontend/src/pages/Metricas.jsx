@@ -154,6 +154,14 @@ export default function Metricas({ user }) {
         </div>
       ) : (
         <>
+          {/* Subtítulo: Resumen Global */}
+          <h2 className="section-subtitle" style={{
+            fontSize: 21, fontWeight: 600, color: 'var(--text-base)',
+            marginBottom: 'var(--space-4)', marginTop: 0,
+          }}>
+            Resumen Global
+          </h2>
+
           <div className="grid cols-4 mb-6">
             {KPIS.map((k) => (
               <div className={`stat stat--${k.tone}`} key={k.label}>
@@ -164,6 +172,15 @@ export default function Metricas({ user }) {
               </div>
             ))}
           </div>
+
+          {/* Separador + Subtítulo: Métricas por Servicio */}
+          <hr style={{ border: 'none', borderTop: '1px solid var(--color-divider)', margin: 'var(--space-6) 0 var(--space-4)' }} />
+          <h2 className="section-subtitle" style={{
+            fontSize: 21, fontWeight: 600, color: 'var(--text-base)',
+            marginBottom: 'var(--space-4)',
+          }}>
+            Métricas por Servicio
+          </h2>
 
           <div className="grid auto top mb-6">
             {resumen.map((srv) => {

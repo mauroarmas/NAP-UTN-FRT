@@ -133,6 +133,84 @@ async def test_fallo_al_encender_da_502_sin_mutar_estado(
     assert servicio.estado == EstadoServicio.STOPPED
 
 
+# --- La acción se confirma contra Proxmox antes de responder ---
+#
+# `start`/`stop`/`reboot` devuelven un identificador de tarea y vuelven al
+# instante. Si el portal respondiera ahí, diría "running" sobre un contenedor
+# que todavía está arrancando —y un fallo dentro de la tarea sería invisible.
+
+
+async def test_encender_espera_a_que_la_tarea_de_proxmox_termine(
+    client, db, proxmox, catedra, template, auth_catedra
+):
+    servicio = await factories.crear_servicio(
+        db, catedra_id=catedra.id, template_id=template.id, estado=EstadoServicio.STOPPED
+    )
+
+    r = await client.post(f"/servicios/{servicio.id}/start", headers=auth_catedra)
+
+    assert r.status_code == 200, r.text
+    esperada = (servicio.proxmox_node, f"UPID:{servicio.proxmox_node}:task:start")
+    assert esperada in proxmox.tasks_esperadas
+
+
+async def test_apagar_espera_a_que_la_tarea_de_proxmox_termine(
+    client, db, proxmox, catedra, template, auth_catedra
+):
+    servicio = await factories.crear_servicio(
+        db, catedra_id=catedra.id, template_id=template.id, estado=EstadoServicio.RUNNING
+    )
+
+    r = await client.post(f"/servicios/{servicio.id}/stop", headers=auth_catedra)
+
+    assert r.status_code == 200, r.text
+    esperada = (servicio.proxmox_node, f"UPID:{servicio.proxmox_node}:task:stop")
+    assert esperada in proxmox.tasks_esperadas
+
+
+async def test_fallo_dentro_de_la_tarea_al_encender_da_502_sin_mutar_estado(
+    client, db, proxmox, catedra, template, auth_catedra
+):
+    # La llamada devuelve el task id sin problemas: el error recién aparece al
+    # esperar su resultado. Sin la espera, este fallo no llegaba a la cátedra.
+    proxmox.fallar_task = Exception("no se pudo asignar la red al contenedor")
+    servicio = await factories.crear_servicio(
+        db, catedra_id=catedra.id, template_id=template.id, estado=EstadoServicio.STOPPED
+    )
+
+    r = await client.post(f"/servicios/{servicio.id}/start", headers=auth_catedra)
+
+    assert r.status_code == 502, r.text
+    await db.refresh(servicio)
+    assert servicio.estado == EstadoServicio.STOPPED
+
+
+async def test_el_resumen_atrasado_del_cluster_no_deshace_un_arranque(
+    client, db, proxmox, catedra, template, auth_catedra
+):
+    """Encender y refrescar no puede devolver la fila a "Detenido".
+
+    `cluster/resources` tarda unos segundos en reflejar el arranque. Cuando la
+    reconciliación le creía a ese resumen, el listado inmediato posterior al
+    encendido revertía el estado y la acción parecía no haber ocurrido.
+    """
+    servicio = await factories.crear_servicio(
+        db, catedra_id=catedra.id, template_id=template.id, estado=EstadoServicio.STOPPED
+    )
+    proxmox.recursos.append(
+        ocupar(int(servicio.proxmox_vmid), servicio.hostname,
+               node=servicio.proxmox_node, status="stopped")
+    )
+    proxmox.retraso_resumen = True
+
+    r = await client.post(f"/servicios/{servicio.id}/start", headers=auth_catedra)
+    assert r.status_code == 200, r.text
+
+    listado = await client.get("/servicios/", headers=auth_catedra)
+    fila = next(s for s in listado.json() if s["id"] == servicio.id)
+    assert fila["estado"] == "running", "el resumen atrasado revirtió el arranque"
+
+
 # --- Reiniciar (US2) ---
 
 

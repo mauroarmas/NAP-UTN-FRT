@@ -144,8 +144,11 @@ backend/
 │       ├── pedido_service.py          # ejecutor humano de APROBADO → RECHAZADO
 │       └── capacidad_service.py       # liberar_reserva() extraída y reutilizada
 └── tests/
-    ├── test_reversion_aprobacion.py       # nuevo
-    └── test_reversion_concurrencia.py     # nuevo — compuerta de capacidad
+    ├── test_liberar_reserva.py            # nuevo — definición única de liberar (R2)
+    ├── test_reversion_aprobacion.py       # nuevo — camino feliz y conflictos
+    ├── test_reversion_concurrencia.py     # nuevo — compuerta de capacidad (concurrencia y rollback)
+    ├── test_reversion_visible_catedra.py  # nuevo — lo que ve la cátedra (FR-010, FR-011)
+    └── test_historial_reversion.py        # nuevo — la distinción en el historial (FR-008, FR-009)
 
 frontend/
 └── src/

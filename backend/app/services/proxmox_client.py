@@ -7,6 +7,10 @@ from app.config import get_settings
 # Crear un contenedor sobre una plantilla ya descargada tarda segundos; el margen
 # cubre un clúster cargado sin dejar la petición esperando para siempre.
 TASK_TIMEOUT_SEGUNDOS = 180
+# Encender, apagar o reiniciar es mucho más corto que crear un contenedor. Con
+# el tope de despliegue, un arranque trabado dejaría la petición HTTP —y a la
+# persona mirando "Iniciando…"— colgada tres minutos antes de decir nada.
+TASK_TIMEOUT_ACCION_SEGUNDOS = 60
 TASK_POLL_SEGUNDOS = 1.0
 
 
@@ -45,7 +49,9 @@ class ProxmoxClient:
         """Crea un contenedor LXC. Proxmox asigna el VMID automáticamente."""
         return self.api.nodes(node).lxc.create(**kwargs)
 
-    def esperar_task(self, node: str, task_id: str) -> None:
+    def esperar_task(
+        self, node: str, task_id: str, timeout: float = TASK_TIMEOUT_SEGUNDOS
+    ) -> None:
         """Espera a que una tarea de Proxmox termine y falla si terminó mal.
 
         Las operaciones de Proxmox son **asíncronas**: la llamada devuelve un
@@ -59,7 +65,7 @@ class ProxmoxClient:
         que no existe (III) y un estado que no se corresponde con la realidad
         (II). Además consume capacidad reservada que ningún contenedor usa.
         """
-        limite = time.monotonic() + TASK_TIMEOUT_SEGUNDOS
+        limite = time.monotonic() + timeout
         while True:
             estado = self.api.nodes(node).tasks(task_id).status.get()
             if estado.get("status") == "stopped":
@@ -73,7 +79,7 @@ class ProxmoxClient:
 
             if time.monotonic() > limite:
                 raise RuntimeError(
-                    f"La tarea de Proxmox no terminó en {TASK_TIMEOUT_SEGUNDOS} s"
+                    f"La tarea de Proxmox no terminó en {timeout:.0f} s"
                 )
             time.sleep(TASK_POLL_SEGUNDOS)
 

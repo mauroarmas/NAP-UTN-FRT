@@ -45,6 +45,21 @@ Tres piezas sostienen que eso sea seguro:
 | **Reserva al aprobar** | Aprobar compromete capacidad en el acto, aunque el contenedor no exista todavía. Sin esto, tres aprobaciones seguidas ven el mismo saldo libre y sobrecomprometen el clúster sin que nadie cometa un error individual. |
 | **Token de capacidad** | Detecta que se está confirmando sobre números viejos (la pantalla abierta hace rato, otro admin que aprobó en el medio). Devuelve 409 y obliga a reconfirmar. |
 | **Vencimiento de la reserva** | Un pedido aprobado que nunca se despliega retendría capacidad para siempre. A las 24 h se libera sola. |
+| **Reversión de la aprobación** | Deshacer una aprobación antes del despliegue y liberar su capacidad en el acto. Sin esto, un error de una cátedra bloqueaba a las demás hasta 24 h, porque la única salida era desplegar el pedido o esperar al vencimiento. |
+
+**Liberar una reserva tiene una sola definición**: `capacidad_service.liberar_reserva()`.
+La usan los dos caminos que lo hacen —el vencimiento automático y la reversión
+humana— y esa unicidad es deliberada: dos copias podrían divergir, y divergir acá
+significa capacidad fantasma, comprometida en la contabilidad y sin nada detrás.
+
+La reversión (`POST /pedidos/{id}/revertir-aprobacion`) es una **operación con
+nombre propio**, no un cambio de estado a mano: `PATCH /pedidos/{id}/estado`
+sigue rechazando `aprobado → rechazado`, porque mover el estado sin liberar la
+reserva es exactamente lo que dejaría capacidad huérfana. Solo alcanza a pedidos
+aprobados sin desplegar; una vez que hay servicio, la vuelta atrás es una baja de
+servicio. Sus cuatro conflictos —`pedido_no_aprobado`, `despliegue_en_curso`,
+`reserva_ya_vencida`, `ya_revertido`— comparten el 409 pero tienen mensajes
+distintos, porque para quien los recibe son situaciones distintas.
 
 La reserva **no tiene tabla propia**: un pedido aprobado de tipo `alta` sin
 servicio desplegado *es* la reserva. Así no hay dos fuentes de verdad que puedan

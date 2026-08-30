@@ -264,6 +264,18 @@ code, pre { font-family: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, monosp
 }
 .loading-pulse { animation: pulse 1.5s ease-in-out infinite; }
 
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+/* Acompaña a una acción que ya salió hacia Proxmox y todavía no volvió: sin
+   este giro, un contenedor que tarda en arrancar es indistinguible de un clic
+   que no registró nada. */
+.spin { animation: spin 0.9s linear infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .spin { animation: pulse 1.5s ease-in-out infinite; }
+}
+
 .tabnum { font-variant-numeric: tabular-nums; }
 .text-muted { color: var(--text-soft); }
 
@@ -875,6 +887,10 @@ td .cell-strong { color: var(--color-text); font-weight: 600; }
 }
 .pill-btn svg { display: block; flex: none; }
 .pill-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+/* El botón que está ejecutando la acción no se apaga: es el que tiene que
+   seguir leyéndose ("Iniciando…") mientras el resto de la fila se atenúa. */
+.pill-btn[aria-busy='true']:disabled,
+.btn-icon[aria-busy='true']:disabled { opacity: 1; cursor: progress; }
 .pill-btn:hover:not(:disabled) { background: var(--hover-tint); }
 .pill-btn.ok { color: var(--st-ok); border-color: var(--st-ok-bd); background: var(--st-ok-bg); }
 .pill-btn.ok:hover:not(:disabled) { background: color-mix(in srgb, var(--st-ok) 20%, transparent); }

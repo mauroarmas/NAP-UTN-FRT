@@ -75,6 +75,14 @@ export const evaluarPedido = (id) => api.get(`/pedidos/${id}/evaluacion`);
 export const aprobarPedido = (id, data = {}) => api.post(`/pedidos/${id}/aprobar`, data);
 export const rechazarPedido = (id, motivo) => api.post(`/pedidos/${id}/rechazar`, { motivo });
 
+// Deshacer una aprobación antes del despliegue: libera la capacidad reservada en
+// el acto, en lugar de esperar hasta 24 h al vencimiento automático. Es una
+// operación con nombre propio y no un cambio de estado: mover el estado sin
+// liberar la reserva dejaría capacidad comprometida sin nada detrás.
+// Devuelve el pedido más `capacidad_liberada`, para poder decir cuánto volvió
+// sin una segunda consulta que ya podría leer otro número.
+export const revertirAprobacion = (id, motivo) => api.post(`/pedidos/${id}/revertir-aprobacion`, { motivo });
+
 // Capacidad del clúster (admin). No se cachea: un número viejo acá es
 // exactamente el problema que el modelo de reserva existe para evitar.
 export const getCapacidad = () => api.get('/capacidad/');

@@ -4,6 +4,7 @@ import { Search, Send, Info } from 'lucide-react';
 import {
   getPedidos, getPedido, cambiarEstadoPedido, desplegarPedido, reintentarPedido,
   getTemplates, getCatedras, getCatedrasMias, evaluarPedido, aprobarPedido, rechazarPedido,
+  revertirAprobacion,
 } from '../services/api';
 import PanelCapacidad from '../components/PanelCapacidad';
 import { PageHead, StatusPill, Dialog, Empty } from '../components/ui';
@@ -19,6 +20,46 @@ const TRANSICIONES = {
   error:         ['rechazado'],
   suspendido:    ['activo'],
   rechazado:     [],
+};
+
+// Una aprobación revertida y un rechazo original terminan en el mismo estado.
+// Para la cátedra no son lo mismo: un pedido que estaba aprobado y deja de
+// estarlo en silencio es indistinguible de una falla del portal, así que hay
+// que decirlo con todas las letras (FR-010).
+//
+// La fuente autoritativa es el historial —una transición de aprobado a
+// rechazado con autor persona—, pero el listado no lo trae. Ahí se cae al
+// prefijo que el backend antepone al motivo, fijado en el contrato de la 005.
+const PREFIJO_REVERSION = 'Aprobación revertida';
+
+const entradaDeReversion = (historial) =>
+  (historial || []).filter(
+    (h) => h.estado_anterior === 'aprobado' && h.estado_nuevo === 'rechazado' && h.usuario_id != null,
+  ).slice(-1)[0];
+
+const fueRevertido = (p) =>
+  Boolean(entradaDeReversion(p.historial)) || Boolean(p.motivo_rechazo?.startsWith(PREFIJO_REVERSION));
+
+// El motivo llega como "Aprobación revertida: <lo que escribió el admin>". La
+// etiqueta ya la pone la interfaz, así que acá sobra repetirla.
+const motivoLimpio = (texto) =>
+  texto?.startsWith(PREFIJO_REVERSION) ? texto.slice(texto.indexOf(':') + 1).trim() : texto;
+
+// El historial en palabras. Las tres formas de llegar a rechazado se leen
+// distinto —rechazo original, reversión humana, vencimiento automático— y el
+// sistema aparece nombrado como autor donde corresponde (FR-009).
+const describirEntrada = (h) => {
+  if (h.estado_anterior === 'nuevo') return 'La cátedra creó el pedido';
+  if (h.estado_nuevo === 'aprobado') return 'Un administrador lo aprobó y reservó la capacidad';
+  if (h.estado_nuevo === 'rechazado' && h.estado_anterior === 'aprobado') {
+    return h.usuario_id == null
+      ? 'Venció la reserva sin desplegarse y la capacidad se liberó sola'
+      : 'Un administrador deshizo la aprobación y liberó la capacidad';
+  }
+  if (h.estado_nuevo === 'rechazado') return 'Un administrador lo rechazó';
+  const desde = ESTADO_CONFIG[h.estado_anterior]?.label || h.estado_anterior;
+  const hasta = ESTADO_CONFIG[h.estado_nuevo]?.label || h.estado_nuevo;
+  return `${desde} → ${hasta}`;
 };
 
 const PILL_KIND = { info: 'accent', success: 'ok', warning: 'warn', error: 'bad', neutral: 'off' };
@@ -49,6 +90,7 @@ export default function Pedidos({ user }) {
   const [motivoRechazo, setMotivoRechazo] = useState('');
   const [evaluacion, setEvaluacion] = useState(null);
   const [justificacion, setJustificacion] = useState('');
+  const [motivoReversion, setMotivoReversion] = useState('');
 
   const isAdmin = user?.rol === 'admin';
 
@@ -108,6 +150,7 @@ export default function Pedidos({ user }) {
       setEvaluacion(null);
       setComentario('');
       setMotivoRechazo('');
+      setMotivoReversion('');
       if (isAdmin && data.estado === 'solicitado') await cargarEvaluacion(id);
     } catch {
       alert('Error al cargar detalle');
@@ -119,6 +162,7 @@ export default function Pedidos({ user }) {
     setEvaluacion(null);
     setComentario('');
     setMotivoRechazo('');
+    setMotivoReversion('');
   };
 
   const handleAprobar = async () => {
@@ -166,6 +210,32 @@ export default function Pedidos({ user }) {
       fetchPedidos();
     } catch (err) {
       alert(err.response?.data?.detail || 'Error al rechazar el pedido');
+    } finally {
+      setTransicionando(false);
+    }
+  };
+
+  const handleRevertir = async () => {
+    if (!motivoReversion.trim()) {
+      alert('Escribí por qué deshacés la aprobación: la cátedra lo va a ver.');
+      return;
+    }
+    if (!confirm(`¿Deshacer la aprobación del pedido #${detalle.id}?\n\nLa capacidad que había reservado vuelve a estar libre en el acto.`)) return;
+    setTransicionando(true);
+    try {
+      const { data } = await revertirAprobacion(detalle.id, motivoReversion);
+      const c = data.capacidad_liberada;
+      setDetalle(data);
+      setMotivoReversion('');
+      fetchPedidos();
+      alert(c && (c.vcpus || c.ram_mb || c.storage_gb)
+        ? `Aprobación deshecha. Volvieron a estar libres ${c.vcpus} vCPU, ${c.ram_mb} MB de RAM y ${c.storage_gb} GB de disco.`
+        : 'Aprobación deshecha. Esta renovación no tenía capacidad reservada, así que el saldo del clúster no cambia.');
+    } catch (err) {
+      // El backend ya redacta un mensaje distinto para cada uno de los cuatro
+      // conflictos; volcarlo crudo perdería justamente eso.
+      const d = err.response?.data?.detail;
+      alert(d?.mensaje || (typeof d === 'string' ? d : 'Error al deshacer la aprobación'));
     } finally {
       setTransicionando(false);
     }
@@ -293,7 +363,9 @@ export default function Pedidos({ user }) {
                     </div>
                   </div>
                   <div className="row gap-3" style={{ flex: 'none' }}>
-                    <StatusPill kind={kindDe(p.estado)}>{cfg.label || p.estado}</StatusPill>
+                    <StatusPill kind={fueRevertido(p) ? 'warn' : kindDe(p.estado)}>
+                      {fueRevertido(p) ? 'Aprobación deshecha' : (cfg.label || p.estado)}
+                    </StatusPill>
                     <button className="btn btn-ghost btn-sm" onClick={() => verDetalle(p.id)}>Ver detalle</button>
                   </div>
                 </div>
@@ -315,9 +387,16 @@ export default function Pedidos({ user }) {
                 )}
 
                 {p.motivo_rechazo && (
-                  <div className="callout bad">
+                  <div className={`callout ${fueRevertido(p) ? 'warn' : 'bad'}`}>
                     <Info size={15} />
-                    <span>{p.motivo_rechazo}</span>
+                    {fueRevertido(p) ? (
+                      <span>
+                        <strong>Este pedido estaba aprobado y la aprobación se deshizo.</strong>{' '}
+                        {motivoLimpio(p.motivo_rechazo)} Podés volver a pedir lo mismo cuando quieras.
+                      </span>
+                    ) : (
+                      <span>{p.motivo_rechazo}</span>
+                    )}
                   </div>
                 )}
               </div>
@@ -342,6 +421,9 @@ export default function Pedidos({ user }) {
           setComentario={setComentario}
           motivoRechazo={motivoRechazo}
           setMotivoRechazo={setMotivoRechazo}
+          motivoReversion={motivoReversion}
+          setMotivoReversion={setMotivoReversion}
+          onRevertir={handleRevertir}
           onAprobar={handleAprobar}
           onRechazar={handleRechazar}
           onActualizarCapacidad={() => cargarEvaluacion(detalle.id)}
@@ -358,11 +440,15 @@ function DetalleDialog({
   detalle, isAdmin, templateNombre, catedraNombre, formatDate, onClose, transicionando,
   evaluacion, justificacion, setJustificacion, comentario, setComentario,
   motivoRechazo, setMotivoRechazo, onAprobar, onRechazar, onActualizarCapacidad,
-  onTransicion, onDesplegar, onReintentar,
+  onTransicion, onDesplegar, onReintentar, motivoReversion, setMotivoReversion, onRevertir,
 }) {
   const cfg = ESTADO_CONFIG[detalle.estado] || {};
-  const kind = kindDe(detalle.estado);
+  const revertido = fueRevertido(detalle);
+  const kind = revertido ? 'warn' : kindDe(detalle.estado);
   const transiciones = TRANSICIONES[detalle.estado] || [];
+  // Solo se deshace una aprobación que todavía no se desplegó: en cuanto hay
+  // servicio, la vuelta atrás es una baja, no una decisión administrativa.
+  const puedeRevertir = isAdmin && detalle.estado === 'aprobado' && !detalle.servicio_id;
 
   return (
     <Dialog
@@ -373,7 +459,7 @@ function DetalleDialog({
       <div className="grid cols-3 mb-4">
         <div>
           <div className="section-label" style={{ marginBottom: 4 }}>Estado</div>
-          <StatusPill kind={kind}>{cfg.label || detalle.estado}</StatusPill>
+          <StatusPill kind={kind}>{revertido ? 'Aprobación deshecha' : (cfg.label || detalle.estado)}</StatusPill>
         </div>
         <div>
           <div className="section-label" style={{ marginBottom: 4 }}>Cátedra</div>
@@ -386,9 +472,18 @@ function DetalleDialog({
       </div>
 
       {detalle.motivo_rechazo && (
-        <div className="callout bad" style={{ marginBottom: 'var(--space-4)' }}>
+        <div className={`callout ${revertido ? 'warn' : 'bad'}`} style={{ marginBottom: 'var(--space-4)' }}>
           <Info size={15} />
-          <span><strong>Motivo de rechazo:</strong> {detalle.motivo_rechazo}</span>
+          {revertido ? (
+            <span>
+              <strong>Este pedido estaba aprobado y la aprobación se deshizo.</strong>{' '}
+              {motivoLimpio(detalle.motivo_rechazo)}{' '}
+              La capacidad que tenía reservada volvió a estar libre, y se puede volver a pedir lo mismo
+              cuando haga falta.
+            </span>
+          ) : (
+            <span><strong>Motivo de rechazo:</strong> {detalle.motivo_rechazo}</span>
+          )}
         </div>
       )}
 
@@ -398,9 +493,8 @@ function DetalleDialog({
           {detalle.historial?.map((h) => (
             <div key={h.id} className="row between" style={{ paddingLeft: 12, borderLeft: '2px solid var(--color-divider)' }}>
               <div style={{ fontSize: 12 }}>
-                <span className="tag neutral">{h.estado_anterior}</span>
-                {' → '}
-                <span className="tag">{h.estado_nuevo}</span>
+                <span>{describirEntrada(h)}</span>
+                {h.usuario_id == null && <span className="tag neutral" style={{ marginLeft: 6 }}>Automático</span>}
                 {h.comentario && <span style={{ color: 'var(--text-soft)' }}> · {h.comentario}</span>}
               </div>
               <span className="nowrap" style={{ fontSize: 11, color: 'var(--text-faint)' }}>{formatDate(h.created_at)}</span>
@@ -450,6 +544,28 @@ function DetalleDialog({
           ) : (
             <p className="text-muted">Consultando la capacidad del clúster…</p>
           )}
+        </div>
+      )}
+
+      {puedeRevertir && (
+        <div style={{ borderTop: '1px solid var(--color-divider)', paddingTop: 'var(--space-4)', marginTop: 'var(--space-4)' }}>
+          <div className="section-label" style={{ marginBottom: 'var(--space-2)' }}>Deshacer la aprobación</div>
+          <p className="text-muted" style={{ marginBottom: 'var(--space-2)' }}>
+            Libera en el acto la capacidad que este pedido tiene reservada, sin esperar a que la
+            reserva venza sola. La cátedra ve el motivo y puede volver a pedir lo mismo.
+          </p>
+          <div className="field">
+            <label>Motivo (la cátedra lo va a ver)</label>
+            <input
+              className="input"
+              placeholder="Ej: aprobé el template grande por error"
+              value={motivoReversion}
+              onChange={(e) => setMotivoReversion(e.target.value)}
+            />
+          </div>
+          <button className="btn btn-danger btn-sm" onClick={onRevertir} disabled={transicionando}>
+            Deshacer aprobación y liberar capacidad
+          </button>
         </div>
       )}
 

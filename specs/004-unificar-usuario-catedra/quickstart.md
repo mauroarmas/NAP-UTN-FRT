@@ -293,3 +293,16 @@ podía ver: el despliegue armaba el contenedor con los valores de la plantilla y
 no con los que el pedido había reservado. Era inofensivo mientras las plantillas
 fueran inmutables; habilitarlas para edición lo volvía una fuga de capacidad.
 Corregido en la 006 (FR-018).
+
+Y un quinto hallazgo, el más caro de los que dejó abiertos esta validación:
+**una aprobación sobrecomprometida no se podía deshacer**. El clúster quedó en
+-12 vCPU y -24 GB comprometidos, y eso bloqueó la reactivación de un servicio
+pausado de **otra** cátedra con `409 sin_capacidad`. Desde `aprobado` las únicas
+salidas eran desplegar el pedido —materializando el sobrecompromiso— o esperar
+hasta 24 h a que `expirar_reservas` liberara la reserva sola. Durante esa
+ventana el error de una cátedra degradaba el servicio de las demás.
+
+Resuelto por la [feature 005](../005-revertir-aprobacion/spec.md): el
+administrador revierte la aprobación con un motivo y la capacidad vuelve a estar
+libre en el acto. La otra mitad de lo que la 004 dejó a medias — sobrecomprometer
+ya era deliberado; ahora además es reversible.

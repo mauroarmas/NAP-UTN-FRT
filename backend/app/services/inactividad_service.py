@@ -231,7 +231,17 @@ async def reactivar(db: AsyncSession, servicio: Servicio, usuario) -> Servicio:
 
     pve = get_proxmox_client()
     try:
-        pve.start_lxc(servicio.proxmox_node, int(servicio.proxmox_vmid))
+        # Esperar la tarea, igual que `iniciar_servicio`: si la respuesta
+        # dijera "running" antes de que el contenedor arranque, el refresco
+        # siguiente lo mostraría pausado otra vez y la reactivación parecería
+        # no haber ocurrido.
+        from app.services.orquestacion_service import esperar_accion
+
+        await esperar_accion(
+            pve,
+            servicio.proxmox_node,
+            pve.start_lxc(servicio.proxmox_node, int(servicio.proxmox_vmid)),
+        )
     except Exception as exc:
         raise HTTPException(
             status_code=502,

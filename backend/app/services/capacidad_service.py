@@ -200,6 +200,36 @@ async def consumo_de_catedra(db: AsyncSession, catedra_id: int) -> dict:
     return {"vcpus": int(vcpus), "ram_mb": int(ram), "storage_gb": int(disk)}
 
 
+def liberar_reserva(pedido: Pedido) -> dict:
+    """Deja de comprometer la capacidad de un pedido. Devuelve lo que liberó.
+
+    Definición **única** de qué significa liberar, compartida por los dos
+    caminos que lo hacen: el vencimiento automático y la reversión que ejecuta
+    un administrador. Dos copias de esta lógica podrían divergir, y divergir acá
+    es capacidad fantasma — comprometida en la contabilidad, sin nada detrás.
+
+    Es idempotente: sobre una reserva ya en cero no hace nada y devuelve ceros.
+    Eso cubre sin caso especial a las renovaciones, que reservan cero porque su
+    servicio ya cuenta como consumo desplegado.
+
+    No hace commit. Quien la llama decide en qué transacción cae, que es lo que
+    permite que la liberación y el cambio de estado sean indivisibles.
+    """
+    liberado = {
+        "vcpus": pedido.reserva_vcpus or 0,
+        "ram_mb": pedido.reserva_ram_mb or 0,
+        "storage_gb": pedido.reserva_disk_gb or 0,
+    }
+    pedido.reserva_vcpus = 0
+    pedido.reserva_ram_mb = 0
+    pedido.reserva_disk_gb = 0
+    # Sin esto la reserva liberada seguiría teniendo un vencimiento pendiente y
+    # el trabajo periódico la volvería a "vencer", registrando en el historial
+    # una expiración que ya no corresponde a nada.
+    pedido.reserva_expira_at = None
+    return liberado
+
+
 # --- Trabajo periódico: expiración de reservas -----------------------------
 
 
@@ -236,10 +266,7 @@ async def expirar_reservas(db: AsyncSession) -> dict:
             ),
         )
         pedido.motivo_rechazo = "Reserva de capacidad vencida sin despliegue"
-        pedido.reserva_vcpus = 0
-        pedido.reserva_ram_mb = 0
-        pedido.reserva_disk_gb = 0
-        pedido.reserva_expira_at = None
+        liberar_reserva(pedido)
 
     await db.commit()
     return {"afectados": len(vencidos), "detalle": [p.id for p in vencidos]}

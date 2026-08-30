@@ -42,6 +42,26 @@ class PedidoRechazar(BaseModel):
     motivo: str
 
 
+class PedidoRevertir(BaseModel):
+    """Deshacer una aprobación. El motivo es obligatorio y lo ve la cátedra.
+
+    El campo se declara opcional a propósito, aunque no lo sea: si Pydantic lo
+    rechazara por su cuenta, un motivo ausente daría 422 y uno en blanco 400,
+    dos códigos distintos para el mismo error de quien llama. La validación vive
+    en el servicio, junto a la de `rechazar`, y siempre responde 400.
+    """
+
+    motivo: str | None = None
+
+
+class CapacidadLiberada(BaseModel):
+    """Lo que una reversión devolvió al saldo libre del clúster."""
+
+    vcpus: int
+    ram_mb: int
+    storage_gb: int
+
+
 class PedidoResponse(BaseModel):
     id: int
     catedra_id: int
@@ -81,3 +101,14 @@ class PedidoHistorialResponse(BaseModel):
 
 class PedidoDetalleResponse(PedidoResponse):
     historial: list[PedidoHistorialResponse] = []
+
+
+class PedidoRevertidoResponse(PedidoDetalleResponse):
+    """Detalle del pedido más cuánta capacidad volvió a estar libre.
+
+    Se informa acá para que la interfaz pueda decirlo en el acto, sin una
+    segunda consulta a capacidad que además podría leer otro número si alguien
+    aprobó en el medio.
+    """
+
+    capacidad_liberada: CapacidadLiberada | None = None

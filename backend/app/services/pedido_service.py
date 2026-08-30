@@ -51,7 +51,12 @@ TRANSICIONES_SISTEMA: set[tuple[EstadoPedido, EstadoPedido]] = {
     (EstadoPedido.EN_DESPLIEGUE, EstadoPedido.ACTIVO),
     (EstadoPedido.EN_DESPLIEGUE, EstadoPedido.ERROR),
     (EstadoPedido.ERROR, EstadoPedido.EN_DESPLIEGUE),
-    # Expiración de la reserva de capacidad.
+    # Expiración de la reserva de capacidad, y su equivalente humano: la
+    # reversión de una aprobación. Estar acá ya no significa "solo el sistema"
+    # sino **"no se alcanza cambiando el estado a mano"**: el peligro nunca fue
+    # que una persona decidiera revertir, sino que alguien moviera el estado sin
+    # liberar la reserva y dejara capacidad huérfana. Por eso la reversión entra
+    # por una operación con nombre propio, que hace las dos cosas juntas (R1).
     (EstadoPedido.APROBADO, EstadoPedido.RECHAZADO),
 }
 
@@ -236,6 +241,169 @@ async def rechazar_pedido(
     )
 
 
+# --- Reversión de una aprobación (feature 005) ------------------------------
+
+# Estados en los que el aprovisionamiento ya tocó la infraestructura. Desde acá
+# la vuelta atrás deja de ser una decisión administrativa y pasa a ser una baja
+# de servicio, que tiene su propio camino y su propia liberación en Proxmox.
+ESTADOS_CON_DESPLIEGUE = {
+    EstadoPedido.EN_DESPLIEGUE,
+    EstadoPedido.ACTIVO,
+    EstadoPedido.SUSPENDIDO,
+    EstadoPedido.ERROR,
+}
+
+
+async def _conflicto_de_reversion(db: AsyncSession, pedido: Pedido) -> HTTPException:
+    """Nombra por qué este pedido no se puede revertir.
+
+    Los cuatro casos comparten el código HTTP, pero para quien los recibe son
+    situaciones distintas y cada una tiene una salida distinta. Un genérico
+    "transición inválida" ante algo que el sistema hizo por su cuenta se lee
+    como una falla del portal.
+    """
+    if pedido.estado in ESTADOS_CON_DESPLIEGUE:
+        return HTTPException(
+            status_code=409,
+            detail={
+                "codigo": "despliegue_en_curso",
+                "mensaje": (
+                    "El servicio ya se está creando o ya existe. Para deshacerlo hay "
+                    "que dar de baja el servicio, no la aprobación."
+                ),
+                "estado_actual": pedido.estado.value,
+            },
+        )
+
+    if pedido.estado == EstadoPedido.RECHAZADO:
+        # Vencimiento y reversión llegan al mismo estado desde el mismo estado
+        # anterior; lo que los separa es el autor de esa transición (R6).
+        ultima = (
+            await db.execute(
+                select(PedidoHistorial)
+                .where(
+                    PedidoHistorial.pedido_id == pedido.id,
+                    PedidoHistorial.estado_nuevo == EstadoPedido.RECHAZADO.value,
+                    PedidoHistorial.estado_anterior == EstadoPedido.APROBADO.value,
+                )
+                .order_by(PedidoHistorial.id.desc())
+                .limit(1)
+            )
+        ).scalars().first()
+
+        if ultima is not None and ultima.usuario_id is None:
+            return HTTPException(
+                status_code=409,
+                detail={
+                    "codigo": "reserva_ya_vencida",
+                    "mensaje": (
+                        "La reserva de este pedido ya se liberó sola porque el "
+                        "despliegue nunca se concretó. No hay capacidad que recuperar."
+                    ),
+                },
+            )
+        if ultima is not None:
+            return HTTPException(
+                status_code=409,
+                detail={
+                    "codigo": "ya_revertido",
+                    "mensaje": (
+                        "Otra persona revirtió esta aprobación recién. La capacidad "
+                        "ya está liberada."
+                    ),
+                },
+            )
+
+    return HTTPException(
+        status_code=409,
+        detail={
+            "codigo": "pedido_no_aprobado",
+            "mensaje": (
+                "Este pedido no tiene ninguna aprobación que deshacer. Si querés que "
+                "no avance, rechazalo."
+            ),
+            "estado_actual": pedido.estado.value,
+        },
+    )
+
+
+async def revertir_aprobacion(
+    db: AsyncSession, pedido_id: int, admin: Usuario, motivo: str | None
+) -> tuple[Pedido, dict]:
+    """Deshace una aprobación antes del despliegue y libera su reserva.
+
+    Es la mitad que le faltaba a la feature 004: aprobar compromete capacidad en
+    el acto, y hasta acá lo único que la soltaba era desplegar el pedido o
+    esperar 24 h al vencimiento automático. Durante esa ventana el error de una
+    cátedra degradaba el servicio de las demás.
+
+    Todo ocurre dentro del bloqueo de capacidad y de una sola transacción. Las
+    dos cosas importan y por razones distintas:
+
+    - El **bloqueo** serializa, y la **relectura del estado adentro** es lo que
+      impide la doble liberación: la segunda reversión encuentra el pedido ya
+      fuera de APROBADO. Sin releer, dos reversiones podrían pasar el chequeo
+      antes de que ninguna escribiera y liberar dos veces (FR-005).
+    - La **transacción única** hace indivisible la liberación y el cambio de
+      estado. El estado intermedio —capacidad soltada sobre un pedido que sigue
+      aprobado— sería peor que el defecto original: el saldo libre contaría como
+      disponible algo que en realidad está comprometido (FR-004, I3).
+
+    No hace falta `capacidad_token`: el token protege contra *decidir* sobre un
+    saldo viejo, y acá no hay decisión contra el saldo — se libera.
+    """
+    if not motivo or not motivo.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Se requiere un motivo para revertir la aprobación",
+        )
+    motivo = motivo.strip()
+
+    async with capacidad_service.bloqueo_capacidad(db):
+        # `populate_existing` fuerza la lectura contra la base en lugar de
+        # devolver lo que la sesión ya tenía cargado. Es justamente el caso de
+        # dos reversiones simultáneas: la segunda leyó el pedido aprobado antes
+        # de que la primera escribiera.
+        pedido = (
+            await db.execute(
+                select(Pedido)
+                .where(Pedido.id == pedido_id, Pedido.deleted_at.is_(None))
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one_or_none()
+
+        if pedido is None:
+            raise HTTPException(status_code=404, detail="Pedido no encontrado")
+
+        if pedido.estado != EstadoPedido.APROBADO:
+            raise await _conflicto_de_reversion(db, pedido)
+
+        try:
+            liberado = capacidad_service.liberar_reserva(pedido)
+            texto = f"Aprobación revertida: {motivo}"
+            # `motivo_rechazo` nombra la situación para que la cátedra no lea un
+            # "rechazado" a secas. `justificacion_capacidad` no se toca: es parte
+            # del registro de la aprobación que se está deshaciendo, y borrarla
+            # perdería la mitad de la historia.
+            await cambiar_estado(
+                db,
+                pedido_id,
+                EstadoPedido.RECHAZADO.value,
+                admin,
+                comentario=texto,
+                motivo_rechazo=texto,
+                operacion_nombrada=True,
+            )
+        except Exception:
+            # La atomicidad no se delega al cierre de la sesión: si algo falla a
+            # mitad de camino, acá mismo queda deshecha la liberación.
+            await db.rollback()
+            raise
+
+    await db.refresh(pedido)
+    return pedido, liberado
+
+
 async def transicion_del_sistema(
     db: AsyncSession,
     pedido: Pedido,
@@ -324,6 +492,7 @@ async def cambiar_estado(
     comentario: str | None = None,
     motivo_rechazo: str | None = None,
     origen_sistema: bool = False,
+    operacion_nombrada: bool = False,
 ) -> Pedido:
     """
     Cambia el estado de un pedido siguiendo la máquina de estados.
@@ -332,6 +501,13 @@ async def cambiar_estado(
     reflejar el resultado de un despliegue real. El endpoint público de cambio
     de estado nunca lo setea, así que un admin no puede simular a mano que un
     pedido "se desplegó" sin que haya un `Servicio` real detrás.
+
+    `operacion_nombrada` lo pasa en `True` una operación que hace la transición
+    **junto con** todo lo que esa transición implica —hoy solo
+    `revertir_aprobacion`, que además libera la reserva—. La diferencia con
+    `origen_sistema` importa: el autor sigue siendo la persona que ejecutó la
+    operación, así que el historial no atribuye al sistema una decisión humana.
+    El endpoint público tampoco lo setea nunca.
     """
     # Buscar pedido
     pedido = await db.get(Pedido, pedido_id)
@@ -358,7 +534,11 @@ async def cambiar_estado(
         )
 
     # Transiciones de sistema: solo el orquestador puede ejecutarlas
-    if (pedido.estado, nuevo_estado) in TRANSICIONES_SISTEMA and not origen_sistema:
+    if (
+        (pedido.estado, nuevo_estado) in TRANSICIONES_SISTEMA
+        and not origen_sistema
+        and not operacion_nombrada
+    ):
         raise HTTPException(
             status_code=409,
             detail=(

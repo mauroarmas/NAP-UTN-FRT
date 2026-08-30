@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   RefreshCw, Play, Square, RotateCw, Trash2, Terminal, Activity,
-  Pin, PinOff, CalendarClock, Send,
+  Pin, PinOff, CalendarClock, Send, Loader2,
 } from 'lucide-react';
 import {
   getPedidos, listarServicios, desplegarPedido, iniciarServicio, detenerServicio,
@@ -21,11 +21,31 @@ const CFG = {
 // hace que la vista siga al contenedor y no al revés.
 const INTERVALO_REFRESCO_MS = 10000;
 
+// Encender o apagar un contenedor no es instantáneo: la petición viaja al
+// clúster y vuelve recién cuando la tarea de Proxmox terminó. Mientras tanto la
+// fila se ve idéntica a antes del clic, así que sin decirlo la acción parece no
+// haber ocurrido y la gente vuelve a apretar. Cada acción anuncia lo suyo.
+const EN_CURSO = {
+  start: 'Iniciando…',
+  stop: 'Deteniendo…',
+  restart: 'Reiniciando…',
+  reactivar: 'Reactivando…',
+  delete: 'Dando de baja…',
+  exento: 'Guardando…',
+  renovar: 'Solicitando…',
+  deploy: 'Desplegando…',
+};
+
+const Spinner = ({ size = 13 }) => <Loader2 size={size} className="spin" aria-hidden="true" />;
+
 export default function Servicios({ user }) {
   const [servicios, setServicios] = useState([]);
   const [pedidosAprobados, setPedidosAprobados] = useState([]);
   const [catedras, setCatedras] = useState([]);
   const [loading, setLoading] = useState(true);
+  // `{ tipo, id }` de la única acción en vuelo, o null. Guardar el tipo aparte
+  // del id permite atenuar toda la fila afectada sin confundir un pedido con un
+  // servicio que casualmente comparta número.
   const [accionando, setAccionando] = useState(null);
   const [statusDetalle, setStatusDetalle] = useState(null);
   const [proxmoxBase, setProxmoxBase] = useState(null);
@@ -34,14 +54,22 @@ export default function Servicios({ user }) {
 
   const isAdmin = user?.rol === 'admin';
 
-  const marcarAccion = (v) => { accionandoRef.current = v; setAccionando(v); };
+  const marcarAccion = (tipo, id) => {
+    const v = tipo ? { tipo, id } : null;
+    accionandoRef.current = v;
+    setAccionando(v);
+  };
+
+  const enCurso = (tipo, id) => accionando?.tipo === tipo && accionando?.id === id;
 
   const fetchData = async () => {
     try {
       const [srvRes, pedRes, catRes, baseRes] = await Promise.allSettled([
         listarServicios(),
         isAdmin ? getPedidos('aprobado') : Promise.resolve({ data: [] }),
-        isAdmin ? getCatedras() : Promise.resolve({ data: [] }),
+        // Para nombrar la cátedra de cada contenedor. No es solo del admin: una
+        // persona puede tener varias cátedras y necesita distinguirlas.
+        getCatedras(),
         getBaseConsolaProxmox(),
       ]);
       if (srvRes.status === 'fulfilled') { setServicios(srvRes.value.data); setActualizadoAt(new Date()); }
@@ -61,7 +89,8 @@ export default function Servicios({ user }) {
     return () => clearInterval(timer);
   }, []);
 
-  const catedraNombre = (id) => catedras.find((c) => c.id === id)?.nombre || `Cátedra #${id}`;
+  const catedra = (id) => catedras.find((c) => c.id === id);
+  const catedraNombre = (id) => catedra(id)?.nombre || `Cátedra #${id}`;
 
   // Única excepción al Principio I (enmienda constitucional v3.0.0): Proxmox no
   // acepta API tokens para el WebSocket de consola, así que el portal no puede
@@ -74,7 +103,7 @@ export default function Servicios({ user }) {
 
   const handleDesplegar = async (pedidoId) => {
     if (!confirm(`¿Desplegar pedido #${pedidoId} en Proxmox?`)) return;
-    marcarAccion(`deploy-${pedidoId}`);
+    marcarAccion('deploy', pedidoId);
     try {
       await desplegarPedido(pedidoId);
       await fetchData();
@@ -87,7 +116,7 @@ export default function Servicios({ user }) {
   };
 
   const handleReactivar = async (id) => {
-    marcarAccion(`reactivar-${id}`);
+    marcarAccion('reactivar', id);
     try {
       await reactivarServicio(id);
       await fetchData();
@@ -106,7 +135,7 @@ export default function Servicios({ user }) {
       'Marcar "siempre encendido" excluye este servicio del apagado automático por falta de uso.\n\n' +
       'Usalo cuando el servicio deba seguir arriba aunque no registre actividad.'
     )) return;
-    marcarAccion(`exento-${s.id}`);
+    marcarAccion('exento', s.id);
     try {
       await actualizarServicio(s.id, { exento_pausado: activando });
       await fetchData();
@@ -122,7 +151,7 @@ export default function Servicios({ user }) {
       `Solicitar renovación de ${s.hostname || `servicio #${s.id}`}.\n\n` +
       'Crea un pedido que un administrador tiene que aprobar. El servicio sigue funcionando mientras tanto.'
     )) return;
-    marcarAccion(`renovar-${s.id}`);
+    marcarAccion('renovar', s.id);
     try {
       await renovarServicio(s.id);
       alert('Pedido de renovación creado.');
@@ -136,7 +165,7 @@ export default function Servicios({ user }) {
 
   const accionSimple = (verbo, fn, confirmMsg) => async (id) => {
     if (confirmMsg && !confirm(confirmMsg)) return;
-    marcarAccion(`${verbo}-${id}`);
+    marcarAccion(verbo, id);
     try {
       await fn(id);
       await fetchData();
@@ -158,7 +187,7 @@ export default function Servicios({ user }) {
       ? `El contenedor ${s.proxmox_vmid} ya no existe en Proxmox.\n¿Dar de baja el registro del servicio?`
       : `¿Dar de baja el servicio y eliminar el contenedor ${s.proxmox_vmid} en Proxmox?\nEsta acción no se puede deshacer.`;
     if (!confirm(aviso)) return;
-    marcarAccion(`delete-${s.id}`);
+    marcarAccion('delete', s.id);
     try {
       await eliminarServicio(s.id);
       await fetchData();
@@ -231,9 +260,10 @@ export default function Servicios({ user }) {
                     <td style={{ color: 'var(--text-soft)' }}>Template #{p.template_id}</td>
                     <td className="right">
                       <button className="btn-send" style={{ padding: '7px 16px', fontSize: 13 }}
-                        onClick={() => handleDesplegar(p.id)} disabled={accionando === `deploy-${p.id}`}>
-                        <Send size={15} />
-                        <span>{accionando === `deploy-${p.id}` ? 'Desplegando…' : 'Desplegar'}</span>
+                        onClick={() => handleDesplegar(p.id)} disabled={!!accionando}
+                        aria-busy={enCurso('deploy', p.id)}>
+                        {enCurso('deploy', p.id) ? <Spinner size={15} /> : <Send size={15} />}
+                        <span>{enCurso('deploy', p.id) ? EN_CURSO.deploy : 'Desplegar'}</span>
                       </button>
                     </td>
                   </tr>
@@ -251,18 +281,41 @@ export default function Servicios({ user }) {
             <table>
               <thead>
                 <tr>
-                  <th>VMID</th><th>Hostname</th><th>Nodo</th><th>Recursos</th>
+                  <th>VMID</th><th>Hostname</th><th>Cátedra</th><th>Nodo</th><th>Recursos</th>
                   <th>Estado</th><th>Desplegado</th><th className="right">Acciones</th>
                 </tr>
               </thead>
               <tbody>
                 {servicios.map((s) => {
                   const cfg = CFG[s.estado] || { label: s.estado, kind: 'off' };
-                  const busy = (k) => accionando === `${k}-${s.id}`;
+                  const busy = (k) => enCurso(k, s.id);
+                  // Mientras Proxmox aplica una acción, el resto de la fila
+                  // operaría sobre un estado que está por cambiar: se apagan
+                  // todas menos la que está en curso, que es la única que tiene
+                  // algo que contar.
+                  const ocupada = accionando !== null
+                    && accionando.tipo !== 'deploy'
+                    && accionando.id === s.id;
                   return (
                     <tr key={s.id}>
                       <td className="cell-strong tabnum" style={{ color: 'var(--color-accent-700)' }}>{s.proxmox_vmid || '—'}</td>
-                      <td className="cell-strong nowrap">{s.hostname || '—'}</td>
+                      <td className="nowrap">
+                        <div className="col gap-1" style={{ alignItems: 'flex-start' }}>
+                          <span className="cell-strong">{s.hostname || '—'}</span>
+                          {/* La IP es lo que hace falta para llegar al contenedor;
+                              tenerla en el registro y no mostrarla obligaba a
+                              buscarla en Proxmox. */}
+                          <span className="card-meta tabnum">{s.ip_address || 'sin IP asignada'}</span>
+                        </div>
+                      </td>
+                      <td>
+                        <div className="col gap-1" style={{ alignItems: 'flex-start' }}>
+                          <span>{catedraNombre(s.catedra_id)}</span>
+                          {isAdmin && catedra(s.catedra_id)?.titular?.nombre && (
+                            <span className="card-meta">{catedra(s.catedra_id).titular.nombre}</span>
+                          )}
+                        </div>
+                      </td>
                       <td className="nowrap" style={{ color: 'var(--text-soft)' }}>{s.proxmox_node || '—'}</td>
                       <td className="tabnum nowrap" style={{ color: 'var(--text-soft)' }}>
                         {s.vcpus_asignados} vCPU · {s.ram_asignada_mb} MB · {s.disk_asignado_gb} GB
@@ -270,6 +323,12 @@ export default function Servicios({ user }) {
                       <td>
                         <div className="col gap-1" style={{ alignItems: 'flex-start' }}>
                           <StatusPill kind={cfg.kind}>{cfg.label}</StatusPill>
+                          {ocupada && (
+                            <span className="card-meta"
+                                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--st-warn)' }}>
+                              <Spinner size={11} /> {EN_CURSO[accionando.tipo]}
+                            </span>
+                          )}
                           {s.existe_en_proxmox === false ? (
                             <span className="card-meta" style={{ color: 'var(--st-bad)' }}>ya no existe en Proxmox</span>
                           ) : s.estado_sincronizado === false && (
@@ -294,8 +353,10 @@ export default function Servicios({ user }) {
                         <div className="row gap-1" style={{ justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                           {s.existe_en_proxmox === false ? (
                             isAdmin ? (
-                              <button className="pill-btn bad" onClick={() => handleEliminar(s)} disabled={busy('delete')}>
-                                <Trash2 size={13} /> Dar de baja
+                              <button className="pill-btn bad" onClick={() => handleEliminar(s)}
+                                disabled={ocupada} aria-busy={busy('delete')}>
+                                {busy('delete') ? <Spinner /> : <Trash2 size={13} />}
+                                {busy('delete') ? EN_CURSO.delete : 'Dar de baja'}
                               </button>
                             ) : (
                               <span className="card-meta">Avisá al administrador</span>
@@ -303,33 +364,48 @@ export default function Servicios({ user }) {
                           ) : (
                             <>
                               {s.pausado_auto_at ? (
-                                <button className="pill-btn ok" onClick={() => handleReactivar(s.id)} disabled={busy('reactivar')}
+                                <button className="pill-btn ok" onClick={() => handleReactivar(s.id)}
+                                  disabled={ocupada} aria-busy={busy('reactivar')}
                                   title="Volver a encenderlo. Los datos están intactos; los procesos que no arrancan solos hay que levantarlos.">
-                                  <Play size={13} /> Reactivar
+                                  {busy('reactivar') ? <Spinner /> : <Play size={13} />}
+                                  {busy('reactivar') ? EN_CURSO.reactivar : 'Reactivar'}
                                 </button>
                               ) : s.estado === 'running' ? (
-                                <button className="pill-btn warn" onClick={() => handleStop(s.id)} disabled={busy('stop')}>
-                                  <Square size={12} /> Detener
+                                <button className="pill-btn warn" onClick={() => handleStop(s.id)}
+                                  disabled={ocupada} aria-busy={busy('stop')}>
+                                  {busy('stop') ? <Spinner /> : <Square size={12} />}
+                                  {busy('stop') ? EN_CURSO.stop : 'Detener'}
                                 </button>
                               ) : (
-                                <button className="pill-btn ok" onClick={() => handleStart(s.id)} disabled={busy('start')}>
-                                  <Play size={13} /> Iniciar
+                                <button className="pill-btn ok" onClick={() => handleStart(s.id)}
+                                  disabled={ocupada} aria-busy={busy('start')}>
+                                  {busy('start') ? <Spinner /> : <Play size={13} />}
+                                  {busy('start') ? EN_CURSO.start : 'Iniciar'}
                                 </button>
                               )}
                               {s.estado === 'running' && (
-                                <button className="btn-icon" title="Reiniciar" onClick={() => handleRestart(s.id)} disabled={busy('restart')}>
-                                  <RotateCw size={15} />
+                                <button className="btn-icon" onClick={() => handleRestart(s.id)}
+                                  disabled={ocupada} aria-busy={busy('restart')}
+                                  title={busy('restart') ? EN_CURSO.restart : 'Reiniciar'}>
+                                  {busy('restart') ? <Spinner size={15} /> : <RotateCw size={15} />}
                                 </button>
                               )}
                               <button className="btn-icon" title="Estado en Proxmox" onClick={() => handleStatus(s.id)}><Activity size={15} /></button>
                               {s.vence_at && (
-                                <button className="btn-icon" title="Solicitar renovación" onClick={() => handleRenovar(s)} disabled={busy('renovar')}>
-                                  <CalendarClock size={15} />
+                                <button className="btn-icon" onClick={() => handleRenovar(s)}
+                                  disabled={ocupada} aria-busy={busy('renovar')}
+                                  title={busy('renovar') ? EN_CURSO.renovar : 'Solicitar renovación'}>
+                                  {busy('renovar') ? <Spinner size={15} /> : <CalendarClock size={15} />}
                                 </button>
                               )}
-                              <button className="btn-icon" onClick={() => handleExento(s)} disabled={busy('exento')}
-                                title={s.exento_pausado ? 'Quitar "siempre encendido"' : 'Marcar "siempre encendido"'}>
-                                {s.exento_pausado ? <Pin size={15} /> : <PinOff size={15} />}
+                              <button className="btn-icon" onClick={() => handleExento(s)}
+                                disabled={ocupada} aria-busy={busy('exento')}
+                                title={busy('exento')
+                                  ? EN_CURSO.exento
+                                  : (s.exento_pausado ? 'Quitar "siempre encendido"' : 'Marcar "siempre encendido"')}>
+                                {busy('exento')
+                                  ? <Spinner size={15} />
+                                  : (s.exento_pausado ? <Pin size={15} /> : <PinOff size={15} />)}
                               </button>
                               {proxmoxBase && s.estado === 'running' && s.proxmox_vmid && (
                                 <a className="btn-icon" href={urlConsolaProxmox(s)} target="_blank" rel="noopener noreferrer"
@@ -338,8 +414,10 @@ export default function Servicios({ user }) {
                                 </a>
                               )}
                               {isAdmin && (
-                                <button className="btn-icon danger" title="Dar de baja" onClick={() => handleEliminar(s)} disabled={busy('delete')}>
-                                  <Trash2 size={15} />
+                                <button className="btn-icon danger" onClick={() => handleEliminar(s)}
+                                  disabled={ocupada} aria-busy={busy('delete')}
+                                  title={busy('delete') ? EN_CURSO.delete : 'Dar de baja'}>
+                                  {busy('delete') ? <Spinner size={15} /> : <Trash2 size={15} />}
                                 </button>
                               )}
                             </>
