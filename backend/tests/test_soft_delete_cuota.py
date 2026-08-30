@@ -1,16 +1,22 @@
-"""US2 — cuota, métricas e historial frente a la baja lógica (FR-011, FR-012)."""
+"""Baja lógica frente a la contabilidad de capacidad, métricas e historial.
+
+Reescrito para la feature 004: la regla de fondo que estas pruebas verificaban
+—lo dado de baja no ocupa capacidad— sigue vigente; lo que cambió es contra qué
+se mide. Antes se medía contra la cuota declarada de la cátedra, que ya no
+existe; ahora contra la capacidad real del clúster.
+"""
 
 from sqlalchemy import select
 
 from app.models.pedido import EstadoPedido, PedidoHistorial
-from app.services.pedido_service import verificar_cuota
+from app.services import capacidad_service
 from tests import factories
 
 
-async def test_servicio_dado_de_baja_no_consume_cuota(
+async def test_servicio_dado_de_baja_no_consume_capacidad(
     client, db, proxmox, catedra, template, auth_admin
 ):
-    """FR-012 / SC-005 — la cuota se libera al dar de baja."""
+    """Lo dado de baja deja de contar como desplegado."""
     servicio = await factories.crear_servicio(
         db,
         catedra_id=catedra.id,
@@ -20,23 +26,28 @@ async def test_servicio_dado_de_baja_no_consume_cuota(
         ram_mb=4096,
         disk_gb=16,
     )
-    # Con el servicio vigente la cátedra está al tope de su cuota
-    antes = await verificar_cuota(db, catedra.id, template)
-    assert antes["dentro_de_cuota"] is False
+
+    antes = await capacidad_service.panorama(db)
+    assert antes["desplegado"]["vcpus"] == 4
+    assert antes["desplegado"]["ram_mb"] == 4096
 
     await client.delete(f"/servicios/{servicio.id}", headers=auth_admin)
 
-    despues = await verificar_cuota(db, catedra.id, template)
-    assert despues["dentro_de_cuota"] is True
-    assert despues["uso_actual"]["vcpus"] == 0
-    assert despues["uso_actual"]["ram_mb"] == 0
+    despues = await capacidad_service.panorama(db)
+    assert despues["desplegado"]["vcpus"] == 0
+    assert despues["desplegado"]["ram_mb"] == 0
+    assert despues["desplegado"]["storage_gb"] == 0
 
 
-async def test_crear_pedido_vuelve_a_ser_posible_tras_la_baja(
-    client, db, proxmox, catedra, usuario_catedra, template, auth_admin, auth_catedra
+async def test_crear_pedido_no_se_bloquea_por_consumo_acumulado(
+    client, db, proxmox, catedra, usuario_catedra, template, auth_catedra
 ):
-    """El efecto observable de FR-012 desde la API."""
-    servicio = await factories.crear_servicio(
+    """El cambio de modelo, visto desde la API.
+
+    Bajo el modelo anterior este pedido daba 409 por cuota agotada. Ahora entra
+    siempre: quién decide es el administrador al aprobarlo.
+    """
+    await factories.crear_servicio(
         db,
         catedra_id=catedra.id,
         template_id=template.id,
@@ -46,23 +57,17 @@ async def test_crear_pedido_vuelve_a_ser_posible_tras_la_baja(
         disk_gb=16,
     )
 
-    bloqueado = await client.post(
+    respuesta = await client.post(
         "/pedidos/", json={"template_id": template.id}, headers=auth_catedra
     )
-    assert bloqueado.status_code == 409, "la cuota debería estar agotada"
-
-    await client.delete(f"/servicios/{servicio.id}", headers=auth_admin)
-
-    permitido = await client.post(
-        "/pedidos/", json={"template_id": template.id}, headers=auth_catedra
-    )
-    assert permitido.status_code == 201, permitido.text
+    assert respuesta.status_code == 201, respuesta.text
+    assert respuesta.json()["estado"] == EstadoPedido.SOLICITADO.value
 
 
 async def test_uso_informado_de_la_catedra_excluye_dados_de_baja(
     client, db, proxmox, catedra, template, auth_admin
 ):
-    """FR-012 — el uso informado en el detalle de cátedra ignora las bajas."""
+    """El consumo que se le informa a la cátedra ignora las bajas."""
     servicio = await factories.crear_servicio(
         db, catedra_id=catedra.id, template_id=template.id, proxmox_vmid="142", vcpus=2
     )
@@ -77,10 +82,38 @@ async def test_uso_informado_de_la_catedra_excluye_dados_de_baja(
     assert despues.json()["servicios_activos"] == 0
 
 
+async def test_consumo_historico_de_la_catedra_sigue_reconstruible(
+    client, db, proxmox, catedra, usuario_catedra, template, auth_admin
+):
+    """El registro sobrevive a la baja, con sus recursos asignados.
+
+    Es lo que permite responder "cuánto consumió esta cátedra el cuatrimestre
+    pasado" mucho después de que el contenedor dejó de existir.
+    """
+    servicio = await factories.crear_servicio(
+        db,
+        catedra_id=catedra.id,
+        template_id=template.id,
+        proxmox_vmid="145",
+        vcpus=3,
+        ram_mb=2048,
+        disk_gb=8,
+    )
+    await client.delete(f"/servicios/{servicio.id}", headers=auth_admin)
+
+    await db.refresh(servicio)
+    assert servicio.deleted_at is not None, "la baja debe ser lógica, no física"
+    # Los recursos que ocupó siguen registrados: sin esto el histórico se pierde.
+    assert servicio.vcpus_asignados == 3
+    assert servicio.ram_asignada_mb == 2048
+    assert servicio.disk_asignado_gb == 8
+    assert servicio.catedra_id == catedra.id
+
+
 async def test_historial_del_pedido_sobrevive_a_la_baja(
     client, db, proxmox, catedra, usuario_catedra, template, auth_admin
 ):
-    """FR-011 / SC-003 — el consumo histórico sigue reconstruible."""
+    """El historial de transiciones es de solo agregado."""
     pedido = await factories.crear_pedido(
         db,
         catedra_id=catedra.id,
@@ -91,7 +124,7 @@ async def test_historial_del_pedido_sobrevive_a_la_baja(
     db.add(
         PedidoHistorial(
             pedido_id=pedido.id,
-            estado_anterior="en_revision",
+            estado_anterior="solicitado",
             estado_nuevo="rechazado",
             comentario="sin capacidad este cuatrimestre",
             usuario_id=usuario_catedra.id,

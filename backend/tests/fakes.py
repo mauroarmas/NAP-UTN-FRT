@@ -31,6 +31,7 @@ class FakeProxmoxClient:
         self,
         next_vmid: int = 100,
         fallar_create: Exception | None = None,
+        fallar_task: Exception | None = None,
         fallar_delete: Exception | None = None,
         fallar_start: Exception | None = None,
         fallar_stop: Exception | None = None,
@@ -41,6 +42,9 @@ class FakeProxmoxClient:
     ):
         self.next_vmid = next_vmid
         self.fallar_create = fallar_create
+        # Fallo *dentro* de la tarea de Proxmox: la llamada devuelve el task id
+        # sin problemas y el error recién aparece al esperar su resultado.
+        self.fallar_task = fallar_task
         self.fallar_delete = fallar_delete
         self.fallar_start = fallar_start
         self.fallar_stop = fallar_stop
@@ -59,6 +63,7 @@ class FakeProxmoxClient:
         self.iniciados: list[tuple[str, int]] = []
         self.reiniciados: list[tuple[str, int]] = []
         self.llamadas_next_vmid = 0
+        self.tasks_esperadas: list[tuple] = []
 
         # Estado simulado de los contenedores: vmid -> estado
         self.estados: dict[int, str] = {}
@@ -87,6 +92,11 @@ class FakeProxmoxClient:
             }
         )
         return f"UPID:{node}:task:create"
+
+    def esperar_task(self, node, task_id):
+        if self.fallar_task is not None:
+            raise self.fallar_task
+        self.tasks_esperadas.append((node, task_id))
 
     def get_lxc_status(self, node: str, vmid: int) -> dict:
         return {"status": self.estados.get(int(vmid), "stopped")}

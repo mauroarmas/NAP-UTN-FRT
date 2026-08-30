@@ -4,7 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { obtenerTicketConsola } from '../services/api';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8001';
 
 // ⚠️ EN PAUSA (2026-08-15) — este componente NO se usa hoy. Ningún import lo
 // referencia; queda en el repo a la espera de definir con la cátedra cómo debe
