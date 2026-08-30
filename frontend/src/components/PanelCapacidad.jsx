@@ -24,7 +24,7 @@ export default function PanelCapacidad({ evaluacion }) {
   return (
     <div className="panel-capacidad">
       <p className="capacidad-riesgo">
-        Cátedra <strong>{pedido?.catedra?.nombre}</strong> — ya tiene{' '}
+        Cátedra <strong>{pedido?.catedra?.nombre}</strong> — tiene{' '}
         {consumoCatedra.vcpus} vCPU, {consumoCatedra.ram_mb} MB de RAM y{' '}
         {consumoCatedra.storage_gb} GB de disco desplegados.
       </p>
