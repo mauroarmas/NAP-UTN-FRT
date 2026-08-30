@@ -258,6 +258,26 @@ una URL o credencial de Proxmox.
       [quickstart.md](./quickstart.md) — incluye cronometrar que el resultado de un comando
       aparece en menos de 15 segundos desde el clic en "Consola"
 
+      **BLOQUEADA — no es que falte ejecutarla, falta la funcionalidad.** Verificado el
+      2026-08-30 contra el entorno real: la página de Servicios no ofrece consola embebida.
+      Lo que muestra hoy es un enlace que abre la interfaz de Proxmox en otra pestaña, y solo
+      para el rol administrador, así que la cátedra no tiene consola alguna. El componente
+      `frontend/src/components/ConsolaServicio.jsx` existe pero **ningún import lo referencia**;
+      su propio encabezado lo declara "EN PAUSA (2026-08-15)".
+
+      Dos bloqueos, ninguno de validación:
+
+      1. **Técnico**: el relay del backend conecta y autentica, pero la sesión muere sin
+         transmitir. Proxmox no acepta API tokens para el WebSocket de consola y haría falta
+         un ticket de sesión (usuario/contraseña contra `/access/ticket`), lo que toca cómo
+         el portal guarda credenciales de infraestructura.
+      2. **De producto**: falta definir con la cátedra cómo se gestiona el acceso al
+         contenedor (ver `DUDAS-ENTREVISTA.md`).
+
+      El enlace actual además contradice el Principio I ("Proxmox es el back-end, nunca la
+      interfaz"), aunque hoy solo lo alcanza el administrador. Cerrar esto es una feature,
+      no una validación: corresponde una spec propia.
+
 **Checkpoint**: US1 + US2 + US3 completas — las tres capacidades del spec disponibles para cátedra
 sobre lo propio y para administrador sobre cualquier servicio.
 

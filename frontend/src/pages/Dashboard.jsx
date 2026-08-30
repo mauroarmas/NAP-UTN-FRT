@@ -1,198 +1,128 @@
 import { useState, useEffect } from 'react';
+import { Globe, Server, Building2, Boxes } from 'lucide-react';
 import { getCatedras, getProxmoxStatus, getProxmoxResources, getProxmoxStorage } from '../services/api';
 import PanelCatedra from '../components/PanelCatedra';
+import { PageHead, StatusPill, Empty } from '../components/ui';
 
 export default function Dashboard({ user }) {
-  const [catedras, setCatedras]   = useState([]);
-  const [proxmox, setProxmox]     = useState(null);
+  const [catedras, setCatedras] = useState([]);
+  const [proxmox, setProxmox] = useState(null);
   const [resources, setResources] = useState([]);
-  const [storages, setStorages]   = useState([]);
-  const [loading, setLoading]     = useState(true);
+  const [storages, setStorages] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   const isAdmin = user?.rol === 'admin';
 
   useEffect(() => {
     if (!isAdmin) return;
-    const fetchData = async () => {
+    (async () => {
       try {
-        const results = await Promise.allSettled([
-          getCatedras(),
-          getProxmoxStatus(),
-          getProxmoxResources(),
-          getProxmoxStorage(),
+        const r = await Promise.allSettled([
+          getCatedras(), getProxmoxStatus(), getProxmoxResources(), getProxmoxStorage(),
         ]);
-        if (results[0].status === 'fulfilled') setCatedras(results[0].value.data);
-        if (results[1].status === 'fulfilled') setProxmox(results[1].value.data);
-        if (results[2].status === 'fulfilled') setResources(results[2].value.data);
-        if (results[3].status === 'fulfilled') setStorages(results[3].value.data);
+        if (r[0].status === 'fulfilled') setCatedras(r[0].value.data);
+        if (r[1].status === 'fulfilled') setProxmox(r[1].value.data);
+        if (r[2].status === 'fulfilled') setResources(r[2].value.data);
+        if (r[3].status === 'fulfilled') setStorages(r[3].value.data);
       } catch (err) {
         console.error(err);
       } finally {
         setLoading(false);
       }
-    };
-    fetchData();
+    })();
   }, [isAdmin]);
 
-  if (!isAdmin) {
-    return <PanelCatedra user={user} />;
-  }
+  if (!isAdmin) return <PanelCatedra user={user} />;
 
-  // Proxmox informa en potencias de 1024 y rotula GiB/MiB: acá se hace igual,
-  // porque decir "GB" sobre una división por 1024³ era justo lo que hacía que
-  // los números del portal no cerraran con los de la interfaz de Proxmox.
+  // Proxmox informa en potencias de 1024 y rotula GiB/MiB: acá se hace igual.
   const formatBytes = (bytes) => {
     if (!bytes) return '0 B';
-    const gib = bytes / (1024 ** 3);
-    return gib >= 1 ? `${gib.toFixed(2)} GiB` : `${(bytes / (1024 ** 2)).toFixed(0)} MiB`;
+    const gib = bytes / 1024 ** 3;
+    return gib >= 1 ? `${gib.toFixed(1)} GiB` : `${(bytes / 1024 ** 2).toFixed(0)} MiB`;
   };
+  const pct = (u, t) => (t > 0 ? (u / t) * 100 : 0);
+  const barClass = (p) => (p > 85 ? 'bad' : p > 60 ? 'warn' : 'ok');
 
-  const porcentaje = (usado, total) => (total > 0 ? (usado / total) * 100 : 0);
+  const conectado = proxmox?.status === 'connected';
+  const nContenedores = resources.filter((r) => r.type === 'lxc' || r.type === 'qemu').length;
+  const catedrasActivas = catedras.filter((c) => c.activa).length;
 
   return (
     <div className="fade-in">
-      <div className="page-header">
-        <h1 className="page-title">Dashboard</h1>
-        <p className="page-subtitle">
-          Bienvenido, {user?.nombre}. Vista de administrador.
-        </p>
-      </div>
+      <PageHead title="Inicio" subtitle="Vista general — clúster Proxmox VE" />
 
-      {/* Estado del clúster Proxmox */}
-      <div className="cards-grid">
-        <div className="stat-card">
-          <div className="stat-icon green">🔗</div>
-          <div className="stat-value">
-            {proxmox?.status === 'connected' ? (
-              <span className="badge success"><span className="badge-dot"></span>Conectado</span>
-            ) : (
-              <span className="badge error"><span className="badge-dot"></span>Desconectado</span>
-            )}
-          </div>
-          <div className="stat-label">Proxmox VE</div>
+      <div className="grid cols-4 mb-6">
+        <div className="stat stat--accent">
+          <div className="stat__kicker"><span className="stat__glyph"><Globe size={16} /></span> Clúster</div>
+          <div><StatusPill kind={conectado ? 'ok' : 'bad'}>{conectado ? 'Conectado' : 'Desconectado'}</StatusPill></div>
+          <div className="stat__meta">Proxmox VE</div>
         </div>
-
-        <div className="stat-card">
-          <div className="stat-icon blue">🖥️</div>
-          <div className="stat-value">{loading ? '—' : proxmox?.nodes?.length || 0}</div>
-          <div className="stat-label">Nodos en el clúster</div>
+        <div className="stat stat--ok">
+          <div className="stat__kicker"><span className="stat__glyph ok"><Server size={16} /></span> Nodos</div>
+          <div className="stat__value">{loading ? '—' : proxmox?.nodes?.length || 0}</div>
+          <div className="stat__meta">en el clúster</div>
         </div>
-
-        <div className="stat-card">
-          <div className="stat-icon purple">📦</div>
-          <div className="stat-value">{loading ? '—' : resources.filter(r => r.type === 'lxc' || r.type === 'qemu').length}</div>
-          <div className="stat-label">VMs / Contenedores</div>
+        <div className="stat stat--accent">
+          <div className="stat__kicker"><span className="stat__glyph"><Building2 size={16} /></span> Cátedras</div>
+          <div className="stat__value">{catedrasActivas} <small>/ {catedras.length}</small></div>
+          <div className="stat__meta">activas</div>
+        </div>
+        <div className="stat stat--warn">
+          <div className="stat__kicker"><span className="stat__glyph warn"><Boxes size={16} /></span> Recursos</div>
+          <div className="stat__value">{loading ? '—' : nContenedores}</div>
+          <div className="stat__meta">VMs / contenedores</div>
         </div>
       </div>
 
-      {/* Info de los nodos Proxmox */}
-      {proxmox?.nodes?.map((node) => (
-        <div className="card" key={node.node} style={{ marginBottom: 24 }}>
-          <div className="card-header">
-            <h3 className="card-title">Nodo: {node.node}</h3>
-            <span className={`badge ${node.status === 'online' ? 'success' : 'error'}`}>
-              <span className="badge-dot"></span>
-              {node.status}
-            </span>
-          </div>
-
-          <div className="cards-grid" style={{ marginBottom: 0 }}>
-            <div>
-              <div className="stat-label" style={{ marginBottom: 8 }}>
-                CPU ({node.maxcpu} cores)
-              </div>
-              <div className="progress-bar">
-                <div
-                  className={`progress-fill ${node.cpu > 0.8 ? 'red' : node.cpu > 0.5 ? 'orange' : 'green'}`}
-                  style={{ width: `${(node.cpu * 100).toFixed(0)}%` }}
-                />
-              </div>
-              <div className="stat-label" style={{ marginTop: 4 }}>
-                {(node.cpu * 100).toFixed(1)}% en uso
-              </div>
+      {proxmox?.nodes?.map((node) => {
+        const cpuP = node.cpu * 100;
+        const ramP = pct(node.mem, node.maxmem);
+        const diskP = pct(node.disk, node.maxdisk);
+        return (
+          <div className="card mb-4" key={node.node}>
+            <div className="card-header">
+              <div className="card-title">{node.node}</div>
+              <StatusPill kind={node.status === 'online' ? 'ok' : 'bad'}>{node.status}</StatusPill>
             </div>
-
-            <div>
-              <div className="stat-label" style={{ marginBottom: 8 }}>
-                RAM ({formatBytes(node.maxmem)})
-              </div>
-              <div className="progress-bar">
-                <div
-                  className={`progress-fill ${node.mem / node.maxmem > 0.8 ? 'red' : 'blue'}`}
-                  style={{ width: `${((node.mem / node.maxmem) * 100).toFixed(0)}%` }}
-                />
-              </div>
-              <div className="stat-label" style={{ marginTop: 4 }}>
-                {formatBytes(node.mem)} en uso
-              </div>
-            </div>
-
-            <div>
-              <div
-                className="stat-label"
-                style={{ marginBottom: 8 }}
-                title="Sistema de archivos raíz del host. No es donde se crean los contenedores: eso se ve más abajo, en Almacenamiento."
-              >
-                Disco del sistema ({formatBytes(node.maxdisk)})
-              </div>
-              <div className="progress-bar">
-                <div
-                  className={`progress-fill ${node.disk / node.maxdisk > 0.8 ? 'red' : 'purple'}`}
-                  style={{ width: `${((node.disk / node.maxdisk) * 100).toFixed(0)}%` }}
-                />
-              </div>
-              <div className="stat-label" style={{ marginTop: 4 }}>
-                {formatBytes(node.disk)} en uso
-              </div>
+            <div className="grid cols-3">
+              {[
+                { label: `CPU · ${node.maxcpu} cores`, p: cpuP, txt: `${cpuP.toFixed(1)} %` },
+                { label: `RAM · ${formatBytes(node.maxmem)}`, p: ramP, txt: `${formatBytes(node.mem)} en uso` },
+                { label: `Disco del sistema · ${formatBytes(node.maxdisk)}`, p: diskP, txt: `${formatBytes(node.disk)} en uso` },
+              ].map((m) => (
+                <div key={m.label}>
+                  <div className="card-meta" style={{ marginBottom: 6 }}>{m.label}</div>
+                  <div className="meter"><div className={`meter__fill ${barClass(m.p)}`} style={{ width: `${m.p}%` }} /></div>
+                  <div className="card-meta tabnum" style={{ marginTop: 4 }}>{m.txt}</div>
+                </div>
+              ))}
             </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
 
-      {/* Almacenamiento por storage.
-          El "Disco del sistema" de arriba es solo la raíz del host; los
-          contenedores se crean en el storage con contenido rootdir/images
-          (local-lvm), así que ese es el que dice si entra un LXC más. */}
       {storages.length > 0 && (
-        <div className="card" style={{ marginBottom: 24 }}>
+        <div className="card mb-4">
           <div className="card-header">
-            <h3 className="card-title">Almacenamiento</h3>
-            <span className="stat-label" style={{ fontSize: 11 }}>
-              Total del clúster: {formatBytes(storages.reduce((acc, s) => acc + s.usado_bytes, 0))}
-              {' de '}
-              {formatBytes(storages.reduce((acc, s) => acc + s.total_bytes, 0))}
+            <div className="card-title">Almacenamiento</div>
+            <span className="section-count">
+              {formatBytes(storages.reduce((a, s) => a + s.usado_bytes, 0))} de {formatBytes(storages.reduce((a, s) => a + s.total_bytes, 0))}
             </span>
           </div>
-
-          <div className="cards-grid" style={{ marginBottom: 0 }}>
+          <div className="grid cols-3">
             {storages.map((s) => {
-              const pct = porcentaje(s.usado_bytes, s.total_bytes);
+              const p = pct(s.usado_bytes, s.total_bytes);
               return (
                 <div key={`${s.node}-${s.storage}`}>
-                  <div className="stat-label" style={{ marginBottom: 8 }}>
+                  <div className="card-meta" style={{ marginBottom: 6 }}>
                     {s.storage}
-                    {s.aloja_contenedores && (
-                      <span
-                        className="badge info"
-                        style={{ marginLeft: 8, fontSize: 10 }}
-                        title="Acá se crean los contenedores: este es el espacio que limita los despliegues"
-                      >
-                        contenedores
-                      </span>
-                    )}
+                    {s.aloja_contenedores && <span className="tag" style={{ marginLeft: 6 }}>contenedores</span>}
                   </div>
-                  <div className="progress-bar">
-                    <div
-                      className={`progress-fill ${pct > 80 ? 'red' : pct > 50 ? 'orange' : 'green'}`}
-                      style={{ width: `${pct.toFixed(0)}%` }}
-                    />
+                  <div className="meter"><div className={`meter__fill ${barClass(p)}`} style={{ width: `${p}%` }} /></div>
+                  <div className="card-meta tabnum" style={{ marginTop: 4 }}>
+                    {formatBytes(s.usado_bytes)} de {formatBytes(s.total_bytes)} ({p.toFixed(0)} %)
                   </div>
-                  <div className="stat-label" style={{ marginTop: 4 }}>
-                    {formatBytes(s.usado_bytes)} de {formatBytes(s.total_bytes)} ({pct.toFixed(0)}%)
-                  </div>
-                  <div className="stat-label" style={{ marginTop: 2, fontSize: 11, opacity: 0.7 }}>
-                    {s.tipo} · {s.contenido} · nodo {s.node}
-                  </div>
+                  <div className="card-meta" style={{ marginTop: 2, opacity: 0.7 }}>{s.tipo} · {s.contenido} · nodo {s.node}</div>
                 </div>
               );
             })}
@@ -200,61 +130,13 @@ export default function Dashboard({ user }) {
         </div>
       )}
 
-      {!loading && proxmox?.status !== 'connected' && (
-        <div className="card" style={{ marginBottom: 24 }}>
-          <div className="empty-state">
-            <div className="empty-state-icon">⚠️</div>
-            <p className="empty-state-text">No se pudo conectar con Proxmox VE</p>
-            <p className="stat-label">Verificá que la VM de Proxmox esté encendida</p>
-          </div>
+      {!loading && !conectado && (
+        <div className="card mb-4">
+          <Empty icon={<Server size={22} />} hint="Verificá que la VM de Proxmox esté encendida.">
+            No se pudo conectar con Proxmox VE.
+          </Empty>
         </div>
       )}
-
-      {/* Cátedras Table */}
-      <div className="card">
-        <div className="card-header">
-          <h3 className="card-title">Cátedras</h3>
-        </div>
-
-        {catedras.length > 0 ? (
-          <div className="table-container">
-            <table>
-              <thead>
-                <tr>
-                  <th>Nombre</th>
-                  <th>vCPUs</th>
-                  <th>RAM</th>
-                  <th>Disco</th>
-                  <th>Estado</th>
-                </tr>
-              </thead>
-              <tbody>
-                {catedras.map((c) => (
-                  <tr key={c.id}>
-                    <td style={{ color: 'var(--text-primary)', fontWeight: 500 }}>{c.nombre}</td>
-                    <td>{c.cuota_vcpus} cores</td>
-                    <td>{c.cuota_ram_mb} MB</td>
-                    <td>{c.cuota_storage_gb} GB</td>
-                    <td>
-                      <span className={`badge ${c.activa ? 'success' : 'neutral'}`}>
-                        <span className="badge-dot"></span>
-                        {c.activa ? 'Activa' : 'Inactiva'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="empty-state">
-            <div className="empty-state-icon">🏛️</div>
-            <p className="empty-state-text">
-              {loading ? 'Cargando cátedras...' : 'No hay cátedras registradas aún'}
-            </p>
-          </div>
-        )}
-      </div>
     </div>
   );
 }

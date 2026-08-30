@@ -9,6 +9,7 @@ from app.models.metrica import MetricaSnapshot
 from app.models.servicio import Servicio, EstadoServicio
 from app.models.usuario import Usuario, RolUsuario
 from app.routers.auth import get_current_user, require_admin
+from app.services.acceso_service import catedras_visibles, es_visible
 from app.services.metricas_service import (
     capturar_snapshot_servicio,
     capturar_todos_los_servicios,
@@ -91,7 +92,9 @@ async def resumen_servicios(
 
     query = excluir_dados_de_baja(select(Servicio), Servicio)
     if current_user.rol != RolUsuario.ADMIN:
-        query = query.where(Servicio.catedra_id == current_user.catedra_id)
+        query = query.where(
+            Servicio.catedra_id.in_(await catedras_visibles(db, current_user))
+        )
 
     result = await db.execute(query)
     servicios = result.scalars().all()
@@ -150,7 +153,7 @@ async def historial_servicio(
         await db.get(Servicio, servicio_id), "Servicio no encontrado"
     )
 
-    if current_user.rol != RolUsuario.ADMIN and servicio.catedra_id != current_user.catedra_id:
+    if not await es_visible(db, current_user, servicio.catedra_id):
         raise HTTPException(status_code=403, detail="Sin permisos")
 
     return await obtener_historial(db, servicio_id, limit)

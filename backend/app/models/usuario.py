@@ -25,15 +25,23 @@ class Usuario(Base):
     rol: Mapped[RolUsuario] = mapped_column(
         SAEnum(RolUsuario), default=RolUsuario.CATEDRA_ADMIN
     )
-    catedra_id: Mapped[int | None] = mapped_column(
-        ForeignKey("catedras.id"), nullable=True
-    )
     activo: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     # Relaciones
-    catedra: Mapped["Catedra | None"] = relationship(back_populates="usuarios")
-    pedidos: Mapped[list["Pedido"]] = relationship(back_populates="solicitante")
+    # Una persona puede tener varias cátedras a su cargo; cada cátedra tiene un
+    # único titular. La titularidad vive del lado de la cátedra para que los
+    # recursos y su historia sobrevivan a un cambio de responsable.
+    catedras: Mapped[list["Catedra"]] = relationship(back_populates="titular")
+    # `passive_deletes` evita que SQLAlchemy intente anular `solicitante_id` al
+    # borrar a la persona: esa columna es NOT NULL porque la autoría de un pedido
+    # es parte del historial académico que el Principio V manda conservar. Antes,
+    # el intento de anularla terminaba en un 500 sin explicación. Hoy retirar es
+    # una baja lógica, pero la declaración queda para que ningún camino futuro
+    # vuelva a pelearse con la base.
+    pedidos: Mapped[list["Pedido"]] = relationship(
+        back_populates="solicitante", passive_deletes=True
+    )
 
     def __repr__(self) -> str:
         return f"<Usuario {self.username} ({self.rol.value})>"

@@ -123,7 +123,7 @@ Aplicación web: backend en `backend/app/`, pruebas nuevas en `backend/tests/`. 
 - [X] T038 Correr la suite completa con `cd backend && pytest -v` y confirmar que no hay regresiones en los endpoints preexistentes
 - [X] T039 [P] Revisar los `docstring` de los endpoints nuevos y modificados para que `/api/docs` refleje los códigos de estado documentados en [contracts/api.md](./contracts/api.md)
 - [X] T040 [P] Actualizar `PLAN_TRABAJO.md`: marcar como completos los ítems "Soft Delete" y "Recuperación de Errores" del Hito 3 (backend), dejando constancia de que la parte de frontend del hito sigue pendiente
-- [ ] T041 Ejecutar la validación manual del apartado "Validación manual contra Proxmox real" de [quickstart.md](./quickstart.md) contra el clúster, y tildar los criterios de aceptación finales
+- [X] T041 Ejecutar la validación manual del apartado "Validación manual contra Proxmox real" de [quickstart.md](./quickstart.md) contra el clúster, y tildar los criterios de aceptación finales
       **BLOQUEADA (2026-08-07)**: requiere la VM de Proxmox levantada, no disponible al momento de implementar. Todo lo demás quedó validado con el doble de prueba. Pendiente de ejecutar cuando el clúster esté accesible.
 - [X] T042 [P] Verificar que la lista de sitios de consulta de [research.md](./research.md) R4 no quedó incompleta: `grep -rn "select(Servicio)\|select(Pedido)\|db.get(Servicio\|db.get(Pedido" backend/app` y confirmar que cada resultado tiene su filtro o su 404
 

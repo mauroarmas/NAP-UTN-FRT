@@ -1,24 +1,31 @@
 import { useState, useEffect } from 'react';
-import { getCatedras, createCatedra, updateCatedra, getCatedra, getProxmoxStatus } from '../services/api';
+import { Send, Pencil, Building2 } from 'lucide-react';
+import { getCatedras, createCatedra, updateCatedra, getCatedra, getUsuarios } from '../services/api';
+import { PageHead, StatusPill, Empty, Dialog } from '../components/ui';
 
-const FORM_VACIO = {
-  nombre: '', descripcion: '', cuota_vcpus: 2, cuota_ram_mb: 1024, cuota_storage_gb: 8, activa: true,
-};
+/**
+ * Administración de cátedras. La pantalla giraba alrededor de las cuotas; eso
+ * desapareció. Lo que queda es identidad: quién responde por cada materia, y su
+ * consumo vigente como dato informativo.
+ */
+
+const FORM_INICIAL = { nombre: '', descripcion: '', titular_id: '', activa: true };
 
 export default function Catedras() {
   const [catedras, setCatedras] = useState([]);
+  const [usuarios, setUsuarios] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState(FORM_VACIO);
-  const [editando, setEditando] = useState(null); // id de la cátedra en edición, o null si es alta
-  const [uso, setUso] = useState(null); // recursos en uso de la cátedra editada
+  const [editando, setEditando] = useState(null);
+  const [form, setForm] = useState(FORM_INICIAL);
   const [saving, setSaving] = useState(false);
-  const [capacidad, setCapacidad] = useState(null); // { vcpus, ram_mb, storage_gb } del clúster
+  const [uso, setUso] = useState(null);
 
-  const fetchCatedras = async () => {
+  const fetchTodo = async () => {
     try {
-      const { data } = await getCatedras();
-      setCatedras(data);
+      const [c, u] = await Promise.all([getCatedras(), getUsuarios()]);
+      setCatedras(c.data);
+      setUsuarios(u.data);
     } catch (err) {
       console.error(err);
     } finally {
@@ -26,114 +33,62 @@ export default function Catedras() {
     }
   };
 
-  const fetchCapacidad = async () => {
-    try {
-      const { data } = await getProxmoxStatus();
-      const online = (data.nodes || []).filter(n => n.status === 'online');
-      setCapacidad({
-        vcpus: online.reduce((acc, n) => acc + (n.maxcpu || 0), 0),
-        ram_mb: online.reduce((acc, n) => acc + (n.maxmem || 0), 0) / (1024 * 1024),
-        storage_gb: online.reduce((acc, n) => acc + (n.maxdisk || 0), 0) / (1024 ** 3),
-      });
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  useEffect(() => { fetchCatedras(); fetchCapacidad(); }, []);
-
-  // Cuota ya reservada por cátedras activas: lo que queda disponible es capacidad - comprometido.
-  // En edición se excluye la propia cátedra, igual que hace el backend con `excluir_id`:
-  // su cuota actual no es "de otro", es justamente la que se está reasignando.
-  const comprometido = catedras
-    .filter(c => c.activa && c.id !== editando)
-    .reduce((acc, c) => ({
-      vcpus: acc.vcpus + c.cuota_vcpus,
-      ram_mb: acc.ram_mb + c.cuota_ram_mb,
-      storage_gb: acc.storage_gb + c.cuota_storage_gb,
-    }), { vcpus: 0, ram_mb: 0, storage_gb: 0 });
-
-  const disponible = capacidad ? {
-    vcpus: Math.max(0, Math.floor(capacidad.vcpus - comprometido.vcpus)),
-    ram_mb: Math.max(0, Math.floor(capacidad.ram_mb - comprometido.ram_mb)),
-    storage_gb: Math.max(0, Math.floor(capacidad.storage_gb - comprometido.storage_gb)),
-  } : null;
-
-  const cerrarForm = () => {
-    setShowForm(false);
-    setEditando(null);
-    setUso(null);
-    setForm(FORM_VACIO);
-  };
+  useEffect(() => { fetchTodo(); }, []);
 
   const abrirAlta = () => {
     setEditando(null);
+    setForm(FORM_INICIAL);
     setUso(null);
-    setForm(FORM_VACIO);
     setShowForm(true);
   };
 
   const abrirEdicion = async (c) => {
     setEditando(c.id);
-    setForm({
-      nombre: c.nombre,
-      descripcion: c.descripcion || '',
-      cuota_vcpus: c.cuota_vcpus,
-      cuota_ram_mb: c.cuota_ram_mb,
-      cuota_storage_gb: c.cuota_storage_gb,
-      activa: c.activa,
-    });
-    setShowForm(true);
+    setForm({ nombre: c.nombre, descripcion: c.descripcion || '', titular_id: c.titular_id || '', activa: c.activa });
     setUso(null);
+    setShowForm(true);
     try {
-      // Lo que la cátedra ya tiene ocupado: la cuota nueva no puede quedar por debajo.
       const { data } = await getCatedra(c.id);
-      setUso({
-        vcpus: data.vcpus_en_uso,
-        ram_mb: data.ram_en_uso_mb,
-        storage_gb: data.storage_en_uso_gb,
-        servicios_activos: data.servicios_activos,
-      });
-    } catch (err) {
-      console.error(err);
+      setUso({ vcpus: data.vcpus_en_uso, ram_mb: data.ram_en_uso_mb, storage_gb: data.storage_en_uso_gb, servicios_activos: data.servicios_activos });
+    } catch {
+      setUso(null);
     }
+  };
+
+  const cerrarForm = () => { setShowForm(false); setEditando(null); setUso(null); };
+
+  const guardar = async (confirmar = false) => {
+    const payload = {
+      nombre: form.nombre,
+      descripcion: form.descripcion,
+      titular_id: form.titular_id ? parseInt(form.titular_id) : null,
+    };
+    if (editando) await updateCatedra(editando, { ...payload, activa: form.activa }, { confirmar });
+    else await createCatedra(payload);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (disponible && (
-      form.cuota_vcpus > disponible.vcpus ||
-      form.cuota_ram_mb > disponible.ram_mb ||
-      form.cuota_storage_gb > disponible.storage_gb
-    )) {
-      alert('La cuota solicitada supera la capacidad disponible del clúster Proxmox');
-      return;
-    }
-    if (uso && (
-      form.cuota_vcpus < uso.vcpus ||
-      form.cuota_ram_mb < uso.ram_mb ||
-      form.cuota_storage_gb < uso.storage_gb
-    )) {
-      alert(
-        `La cuota no puede quedar por debajo de lo que la cátedra ya usa ` +
-        `(${uso.vcpus} vCPUs, ${uso.ram_mb} MB, ${uso.storage_gb} GB). ` +
-        `Dá de baja servicios primero.`
-      );
-      return;
-    }
     setSaving(true);
     try {
-      if (editando) {
-        await updateCatedra(editando, form);
-      } else {
-        const { activa, ...alta } = form; // el alta no define estado: la cátedra nace activa
-        await createCatedra(alta);
-      }
+      await guardar();
       cerrarForm();
-      fetchCatedras();
-      fetchCapacidad();
+      fetchTodo();
     } catch (err) {
-      alert(err.response?.data?.detail || `Error al ${editando ? 'actualizar' : 'crear'} la cátedra`);
+      const d = err.response?.data?.detail;
+      if (d?.codigo === 'servicios_vigentes') {
+        if (confirm(`${d.mensaje}\n\nLos servicios no se eliminan, pero la cátedra deja de figurar como activa.\n¿Continuar igual?`)) {
+          try {
+            await guardar(true);
+            cerrarForm();
+            fetchTodo();
+          } catch (e2) {
+            alert(e2.response?.data?.detail || 'Error al dar de baja la cátedra');
+          }
+        }
+      } else {
+        alert(typeof d === 'string' ? d : 'Error al guardar la cátedra');
+      }
     } finally {
       setSaving(false);
     }
@@ -141,137 +96,35 @@ export default function Catedras() {
 
   return (
     <div className="fade-in">
-      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div>
-          <h1 className="page-title">Cátedras</h1>
-          <p className="page-subtitle">Administración de cátedras y cuotas de recursos</p>
-        </div>
-        <button className="btn btn-primary" onClick={() => (showForm ? cerrarForm() : abrirAlta())}>
-          {showForm ? 'Cancelar' : '+ Nueva Cátedra'}
+      <PageHead kicker="Administración" title="Cátedras" subtitle="Materias del sistema y quién responde por cada una.">
+        <button className="btn-send" onClick={abrirAlta}>
+          <Send size={17} /><span>Nueva cátedra</span>
         </button>
-      </div>
-
-      {showForm && (
-        <div className="card fade-in" style={{ marginBottom: 24 }}>
-          <h3 className="card-title" style={{ marginBottom: 20 }}>
-            {editando ? `Editar cátedra: ${form.nombre}` : 'Nueva Cátedra'}
-          </h3>
-          {editando && (
-            <div className="stat-label" style={{ marginBottom: 16 }}>
-              {uso
-                ? `En uso ahora: ${uso.vcpus} vCPUs · ${uso.ram_mb} MB · ${uso.storage_gb} GB ` +
-                  `(${uso.servicios_activos} servicio${uso.servicios_activos === 1 ? '' : 's'} activo${uso.servicios_activos === 1 ? '' : 's'}). ` +
-                  `La cuota no puede quedar por debajo de eso.`
-                : 'Consultando uso actual...'}
-            </div>
-          )}
-          <form onSubmit={handleSubmit}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-              <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                <label className="form-label">Nombre</label>
-                <input className="form-input" value={form.nombre} onChange={e => setForm({...form, nombre: e.target.value})} required placeholder="Ej: Análisis Matemático" />
-              </div>
-              <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                <label className="form-label">Descripción</label>
-                <input className="form-input" value={form.descripcion} onChange={e => setForm({...form, descripcion: e.target.value})} placeholder="Descripción opcional" />
-              </div>
-              <div className="form-group">
-                <label className="form-label">vCPUs</label>
-                <input className="form-input" type="number" min={uso?.vcpus || 1} max={disponible?.vcpus || undefined} value={form.cuota_vcpus} onChange={e => setForm({...form, cuota_vcpus: parseInt(e.target.value)})} />
-                {disponible && (
-                  <div className="stat-label" style={{ marginTop: 4 }}>
-                    Disponible: {disponible.vcpus} de {capacidad.vcpus} (clúster Proxmox)
-                  </div>
-                )}
-              </div>
-              <div className="form-group">
-                <label className="form-label">RAM (MB)</label>
-                <input className="form-input" type="number" min={uso?.ram_mb || 128} step="128" max={disponible?.ram_mb || undefined} value={form.cuota_ram_mb} onChange={e => setForm({...form, cuota_ram_mb: parseInt(e.target.value)})} />
-                {disponible && (
-                  <div className="stat-label" style={{ marginTop: 4 }}>
-                    Disponible: {disponible.ram_mb} de {Math.floor(capacidad.ram_mb)} MB
-                  </div>
-                )}
-              </div>
-              <div className="form-group">
-                <label className="form-label">Disco (GB)</label>
-                <input className="form-input" type="number" min={uso?.storage_gb || 1} max={disponible?.storage_gb || undefined} value={form.cuota_storage_gb} onChange={e => setForm({...form, cuota_storage_gb: parseInt(e.target.value)})} />
-                {disponible && (
-                  <div className="stat-label" style={{ marginTop: 4 }}>
-                    Disponible: {disponible.storage_gb} de {Math.floor(capacidad.storage_gb)} GB
-                  </div>
-                )}
-              </div>
-              {editando && (
-                <div className="form-group">
-                  <label className="form-label">Estado</label>
-                  <select
-                    className="form-input"
-                    value={form.activa ? 'activa' : 'inactiva'}
-                    onChange={e => setForm({ ...form, activa: e.target.value === 'activa' })}
-                  >
-                    <option value="activa">Activa</option>
-                    <option value="inactiva">Inactiva</option>
-                  </select>
-                  <div className="stat-label" style={{ marginTop: 4 }}>
-                    Una cátedra inactiva libera su cuota para el resto
-                  </div>
-                </div>
-              )}
-            </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button type="submit" className="btn btn-primary" disabled={saving}>
-                {saving
-                  ? (editando ? 'Guardando...' : 'Creando...')
-                  : (editando ? 'Guardar cambios' : 'Crear Cátedra')}
-              </button>
-              <button type="button" className="btn btn-secondary" onClick={cerrarForm}>
-                Cancelar
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
+      </PageHead>
 
       <div className="card">
         <div className="card-header">
-          <h3 className="card-title">Listado ({catedras.length})</h3>
+          <div className="card-title">Listado</div>
+          <span className="section-count">{catedras.length} cátedras</span>
         </div>
         {catedras.length > 0 ? (
           <div className="table-container">
             <table>
               <thead>
-                <tr>
-                  <th>Nombre</th>
-                  <th>Descripción</th>
-                  <th>vCPUs</th>
-                  <th>RAM</th>
-                  <th>Disco</th>
-                  <th>Estado</th>
-                  <th>Acciones</th>
-                </tr>
+                <tr><th>Nombre</th><th>Descripción</th><th>Responsable</th><th>Estado</th><th className="right">Acciones</th></tr>
               </thead>
               <tbody>
                 {catedras.map((c) => (
                   <tr key={c.id}>
-                    <td style={{ color: 'var(--text-primary)', fontWeight: 500 }}>{c.nombre}</td>
-                    <td>{c.descripcion || '—'}</td>
-                    <td>{c.cuota_vcpus}</td>
-                    <td>{c.cuota_ram_mb} MB</td>
-                    <td>{c.cuota_storage_gb} GB</td>
-                    <td>
-                      <span className={`badge ${c.activa ? 'success' : 'neutral'}`}>
-                        <span className="badge-dot"></span>
-                        {c.activa ? 'Activa' : 'Inactiva'}
-                      </span>
+                    <td className="cell-strong nowrap">{c.nombre}</td>
+                    <td style={{ color: 'var(--text-soft)' }}>{c.descripcion || '—'}</td>
+                    <td className="nowrap">
+                      {c.titular ? c.titular.nombre : <StatusPill kind="warn">Sin responsable</StatusPill>}
                     </td>
-                    <td>
-                      <button
-                        className="btn btn-secondary btn-sm"
-                        onClick={() => abrirEdicion(c)}
-                        title="Editar cuotas y estado de la cátedra"
-                      >
-                        ✏️ Editar
+                    <td><StatusPill kind={c.activa ? 'ok' : 'off'}>{c.activa ? 'Activa' : 'Inactiva'}</StatusPill></td>
+                    <td className="right">
+                      <button className="btn btn-secondary btn-sm" onClick={() => abrirEdicion(c)}>
+                        <Pencil size={13} /> Editar
                       </button>
                     </td>
                   </tr>
@@ -280,12 +133,67 @@ export default function Catedras() {
             </table>
           </div>
         ) : (
-          <div className="empty-state">
-            <div className="empty-state-icon">🏛️</div>
-            <p className="empty-state-text">{loading ? 'Cargando...' : 'No hay cátedras registradas'}</p>
-          </div>
+          <Empty icon={<Building2 size={22} />}>{loading ? 'Cargando…' : 'No hay cátedras registradas.'}</Empty>
         )}
       </div>
+
+      {showForm && (
+        <Dialog
+          title={editando ? `Editar cátedra` : 'Nueva cátedra'}
+          onClose={cerrarForm}
+          actions={
+            <>
+              <button className="btn btn-secondary" onClick={cerrarForm}>Cancelar</button>
+              <button className="btn btn-primary" onClick={handleSubmit} disabled={saving}>
+                {saving ? 'Guardando…' : editando ? 'Guardar cambios' : 'Crear cátedra'}
+              </button>
+            </>
+          }
+        >
+          {editando && (
+            <p className="card-meta" style={{ marginBottom: 'var(--space-3)' }}>
+              {uso
+                ? `Consumo vigente: ${uso.vcpus} vCPU · ${uso.ram_mb} MB · ${uso.storage_gb} GB (${uso.servicios_activos} servicio${uso.servicios_activos === 1 ? '' : 's'} activo${uso.servicios_activos === 1 ? '' : 's'}).`
+                : 'Consultando consumo actual…'}
+            </p>
+          )}
+
+          <form onSubmit={handleSubmit}>
+            <div className="field">
+              <label>Nombre</label>
+              <input className="input" value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} required placeholder="Ej: Análisis Matemático" />
+              <p className="card-meta" style={{ marginTop: 4 }}>Dos personas distintas pueden dictar materias con el mismo nombre.</p>
+            </div>
+
+            <div className="field">
+              <label>Descripción</label>
+              <input className="input" value={form.descripcion} onChange={(e) => setForm({ ...form, descripcion: e.target.value })} placeholder="Descripción opcional" />
+            </div>
+
+            <div className="field">
+              <label>Responsable</label>
+              <select className="input" value={form.titular_id} onChange={(e) => setForm({ ...form, titular_id: e.target.value })}>
+                <option value="">Sin responsable asignado</option>
+                {usuarios.filter((u) => u.activo).map((u) => (
+                  <option key={u.id} value={u.id}>{u.nombre} ({u.username})</option>
+                ))}
+              </select>
+              <p className="card-meta" style={{ marginTop: 4 }}>Reasignar el responsable no mueve servicios ni historial: son de la cátedra.</p>
+            </div>
+
+            {editando && (
+              <div className="field">
+                <label>Estado</label>
+                <select className="input" value={form.activa ? 'activa' : 'inactiva'} onChange={(e) => setForm({ ...form, activa: e.target.value === 'activa' })}>
+                  <option value="activa">Activa</option>
+                  <option value="inactiva">Inactiva</option>
+                </select>
+                <p className="card-meta" style={{ marginTop: 4 }}>Dar de baja una cátedra con servicios vigentes pide confirmación.</p>
+              </div>
+            )}
+          </form>
+        </Dialog>
+      )}
     </div>
   );
 }

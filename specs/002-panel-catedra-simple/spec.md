@@ -6,6 +6,15 @@
 
 **Status**: Draft
 
+> [!NOTE]
+> **Parcialmente superada por la feature 004** (2026-08-16). Esta spec describe
+> el panel de cátedra mostrando el consumo **contra una cuota asignada**. Las
+> cuotas por cátedra se eliminaron: el panel ahora muestra el consumo vigente sin
+> denominador, y suma la fecha de vencimiento de cada servicio. El resto de la
+> spec —qué ve la cátedra y en qué lenguaje— sigue vigente y es la base del
+> Principio VI de la constitución.
+
+
 **Input**: User description: "para la spec catedra, mejorar el front y back de acuerdo a lo hablado, sin que sea muy compleja la spec, solo mejoras pequeñas."
 
 ## User Scenarios & Testing *(mandatory)*

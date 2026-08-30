@@ -6,6 +6,13 @@
 
 **Status**: Draft
 
+> [!NOTE]
+> **Referencias a cuota superadas por la feature 004** (2026-08-16). El alcance
+> de esta spec —que la cátedra opere sus propios servicios— no cambió; solo
+> quedaron obsoletas las menciones a la cuota por cátedra en `plan.md` y
+> `research.md`, porque ese mecanismo ya no existe.
+
+
 **Input**: User description: "La cátedra necesita más opciones de gestión sobre sus propios servicios, todas disponibles desde la pestaña "Servicios" que ya usa. Hoy esa pestaña le muestra la tabla de sus contenedores en modo solo lectura (ningún botón de acción, esos son admin-only); la cátedra no tiene forma de actuar sobre lo que ya tiene desplegado sin pedirle a un administrador que lo haga por ella. Se agregan tres capacidades sobre servicios que ya son suyos: (1) apagar y encender su servicio, (2) reiniciarlo (acción nueva, hoy no existe ni para admin), y (3) ver una consola/terminal interactiva de su contenedor embebida en el portal — una terminal real, no solo un visor de estado — sin que la cátedra jamás acceda a la interfaz de Proxmox directamente ni reciba credenciales de Proxmox (el portal actúa de proxy). El administrador debe conservar las mismas capacidades que ya tiene hoy sobre todos los servicios."
 
 ## Clarifications

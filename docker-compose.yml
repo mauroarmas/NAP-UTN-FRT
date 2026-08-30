@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: ps_password
       POSTGRES_DB: ps_db
     ports:
-      - "5432:5432"
+      - "5434:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -23,7 +23,7 @@ services:
       dockerfile: dockerfile
     container_name: ps_backend
     ports:
-      - "8000:8000"
+      - "8001:8000"
     environment:
       DATABASE_URL: postgresql+asyncpg://ps_user:ps_password@db:5432/ps_db
       PROXMOX_HOST: ${PROXMOX_HOST:-192.168.1.92}
@@ -46,9 +46,9 @@ services:
       dockerfile: frontend.dockerfile
     container_name: ps_frontend
     ports:
-      - "5173:5173"
+      - "5174:5173"
     environment:
-      VITE_API_URL: http://localhost:8000
+      VITE_API_URL: http://localhost:8001
     depends_on:
       - api
     restart: unless-stopped

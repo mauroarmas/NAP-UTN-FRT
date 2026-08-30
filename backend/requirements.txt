@@ -11,6 +11,7 @@ bcrypt==4.0.1
 pyotp==2.9.*
 proxmoxer==2.2.*
 requests==2.32.*
+apscheduler==3.11.*
 python-multipart==0.0.*
 websockets==16.*
 

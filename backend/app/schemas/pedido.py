@@ -2,8 +2,24 @@ from pydantic import BaseModel
 from datetime import datetime
 
 
+class CatedraBreve(BaseModel):
+    """Identificación mínima de la cátedra, para rotular filas.
+
+    Con una persona que puede tener varias cátedras, cada pedido y cada servicio
+    tiene que decir a cuál pertenece: si no, el listado es ambiguo.
+    """
+
+    id: int
+    nombre: str
+
+    model_config = {"from_attributes": True}
+
+
 class PedidoCreate(BaseModel):
     template_id: int
+    # Requerido solo si la persona tiene más de una cátedra; con una sola se
+    # asume y no se le pide.
+    catedra_id: int | None = None
     parametros_extra: dict | None = None
 
 
@@ -13,12 +29,28 @@ class PedidoCambiarEstado(BaseModel):
     motivo_rechazo: str | None = None
 
 
+class PedidoAprobar(BaseModel):
+    # Huella de la capacidad que se le mostró al administrador. Si cambió desde
+    # entonces, la aprobación se rechaza y hay que confirmar sobre los valores
+    # vigentes.
+    capacidad_token: str | None = None
+    # Obligatoria solo si la aprobación excede la capacidad libre.
+    justificacion_capacidad: str | None = None
+
+
+class PedidoRechazar(BaseModel):
+    motivo: str
+
+
 class PedidoResponse(BaseModel):
     id: int
     catedra_id: int
+    catedra: CatedraBreve | None = None
     solicitante_id: int
     template_id: int
     estado: str
+    tipo: str = "alta"
+    servicio_id: int | None = None
     motivo_rechazo: str | None
     parametros_extra: dict | None
     created_at: datetime
@@ -26,6 +58,11 @@ class PedidoResponse(BaseModel):
     resolved_at: datetime | None
     vmid_reservado: str | None = None
     deleted_at: datetime | None = None
+    reserva_vcpus: int = 0
+    reserva_ram_mb: int = 0
+    reserva_disk_gb: int = 0
+    reserva_expira_at: datetime | None = None
+    justificacion_capacidad: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -35,7 +72,8 @@ class PedidoHistorialResponse(BaseModel):
     estado_anterior: str
     estado_nuevo: str
     comentario: str | None
-    usuario_id: int
+    # Nulo cuando la transición la ejecutó el sistema.
+    usuario_id: int | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

@@ -22,6 +22,10 @@ class RecursoTemplate(Base):
     default_vcpus: Mapped[int] = mapped_column(Integer, default=1)
     default_ram_mb: Mapped[int] = mapped_column(Integer, default=256)
     default_disk_gb: Mapped[int] = mapped_column(Integer, default=2)
+    # Requerida para superar el tope de 8 GB por contenedor. Hasta ahora ese
+    # tope se cumplía de casualidad, porque la cuota de disco por cátedra valía
+    # 8 GB por defecto; al eliminarse las cuotas pasa a ser una regla explícita.
+    justificacion_disco: Mapped[str | None] = mapped_column(Text, nullable=True)
     os_template: Mapped[str | None] = mapped_column(String(200), nullable=True)
     config_extra: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     activo: Mapped[bool] = mapped_column(Boolean, default=True)
