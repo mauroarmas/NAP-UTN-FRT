@@ -1,97 +1,100 @@
 <!--
-Sync Impact Report — 2026-08-16
+Sync Impact Report — 2026-08-30
 =================================
-Version change: 1.1.0 → 2.0.0
-Bump rationale: MAJOR. Se redefine el Principio IV de forma incompatible con lo
-anterior: desaparece la cuota de recursos declarada por adelantado por cátedra,
-que era una obligación explícita del principio. El aislamiento por cátedra y la
-validación previa al aprovisionamiento se conservan, pero el mecanismo de control
-cambia de "techo declarado" a "aprobación con reserva contra la capacidad real
-del clúster". Todo artefacto que asumiera la existencia de una cuota por cátedra
-queda desalineado, que es exactamente el criterio de MAJOR fijado en Governance.
+Version change: 2.0.0 → 3.0.0
+Bump rationale: MAJOR. Se redefine el Principio I de forma incompatible con lo
+anterior: dejaba de existir cualquier caso en que una persona usuaria final
+accediera a la interfaz de Proxmox, y ahora se admite exactamente uno —la
+consola interactiva del contenedor propio—. Todo artefacto que asumiera que
+ninguna persona toca Proxmox queda desalineado, que es el criterio de MAJOR
+fijado en Governance.
 
-Motivación (entrada del usuario, feature 004): una cuota fija por cátedra obliga
-a declarar por adelantado un techo que nadie sabe estimar, produce denegaciones
-automáticas injustas, y ata cada persona usuaria a una sola cátedra. El modelo
-nuevo unifica la cuenta (una persona, varias cátedras) y traslada el control al
-único momento en que hay una decisión informada posible: la aprobación del
-pedido por parte del administrador.
+Motivación (decisión del usuario, 2026-08-30): la consola embebida que la spec
+003 especificaba no es implementable. El relay del portal conecta y autentica
+contra Proxmox, pero la sesión muere sin transmitir: Proxmox no acepta API
+tokens para el WebSocket de consola y exige un ticket de sesión. Sostener el
+principio al pie de la letra dejaría a las cátedras sin ninguna forma de
+interactuar con su propio contenedor, que es la razón por la que piden el
+servicio. Entre un principio intacto y un sistema inútil, se elige acotar el
+principio y dejar registrado por qué.
 
 Principios modificados:
-  II. La máquina de estados es la única fuente de verdad
-      → ampliado: se admite explícitamente al sistema como autor de una
-        transición (vencimiento, pausado por inactividad, liberación de reserva).
-        Antes el principio exigía autor sin contemplar que pudiera no ser una
-        persona, lo que dejaba las acciones automáticas sin forma legítima de
-        registrarse.
-  IV. "Aislamiento y cuota por cátedra"
-      → "Aislamiento por cátedra; la capacidad se controla al aprobar"
-        (redefinición incompatible — ver bump rationale)
-  VI. La cátedra pide y observa; el administrador gestiona
-      → ajuste de redacción: "consumo respecto de su cuota" pasa a "consumo
-        vigente de sus servicios"; se agrega la fecha de vencimiento como
-        información que la cátedra MUST poder ver.
+  I. "Proxmox es el back-end, nunca la interfaz"
+      → se conserva el título y toda la regla de gestión, y se agrega una
+        excepción única, nombrada y acotada: el acceso a la consola interactiva
+        del contenedor propio. Se agregan además las condiciones que la
+        mantienen acotada, para que no sea la puerta por la que se filtre el
+        resto (redefinición incompatible — ver bump rationale).
 
 Secciones modificadas:
-  "Restricciones Técnicas y de Seguridad" → la cláusula de operaciones mutantes
-  decía que todo, salvo la creación de pedidos, exige rol administrador. Eso ya
-  contradecía al principio VI y a la feature 003 (la cátedra opera sus propios
-  servicios). Se corrige enumerando las excepciones reales.
-  "Flujo de Desarrollo y Compuertas de Calidad" → la compuerta de pruebas
-  nombraba "cuotas"; pasa a nombrar "control de capacidad". Se aclara que las
-  enmiendas no reinician el plazo de la compuerta.
+  "Restricciones Técnicas y de Seguridad" → se agrega la cláusula de identidad
+  en Proxmox: la excepción solo es admisible si el acceso está delimitado por el
+  pool de la cátedra, porque de lo contrario el aislamiento por cátedra
+  (Principio IV) se perdería al cruzar la frontera.
 
 Secciones agregadas: ninguna.
 Secciones removidas: ninguna.
 
 Templates y artefactos revisados:
-  ✅ .specify/templates/plan-template.md — la Constitution Check se completa
-     dinámicamente contra el archivo vigente ("[Gates determined based on
-     constitution file]"); no hardcodea principios, sin cambios
-  ✅ .specify/templates/spec-template.md — sin referencias a cuota, sin cambios
-  ✅ .specify/templates/tasks-template.md — sin referencias a cuota, sin cambios
-  ✅ .claude/skills/speckit-*/SKILL.md — sin referencias agent-specific obsoletas
-  ✅ frontend/src/pages/Dashboard.jsx — el ⚠ registrado en v1.1.0 quedó
-     resuelto: el dashboard deriva al rol cátedra a PanelCatedra
-     (Dashboard.jsx:38), conforme al principio VI
-  ✅ specs/004-unificar-usuario-catedra/ — es la feature que motiva esta
-     enmienda; su spec ya está redactada contra estos principios
-  ⚠ specs/001-pedido-soft-delete-retry/ — menciona cuota al justificar que lo
-     dado de baja no la ocupa. La regla de fondo (el consumo cuenta solo
-     recursos vigentes) sobrevive en el nuevo IV; la redacción queda obsoleta.
-     Feature entregada: no se reescribe, se anota.
-  ⚠ specs/002-panel-catedra-simple/ — el panel muestra consumo contra cuota.
-     Requiere revisión al implementar 004; la spec 004 ya lo cubre (FR-011).
-  ⚠ specs/003-gestion-servicios-catedra/ — menciona cuota en plan.md y
-     research.md. No afecta su alcance (acciones sobre servicios propios).
-  ⚠ backend/app/routers/catedras.py, backend/app/services/pedido_service.py —
-     implementan la cuota por cátedra (verificar_cuota, _cuotas_comprometidas).
-     Código preexistente: no queda en infracción retroactiva. Su remediación es
-     el objeto de la feature 004.
+  ✅ .specify/templates/*.md — no referencian el Principio I, sin cambios
+  ⚠ specs/003-gestion-servicios-catedra/ — su US3 especifica una consola
+     embebida con el portal de proxy. Esa parte queda **superada**: se anota en
+     la spec y su T025 se cierra con el alcance nuevo.
+  ✅ frontend/src/components/ConsolaServicio.jsx — se elimina: implementaba la
+     consola embebida que ya no se persigue, y nunca estuvo conectada
+  ✅ backend/app/routers/servicios.py — se elimina el relay de WebSocket y el
+     endpoint de ticket, que solo servían a ese componente
+  ✅ specs/001, 002, 004, 005, 006 — no dependen del Principio I
 
 Follow-up TODOs: ninguno pendiente de definición en este documento.
 -->
+
 
 # Constitución del Portal de Gestión — Nube Acaedmia Personal UTN FRT
 
 ## Core Principles
 
-### I. Proxmox es el back-end, nunca la interfaz
+### I. Proxmox es el back-end, nunca la interfaz — con una única excepción nombrada
 
-El portal es el **único** punto de contacto entre las personas usuarias y la infraestructura
-(Proxmox VE, TrueNAS, MikroTik). Ninguna persona usuaria final recibe credenciales de Proxmox,
-ni accede a su interfaz, ni depende de su modelo de permisos.
+El portal es el **único** punto de contacto entre las personas usuarias y la gestión de la
+infraestructura (Proxmox VE, TrueNAS, MikroTik). Ninguna persona usuaria final administra recursos
+desde la interfaz de Proxmox, ni depende de su modelo de permisos para operar el portal.
 
 - El sistema MUST mantener autenticación propia (usuario + contraseña + 2FA); MUST NOT delegar
-  el login en Proxmox.
+  el login del portal en Proxmox.
 - Toda operación contra la infraestructura MUST pasar por la capa de servicios del portal
   (`app/services/`); los routers MUST NOT invocar `proxmoxer` directamente.
 - Los identificadores de recurso de Proxmox (VMID, nodo) son detalle interno: el portal los
   mapea en su propia base de datos y MUST NOT exigir que la persona usuaria los conozca o gestione.
 
-**Rationale**: Es la premisa fundacional del proyecto, fijada por el profesor: *"Olvidémonos de
-Proxmox. Proxmox va a ser nuestro back. El software tiene que gestionar todo."* Si esta frontera
-se filtra, el portal deja de ser un middleware y pasa a ser un adorno sobre Proxmox.
+**Excepción única: la consola interactiva del contenedor propio.**
+
+El acceso a la terminal de un contenedor MAY resolverse derivando a la consola de Proxmox, para
+el rol administrador y para el rol cátedra sobre sus propios servicios. Es la **única** excepción
+admitida a este principio y MUST mantenerse acotada:
+
+- La excepción cubre **solo** la sesión interactiva con el contenedor. Toda otra operación
+  —crear, aprobar, desplegar, apagar, reiniciar, renovar, dar de baja— MUST seguir ocurriendo
+  dentro del portal.
+- El portal MUST NOT derivar a Proxmox ninguna pantalla de gestión, listado ni panel: la
+  derivación se limita al destino de consola del servicio concreto que la persona ya opera.
+- La pertenencia del servicio MUST verificarse en el portal antes de ofrecer el acceso; MUST NOT
+  delegarse esa comprobación en Proxmox.
+- Que exista esta excepción MUST NOT usarse como precedente para abrir otras. Cualquier
+  derivación nueva hacia Proxmox exige una enmienda propia.
+
+**Rationale**: la premisa fundacional del proyecto la fijó el profesor —*"Olvidémonos de Proxmox.
+Proxmox va a ser nuestro back. El software tiene que gestionar todo."*— y sigue rigiendo para todo
+lo que es gestión. La consola es el único punto donde no se puede cumplir: Proxmox no acepta API
+tokens para el WebSocket de consola y exige un ticket de sesión, de modo que un proxy propio del
+portal no llega a transmitir. Se intentó y quedó documentado.
+
+Sostener el principio al pie de la letra en este punto no lo protegería: dejaría a las cátedras sin
+ninguna forma de interactuar con el contenedor que pidieron, que es la razón por la que existe el
+servicio. Un principio que vuelve inútil al sistema que ordena no se está cumpliendo, se está
+incumpliendo de la peor manera. La excepción se nombra, se acota y se registra —en lugar de
+tolerarse en silencio— porque una frontera con una puerta declarada es defendible, y una frontera
+que se filtra sin que nadie lo diga, no.
 
 ### II. La máquina de estados es la única fuente de verdad
 
@@ -257,6 +260,13 @@ lo hace en silencio, la cátedra no tiene forma de distinguirlo de una falla.
   antes de ejecutarse; la pertenencia MUST NOT inferirse de lo que el cliente envía.
 - Las credenciales de infraestructura MUST vivir únicamente en configuración de entorno, nunca en
   el código ni en el repositorio.
+- **Identidad en Proxmox para la consola** (habilita la excepción del Principio I): si una persona
+  con rol cátedra necesita identidad propia en Proxmox para abrir la consola, esa identidad MUST
+  estar delimitada al pool de recursos de sus cátedras. MUST NOT otorgarse una cuenta con
+  visibilidad sobre el clúster completo ni sobre recursos de otras cátedras. Sin esa delimitación
+  la excepción del Principio I no es admisible, porque el aislamiento por cátedra (Principio IV)
+  se perdería al cruzar la frontera: dejaría de sostenerlo el portal y nadie lo sostendría del
+  otro lado.
 - Los cambios de esquema MUST versionarse con Alembic; MUST NOT modificarse la base a mano.
 
 ## Flujo de Desarrollo y Compuertas de Calidad
@@ -308,4 +318,4 @@ violación aceptada MUST registrarse en la tabla de Complexity Tracking con su j
 alternativa más simple que se descartó; una violación sin justificación registrada bloquea la
 implementación.
 
-**Version**: 2.0.0 | **Ratified**: 2026-08-07 | **Last Amended**: 2026-08-16
+**Version**: 3.0.0 | **Ratified**: 2026-08-07 | **Last Amended**: 2026-08-30

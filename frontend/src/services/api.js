@@ -112,7 +112,6 @@ export const getStatusServicio = (id) => api.get(`/servicios/${id}/status`);
 // URL base de Proxmox, para que el admin abra la consola nativa en otra pestaña.
 export const getBaseConsolaProxmox = () => api.get('/servicios/consola/proxmox-base');
 // Consola embebida — EN PAUSA, sin uso hoy. Ver DUDAS-ENTREVISTA.md.
-export const obtenerTicketConsola = (id) => api.post(`/servicios/${id}/console-ticket`);
 
 // Usuarios
 export const getUsuarios = (incluirBajas = false) =>

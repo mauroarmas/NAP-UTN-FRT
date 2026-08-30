@@ -12,7 +12,6 @@ from app.models.pedido import Pedido, PedidoHistorial, EstadoPedido, TipoPedido
 from app.models.servicio import Servicio, EstadoServicio
 from app.models.recurso_template import RecursoTemplate, TipoRecurso
 from app.models.usuario import Usuario, RolUsuario
-from app.schemas.servicio import ConsolaTicketResponse
 from app.services.proxmox_client import get_proxmox_client
 from app.services import historial_service
 from app.services.acceso_service import es_visible
@@ -21,7 +20,6 @@ from app.services.pedido_service import cambiar_estado
 
 logger = logging.getLogger(__name__)
 
-TICKET_CONSOLA_TTL_SEGUNDOS = 30
 
 # Traducción del `status` que reporta Proxmox al estado que persiste el portal.
 # Lo que Proxmox no sepa clasificar no se mapea: preferimos no tocar el registro
@@ -33,10 +31,6 @@ _ESTADO_POR_STATUS_PROXMOX = {
     "suspended": EstadoServicio.PAUSED,
 }
 
-# Tickets de consola propios del portal: de un solo uso, corta vida, en memoria del
-# proceso (no se persisten — ver data-model.md de la spec 003). ticket -> datos de
-# conexión hacia Proxmox necesarios para el proxy de WebSocket.
-_tickets_consola: dict[str, dict] = {}
 
 
 async def requiere_propio_o_admin(
@@ -674,63 +668,6 @@ async def reiniciar_servicio(
     return servicio
 
 
-async def emitir_ticket_consola(
-    db: AsyncSession,
-    servicio_id: int,
-    usuario: Usuario,
-) -> ConsolaTicketResponse:
-    """
-    Emite un ticket de consola propio del portal para un servicio en ejecución.
-
-    Deliberadamente NO llama todavía a Proxmox (``abrir_termproxy``): ese ticket de
-    Proxmox está atado a un puerto que su lado solo mantiene abierto un rato corto
-    esperando una conexión, así que pedirlo acá y usarlo recién cuando el navegador
-    complete el round-trip de abrir el WebSocket puede llegar tarde. En cambio, este
-    ticket propio solo guarda node/vmid; la llamada a Proxmox se hace recién en la
-    ruta WebSocket, inmediatamente antes de conectar (ver research.md R2-R4 de la
-    spec 003).
-    """
-    servicio = await db.get(Servicio, servicio_id)
-    if not servicio or servicio.deleted_at is not None:
-        raise HTTPException(status_code=404, detail="Servicio no encontrado")
-
-    await requiere_propio_o_admin(db, servicio, usuario)
-
-    if servicio.estado != EstadoServicio.RUNNING:
-        raise HTTPException(
-            status_code=409,
-            detail=f"El servicio debe estar en ejecución para abrir la consola (estado: {servicio.estado.value})",
-        )
-
-    ticket = secrets.token_urlsafe(32)
-    _tickets_consola[ticket] = {
-        "servicio_id": servicio_id,
-        "usuario_id": usuario.id,
-        "node": servicio.proxmox_node,
-        "vmid": int(servicio.proxmox_vmid),
-        "expira_at": datetime.utcnow() + timedelta(seconds=TICKET_CONSOLA_TTL_SEGUNDOS),
-    }
-    logger.info(f"Ticket de consola emitido para servicio {servicio_id} (usuario={usuario.id})")
-
-    return ConsolaTicketResponse(ticket=ticket, expira_en_segundos=TICKET_CONSOLA_TTL_SEGUNDOS)
-
-
-def consumir_ticket_consola(servicio_id: int, ticket: str) -> dict | None:
-    """
-    Valida y consume un ticket de consola: un solo uso, no vencido, del servicio pedido.
-
-    Devuelve ``{"node": ..., "vmid": ...}`` si es válido, o ``None`` si no (ticket
-    inexistente, vencido, ya usado, o de otro servicio) — la ruta WebSocket cierra
-    la conexión inmediatamente en ese caso.
-    """
-    datos = _tickets_consola.pop(ticket, None)
-    if datos is None:
-        return None
-    if datos["servicio_id"] != servicio_id:
-        return None
-    if datos["expira_at"] < datetime.utcnow():
-        return None
-    return datos
 
 
 async def eliminar_servicio(

@@ -4,7 +4,6 @@ import ssl
 from datetime import datetime
 from urllib.parse import quote
 
-import websockets
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -20,7 +19,6 @@ from app.schemas.servicio import (
     ServicioUpdate,
     ServicioPausadoResponse,
     DesplegarRequest,
-    ConsolaTicketResponse,
 )
 from app.services import historial_service
 from app.services.acceso_service import catedras_visibles
@@ -32,8 +30,6 @@ from app.services.orquestacion_service import (
     iniciar_servicio,
     reiniciar_servicio,
     eliminar_servicio,
-    emitir_ticket_consola,
-    consumir_ticket_consola,
     requiere_propio_o_admin,
     sincronizar_estado,
     sincronizar_estados,
@@ -313,127 +309,24 @@ async def actualizar_servicio(
 
 
 @router.get("/consola/proxmox-base")
-async def base_consola_proxmox(current_user: Usuario = Depends(require_admin)):
+async def base_consola_proxmox(current_user: Usuario = Depends(get_current_user)):
     """
-    Devuelve la URL base de la interfaz de Proxmox, para que el admin pueda
-    abrir la consola nativa en otra pestaña.
+    Devuelve la URL base de la interfaz de Proxmox, para armar el enlace de
+    consola del contenedor.
 
-    Solo administrador: la cátedra nunca debe llegar a la interfaz de Proxmox
-    (Principio I de la constitución). El admin sí tiene cuenta propia en
-    Proxmox, así que para él es un atajo, no una vía de escape del portal.
+    Disponible para ambos roles desde la enmienda constitucional v3.0.0. La
+    consola es la **única excepción** al Principio I: Proxmox no acepta API
+    tokens para el WebSocket de consola, así que un proxy propio del portal no
+    llega a transmitir, y sin esta derivación la cátedra no tendría ninguna
+    forma de interactuar con el contenedor que pidió.
+
+    Devolver la URL base no concede acceso por sí solo: quien la abra necesita
+    identidad propia en Proxmox, delimitada al pool de sus cátedras. La
+    pertenencia del servicio la sigue verificando el portal antes de ofrecer el
+    enlace.
     """
     settings = get_settings()
     return {"base_url": f"https://{settings.proxmox_host}:{settings.proxmox_port}"}
-
-
-@router.post("/{servicio_id}/console-ticket", response_model=ConsolaTicketResponse)
-async def pedir_ticket_consola(
-    servicio_id: int,
-    current_user: Usuario = Depends(require_admin),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Emite un ticket de un solo uso para abrir la consola interactiva del servicio.
-
-    El navegador usa este ticket (no credenciales de Proxmox) para abrir el
-    WebSocket de `/servicios/{servicio_id}/console`.
-
-    EN PAUSA (2026-08-15): la consola embebida quedó sin resolver del lado de
-    Proxmox y, hasta definir con la cátedra cómo debe gestionarse el acceso al
-    contenedor, este endpoint queda restringido a administrador y sin uso desde
-    el frontend. Ver DUDAS-ENTREVISTA.md y specs/003-gestion-servicios-catedra.
-    """
-    return await emitir_ticket_consola(db, servicio_id, current_user)
-
-
-@router.websocket("/{servicio_id}/console")
-async def consola(websocket: WebSocket, servicio_id: int):
-    """
-    Proxy de consola interactiva: el navegador solo habla con este endpoint.
-
-    Nunca se le devuelve al navegador el host/puerto/ticket de Proxmox — el
-    backend abre su propia conexión saliente hacia el `vncwebsocket` de Proxmox
-    y relay los bytes en ambas direcciones (Principio I de la constitución;
-    ver research.md R2 de la spec 003). Requiere un ticket de un solo uso
-    emitido previamente por `POST /servicios/{servicio_id}/console-ticket`.
-
-    EN PAUSA (2026-08-15): el relay se conecta y autentica bien contra Proxmox
-    pero la sesión muere sin transmitir. Hipótesis principal sin confirmar:
-    Proxmox no acepta API tokens para el websocket de consola y hace falta un
-    ticket de sesión (`POST /access/ticket` con usuario+contraseña). El código
-    queda acá a la espera de esa definición; ningún cliente lo usa hoy.
-    """
-    ticket = websocket.query_params.get("ticket")
-    datos = consumir_ticket_consola(servicio_id, ticket) if ticket else None
-    if datos is None:
-        await websocket.close(code=4401, reason="Ticket de consola inválido o vencido")
-        return
-
-    # Recién acá se le pide el ticket a Proxmox — inmediatamente antes de
-    # conectar, no en el POST previo (ver docstring de emitir_ticket_consola).
-    from app.services.proxmox_client import get_proxmox_client
-
-    try:
-        termproxy = get_proxmox_client().abrir_termproxy(datos["node"], datos["vmid"])
-    except Exception as exc:
-        logger.warning(f"No se pudo abrir la consola de servicio {servicio_id}: {exc}")
-        await websocket.close(code=1011, reason="No se pudo abrir la consola")
-        return
-
-    await websocket.accept()
-
-    settings = get_settings()
-    proxmox_ws_url = (
-        f"wss://{settings.proxmox_host}:{settings.proxmox_port}"
-        f"/api2/json/nodes/{datos['node']}/lxc/{datos['vmid']}/vncwebsocket"
-        f"?port={termproxy['port']}&vncticket={quote(termproxy['ticket'], safe='')}"
-    )
-    ssl_context = ssl.create_default_context()
-    if not settings.proxmox_verify_ssl:
-        ssl_context.check_hostname = False
-        ssl_context.verify_mode = ssl.CERT_NONE
-
-    # Autenticación de la conexión saliente: igual que el resto de ProxmoxClient,
-    # por API token (no por cookie de sesión) — ver research.md R3 de la spec 003.
-    auth_header = "PVEAPIToken={0}!{1}={2}".format(
-        settings.proxmox_user, settings.proxmox_token_name, settings.proxmox_token_value
-    )
-
-    try:
-        async with websockets.connect(
-            proxmox_ws_url,
-            additional_headers={"Authorization": auth_header},
-            subprotocols=["binary"],
-            ssl=ssl_context,
-        ) as proxmox_ws:
-
-            async def navegador_a_proxmox():
-                try:
-                    while True:
-                        mensaje = await websocket.receive_bytes()
-                        await proxmox_ws.send(mensaje)
-                except WebSocketDisconnect:
-                    pass
-
-            async def proxmox_a_navegador():
-                async for mensaje in proxmox_ws:
-                    datos_binarios = mensaje if isinstance(mensaje, bytes) else mensaje.encode()
-                    await websocket.send_bytes(datos_binarios)
-
-            tareas = [
-                asyncio.create_task(navegador_a_proxmox()),
-                asyncio.create_task(proxmox_a_navegador()),
-            ]
-            _, pendientes = await asyncio.wait(tareas, return_when=asyncio.FIRST_COMPLETED)
-            for t in pendientes:
-                t.cancel()
-    except Exception as exc:
-        logger.warning(f"Consola de servicio {servicio_id} cerrada con error: {exc}")
-    finally:
-        try:
-            await websocket.close()
-        except Exception:
-            pass
 
 
 @router.delete("/{servicio_id}")

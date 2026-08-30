@@ -69,6 +69,3 @@ class ServicioPausadoResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class ConsolaTicketResponse(BaseModel):
-    ticket: str
-    expira_en_segundos: int

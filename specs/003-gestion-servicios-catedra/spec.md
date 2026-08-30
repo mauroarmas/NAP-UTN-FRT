@@ -13,6 +13,23 @@
 > `research.md`, porque ese mecanismo ya no existe.
 
 
+> [!IMPORTANT]
+> **US3 (consola) redefinida el 2026-08-30 por la enmienda constitucional v3.0.0.**
+> Esta spec especificaba una terminal **embebida en el portal**, con el portal
+> actuando de proxy y sin que la cátedra llegara nunca a la interfaz de Proxmox.
+> Eso resultó no ser implementable: Proxmox no acepta API tokens para el
+> WebSocket de consola y exige un ticket de sesión, de modo que el relay
+> conectaba y autenticaba pero la sesión moría sin transmitir.
+>
+> El alcance vigente es: **ambos roles acceden a la consola por derivación a
+> Proxmox**, y esa derivación es la única excepción nombrada al Principio I. El
+> resto de la spec —apagar, encender, reiniciar los servicios propios— no cambia
+> y sigue resuelto dentro del portal.
+>
+> El componente `ConsolaServicio.jsx`, el relay de WebSocket y el ticket de
+> consola se eliminaron: implementaban el modelo descartado y nunca llegaron a
+> usarse.
+
 **Input**: User description: "La cátedra necesita más opciones de gestión sobre sus propios servicios, todas disponibles desde la pestaña "Servicios" que ya usa. Hoy esa pestaña le muestra la tabla de sus contenedores en modo solo lectura (ningún botón de acción, esos son admin-only); la cátedra no tiene forma de actuar sobre lo que ya tiene desplegado sin pedirle a un administrador que lo haga por ella. Se agregan tres capacidades sobre servicios que ya son suyos: (1) apagar y encender su servicio, (2) reiniciarlo (acción nueva, hoy no existe ni para admin), y (3) ver una consola/terminal interactiva de su contenedor embebida en el portal — una terminal real, no solo un visor de estado — sin que la cátedra jamás acceda a la interfaz de Proxmox directamente ni reciba credenciales de Proxmox (el portal actúa de proxy). El administrador debe conservar las mismas capacidades que ya tiene hoy sobre todos los servicios."
 
 ## Clarifications

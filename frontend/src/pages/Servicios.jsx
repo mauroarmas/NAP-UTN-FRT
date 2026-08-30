@@ -42,7 +42,7 @@ export default function Servicios({ user }) {
         listarServicios(),
         isAdmin ? getPedidos('aprobado') : Promise.resolve({ data: [] }),
         isAdmin ? getCatedras() : Promise.resolve({ data: [] }),
-        isAdmin ? getBaseConsolaProxmox() : Promise.resolve({ data: {} }),
+        getBaseConsolaProxmox(),
       ]);
       if (srvRes.status === 'fulfilled') { setServicios(srvRes.value.data); setActualizadoAt(new Date()); }
       if (pedRes.status === 'fulfilled') setPedidosAprobados(pedRes.value.data);
@@ -63,6 +63,11 @@ export default function Servicios({ user }) {
 
   const catedraNombre = (id) => catedras.find((c) => c.id === id)?.nombre || `Cátedra #${id}`;
 
+  // Única excepción al Principio I (enmienda constitucional v3.0.0): Proxmox no
+  // acepta API tokens para el WebSocket de consola, así que el portal no puede
+  // hacer de proxy. Sin esta derivación la cátedra no tendría forma de entrar a
+  // su propio contenedor. La pertenencia ya la verificó el backend al listar; el
+  // acceso del otro lado lo delimita el pool de la cátedra en Proxmox.
   const urlConsolaProxmox = (s) =>
     `${proxmoxBase}/?console=lxc&xtermjs=1&vmid=${s.proxmox_vmid}` +
     `&vmname=${encodeURIComponent(s.hostname || '')}&node=${encodeURIComponent(s.proxmox_node || '')}&cmd=`;
@@ -326,8 +331,9 @@ export default function Servicios({ user }) {
                                 title={s.exento_pausado ? 'Quitar "siempre encendido"' : 'Marcar "siempre encendido"'}>
                                 {s.exento_pausado ? <Pin size={15} /> : <PinOff size={15} />}
                               </button>
-                              {isAdmin && proxmoxBase && s.estado === 'running' && s.proxmox_vmid && (
-                                <a className="btn-icon" href={urlConsolaProxmox(s)} target="_blank" rel="noopener noreferrer" title="Consola de Proxmox">
+                              {proxmoxBase && s.estado === 'running' && s.proxmox_vmid && (
+                                <a className="btn-icon" href={urlConsolaProxmox(s)} target="_blank" rel="noopener noreferrer"
+                                   title="Abrir la consola del contenedor (requiere sesión en Proxmox)">
                                   <Terminal size={15} />
                                 </a>
                               )}
