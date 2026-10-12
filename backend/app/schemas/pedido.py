@@ -16,7 +16,12 @@ class CatedraBreve(BaseModel):
 
 
 class PedidoCreate(BaseModel):
-    template_id: int
+    template_id: int | None = None
+    modelo_servicio: str = "iaas"
+    descripcion_requerimientos: str | None = None
+    vigencia_tipo: str = "primer_cuatrimestre"
+    vigencia_desde: datetime | None = None
+    vigencia_hasta: datetime | None = None
     # Requerido solo si la persona tiene más de una cátedra; con una sola se
     # asume y no se le pide.
     catedra_id: int | None = None
@@ -36,6 +41,25 @@ class PedidoAprobar(BaseModel):
     capacidad_token: str | None = None
     # Obligatoria solo si la aprobación excede la capacidad libre.
     justificacion_capacidad: str | None = None
+    template_id: int | None = None
+    opciones_avanzadas: dict | None = None
+    desplegar_inmediatamente: bool = False
+
+
+class PedidoSolicitarAjuste(BaseModel):
+    observaciones: str
+
+
+class PedidoReenviar(BaseModel):
+    template_id: int | None = None
+    descripcion_requerimientos: str | None = None
+    vigencia_tipo: str | None = None
+    vigencia_desde: datetime | None = None
+    vigencia_hasta: datetime | None = None
+
+
+class PedidoCancelar(BaseModel):
+    motivo: str | None = None
 
 
 class PedidoRechazar(BaseModel):
@@ -67,7 +91,14 @@ class PedidoResponse(BaseModel):
     catedra_id: int
     catedra: CatedraBreve | None = None
     solicitante_id: int
-    template_id: int
+    template_id: int | None = None
+    modelo_servicio: str = "iaas"
+    descripcion_requerimientos: str | None = None
+    vigencia_tipo: str = "primer_cuatrimestre"
+    vigencia_desde: datetime | None = None
+    vigencia_hasta: datetime | None = None
+    observaciones_ajuste: str | None = None
+    opciones_avanzadas: dict | None = None
     estado: str
     tipo: str = "alta"
     servicio_id: int | None = None

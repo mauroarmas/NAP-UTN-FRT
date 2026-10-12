@@ -83,8 +83,58 @@ async def seed():
         result = await session.execute(
             select(Usuario).where(Usuario.username == "admin")
         )
-        if result.scalar_one_or_none():
-            print("✅ Administrador presente (no requiere cátedra asignada)")
+        # --- Plantillas iniciales (IaaS, PaaS, SaaS) ---
+        from app.models.recurso_template import RecursoTemplate, TipoRecurso
+        from app.models.pedido import ModeloServicio
+
+        plantillas_base = [
+            {
+                "nombre": "Debian 13 LXC small",
+                "descripcion": "Contenedor LXC liviano para prácticas estándar",
+                "modelo_servicio": ModeloServicio.IAAS,
+                "tipo": TipoRecurso.LXC,
+                "default_vcpus": 1,
+                "default_ram_mb": 512,
+                "default_disk_gb": 4,
+            },
+            {
+                "nombre": "Ubuntu server medium",
+                "descripcion": "Servidor Linux de propósito general",
+                "modelo_servicio": ModeloServicio.IAAS,
+                "tipo": TipoRecurso.LXC,
+                "default_vcpus": 2,
+                "default_ram_mb": 2048,
+                "default_disk_gb": 8,
+            },
+            {
+                "nombre": "BookStack (Libro Virtual)",
+                "descripcion": "Plataforma de apuntes interactivos y documentación para cátedra",
+                "modelo_servicio": ModeloServicio.SAAS,
+                "tipo": TipoRecurso.LXC,
+                "default_vcpus": 2,
+                "default_ram_mb": 2048,
+                "default_disk_gb": 10,
+            },
+            {
+                "nombre": "Ollama API (Inferencia LLM)",
+                "descripcion": "Endpoint de API local para modelos de lenguaje institucional",
+                "modelo_servicio": ModeloServicio.PAAS,
+                "tipo": TipoRecurso.LXC,
+                "default_vcpus": 4,
+                "default_ram_mb": 8192,
+                "default_disk_gb": 20,
+            },
+        ]
+
+        for p_data in plantillas_base:
+            t_res = await session.execute(
+                select(RecursoTemplate).where(RecursoTemplate.nombre == p_data["nombre"])
+            )
+            if not t_res.scalar_one_or_none():
+                nueva_t = RecursoTemplate(**p_data, activo=True)
+                session.add(nueva_t)
+                await session.commit()
+                print(f"✅ Plantilla creada: [{nueva_t.modelo_servicio.value.upper()}] {nueva_t.nombre}")
 
         print("\n🎉 Seed completado. Podés iniciar sesión con:")
         print("   admin / admin         → Administrador")

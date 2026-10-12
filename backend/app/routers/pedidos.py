@@ -1,18 +1,34 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
-from app.models.catedra import Catedra
-from app.models.pedido import Pedido, PedidoHistorial, EstadoPedido, TipoPedido
+from app.services.email_service import (
+    obtener_emails_administradores,
+    enviar_email_nuevo_pedido,
+    enviar_email_pedido_ajuste,
+    enviar_email_pedido_rechazado,
+)
+from app.models.pedido import (
+    Pedido,
+    PedidoHistorial,
+    EstadoPedido,
+    TipoPedido,
+    ModeloServicio,
+    VigenciaTipo,
+)
 from app.models.recurso_template import RecursoTemplate
+from app.models.catedra import Catedra
 from app.models.usuario import Usuario, RolUsuario
 from app.routers.auth import get_current_user, require_admin
 from app.schemas.pedido import (
     PedidoCreate,
     PedidoCambiarEstado,
     PedidoAprobar,
+    PedidoSolicitarAjuste,
+    PedidoReenviar,
+    PedidoCancelar,
     CapacidadLiberada,
     PedidoRechazar,
     PedidoRevertir,
@@ -31,6 +47,9 @@ from app.services.pedido_service import (
     aprobar_pedido,
     rechazar_pedido,
     revertir_aprobacion,
+    solicitar_ajuste,
+    reenviar_pedido,
+    cancelar_pedido,
     TRANSICIONES_VALIDAS,
 )
 from app.utils.soft_delete import excluir_dados_de_baja, vigente_o_404
@@ -107,6 +126,7 @@ async def obtener_pedido(
 @router.post("/", response_model=PedidoResponse, status_code=201)
 async def crear_nuevo_pedido(
     data: PedidoCreate,
+    background_tasks: BackgroundTasks,
     current_user: Usuario = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -115,12 +135,33 @@ async def crear_nuevo_pedido(
     No se rechaza por consumo acumulado de la cátedra: eso lo resuelve el
     administrador al aprobarlo, con la capacidad real del clúster a la vista.
     """
+    try:
+        modelo_enum = ModeloServicio(data.modelo_servicio.lower())
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Modelo de servicio inválido: {data.modelo_servicio}. Válidos: {[m.value for m in ModeloServicio]}",
+        )
+
+    try:
+        vigencia_enum = VigenciaTipo(data.vigencia_tipo.lower())
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Vigencia inválida: {data.vigencia_tipo}. Válidos: {[v.value for v in VigenciaTipo]}",
+        )
+
     pedido = await crear_pedido(
         db=db,
         template_id=data.template_id,
         usuario=current_user,
         catedra_id=data.catedra_id,
         parametros_extra=data.parametros_extra,
+        modelo_servicio=modelo_enum,
+        descripcion_requerimientos=data.descripcion_requerimientos,
+        vigencia_tipo=vigencia_enum,
+        vigencia_desde=data.vigencia_desde,
+        vigencia_hasta=data.vigencia_hasta,
     )
     # Se relee con la cátedra cargada: la respuesta la incluye anidada y
     # resolverla al serializar fallaría.
@@ -129,7 +170,22 @@ async def crear_nuevo_pedido(
         .options(selectinload(Pedido.catedra))
         .where(Pedido.id == pedido.id)
     )
-    return result.scalar_one()
+    pedido_cargado = result.scalar_one()
+
+    # Notificar a los administradores suscritos
+    admin_emails = await obtener_emails_administradores(db)
+    if admin_emails:
+        background_tasks.add_task(
+            enviar_email_nuevo_pedido,
+            destinatarios=admin_emails,
+            pedido_id=pedido_cargado.id,
+            catedra_nombre=pedido_cargado.catedra.nombre if pedido_cargado.catedra else f"Cátedra #{pedido_cargado.catedra_id}",
+            solicitante_nombre=current_user.nombre,
+            modelo_servicio=pedido_cargado.modelo_servicio.value,
+            es_reenvio=False,
+        )
+
+    return pedido_cargado
 
 
 @router.get("/{pedido_id}/evaluacion")
@@ -200,6 +256,128 @@ async def aprobar(
         admin=current_user,
         capacidad_token=data.capacidad_token,
         justificacion_capacidad=data.justificacion_capacidad,
+        template_id=data.template_id,
+        opciones_avanzadas=data.opciones_avanzadas,
+    )
+    if data.desplegar_inmediatamente:
+        from app.services.orquestacion_service import desplegar_pedido
+        nodo = (data.opciones_avanzadas or {}).get("nodo_destino")
+        storage = (data.opciones_avanzadas or {}).get("storage_pool") or "local-lvm"
+        await desplegar_pedido(db=db, pedido_id=pedido.id, admin=current_user, node=nodo, storage=storage)
+
+    result = await db.execute(
+        select(Pedido)
+        .options(selectinload(Pedido.historial), selectinload(Pedido.catedra))
+        .where(Pedido.id == pedido.id)
+    )
+    return result.scalar_one()
+
+
+@router.post("/{pedido_id}/solicitar-ajuste", response_model=PedidoDetalleResponse)
+async def solicitar_ajuste_endpoint(
+    pedido_id: int,
+    data: PedidoSolicitarAjuste,
+    background_tasks: BackgroundTasks,
+    current_user: Usuario = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """El administrador devuelve el pedido a la cátedra para ajustes."""
+    vigente_o_404(await db.get(Pedido, pedido_id), "Pedido no encontrado")
+    pedido = await solicitar_ajuste(
+        db=db,
+        pedido_id=pedido_id,
+        admin=current_user,
+        observaciones=data.observaciones,
+    )
+    result = await db.execute(
+        select(Pedido)
+        .options(selectinload(Pedido.historial), selectinload(Pedido.catedra))
+        .where(Pedido.id == pedido.id)
+    )
+    pedido_cargado = result.scalar_one()
+
+    # Notificar al solicitante
+    solicitante = await db.get(Usuario, pedido_cargado.solicitante_id)
+    if solicitante and solicitante.email:
+        background_tasks.add_task(
+            enviar_email_pedido_ajuste,
+            email=solicitante.email,
+            nombre_docente=solicitante.nombre,
+            pedido_id=pedido_cargado.id,
+            catedra_nombre=pedido_cargado.catedra.nombre if pedido_cargado.catedra else f"Cátedra #{pedido_cargado.catedra_id}",
+            observaciones=data.observaciones,
+        )
+
+    return pedido_cargado
+
+
+@router.post("/{pedido_id}/reenviar", response_model=PedidoDetalleResponse)
+async def reenviar_pedido_endpoint(
+    pedido_id: int,
+    data: PedidoReenviar,
+    background_tasks: BackgroundTasks,
+    current_user: Usuario = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """La cátedra reenvía un pedido tras aplicar los ajustes solicitados."""
+    vigente_o_404(await db.get(Pedido, pedido_id), "Pedido no encontrado")
+    vigencia_enum = None
+    if data.vigencia_tipo:
+        try:
+            vigencia_enum = VigenciaTipo(data.vigencia_tipo.lower())
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Vigencia inválida: {data.vigencia_tipo}",
+            )
+
+    pedido = await reenviar_pedido(
+        db=db,
+        pedido_id=pedido_id,
+        usuario=current_user,
+        template_id=data.template_id,
+        descripcion_requerimientos=data.descripcion_requerimientos,
+        vigencia_tipo=vigencia_enum,
+        vigencia_desde=data.vigencia_desde,
+        vigencia_hasta=data.vigencia_hasta,
+    )
+    result = await db.execute(
+        select(Pedido)
+        .options(selectinload(Pedido.historial), selectinload(Pedido.catedra))
+        .where(Pedido.id == pedido.id)
+    )
+    pedido_cargado = result.scalar_one()
+
+    # Notificar a los administradores del reenvío
+    admin_emails = await obtener_emails_administradores(db)
+    if admin_emails:
+        background_tasks.add_task(
+            enviar_email_nuevo_pedido,
+            destinatarios=admin_emails,
+            pedido_id=pedido_cargado.id,
+            catedra_nombre=pedido_cargado.catedra.nombre if pedido_cargado.catedra else f"Cátedra #{pedido_cargado.catedra_id}",
+            solicitante_nombre=current_user.nombre,
+            modelo_servicio=pedido_cargado.modelo_servicio.value,
+            es_reenvio=True,
+        )
+
+    return pedido_cargado
+
+
+@router.post("/{pedido_id}/cancelar", response_model=PedidoDetalleResponse)
+async def cancelar_pedido_endpoint(
+    pedido_id: int,
+    data: PedidoCancelar = PedidoCancelar(),
+    current_user: Usuario = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Cancela un pedido en estado REQUIERE_AJUSTE."""
+    vigente_o_404(await db.get(Pedido, pedido_id), "Pedido no encontrado")
+    pedido = await cancelar_pedido(
+        db=db,
+        pedido_id=pedido_id,
+        usuario=current_user,
+        motivo=data.motivo,
     )
     result = await db.execute(
         select(Pedido)
@@ -213,6 +391,7 @@ async def aprobar(
 async def rechazar(
     pedido_id: int,
     data: PedidoRechazar,
+    background_tasks: BackgroundTasks,
     current_user: Usuario = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
@@ -226,7 +405,21 @@ async def rechazar(
         .options(selectinload(Pedido.historial), selectinload(Pedido.catedra))
         .where(Pedido.id == pedido.id)
     )
-    return result.scalar_one()
+    pedido_cargado = result.scalar_one()
+
+    # Notificar al docente del rechazo
+    solicitante = await db.get(Usuario, pedido_cargado.solicitante_id)
+    if solicitante and solicitante.email:
+        background_tasks.add_task(
+            enviar_email_pedido_rechazado,
+            email=solicitante.email,
+            nombre_docente=solicitante.nombre,
+            pedido_id=pedido_cargado.id,
+            catedra_nombre=pedido_cargado.catedra.nombre if pedido_cargado.catedra else f"Cátedra #{pedido_cargado.catedra_id}",
+            motivo=data.motivo,
+        )
+
+    return pedido_cargado
 
 
 @router.post("/{pedido_id}/revertir-aprobacion", response_model=PedidoRevertidoResponse)

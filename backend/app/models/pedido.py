@@ -19,6 +19,8 @@ from app.database import Base
 
 class EstadoPedido(str, enum.Enum):
     SOLICITADO = "solicitado"
+    REQUIERE_AJUSTE = "requiere_ajuste"
+    CANCELADO = "cancelado"
     APROBADO = "aprobado"
     # Transitorio: solo lo asigna el orquestador durante el despliegue real
     # contra Proxmox (ver pedido_service.TRANSICIONES_SISTEMA). Nunca se llega
@@ -28,6 +30,19 @@ class EstadoPedido(str, enum.Enum):
     RECHAZADO = "rechazado"
     ERROR = "error"
     SUSPENDIDO = "suspendido"
+
+
+class ModeloServicio(str, enum.Enum):
+    IAAS = "iaas"
+    PAAS = "paas"
+    SAAS = "saas"
+
+
+class VigenciaTipo(str, enum.Enum):
+    PRIMER_CUATRIMESTRE = "primer_cuatrimestre"
+    SEGUNDO_CUATRIMESTRE = "segundo_cuatrimestre"
+    ANUAL = "anual"
+    PERSONALIZADO = "personalizado"
 
 
 class TipoPedido(str, enum.Enum):
@@ -58,14 +73,42 @@ class Pedido(Base):
     solicitante_id: Mapped[int] = mapped_column(
         ForeignKey("usuarios.id"), nullable=False
     )
-    template_id: Mapped[int] = mapped_column(
-        ForeignKey("recurso_templates.id"), nullable=False
+    template_id: Mapped[int | None] = mapped_column(
+        ForeignKey("recurso_templates.id"), nullable=True
     )
+    modelo_servicio: Mapped[ModeloServicio] = mapped_column(
+        SAEnum(
+            ModeloServicio,
+            name="modeloservicio",
+            values_callable=lambda obj: [e.value for e in obj],
+            native_enum=False,
+        ),
+        default=ModeloServicio.IAAS,
+        nullable=False,
+    )
+    descripcion_requerimientos: Mapped[str | None] = mapped_column(Text, nullable=True)
+    vigencia_tipo: Mapped[VigenciaTipo] = mapped_column(
+        SAEnum(
+            VigenciaTipo,
+            name="vigenciatipo",
+            values_callable=lambda obj: [e.value for e in obj],
+            native_enum=False,
+        ),
+        default=VigenciaTipo.PRIMER_CUATRIMESTRE,
+        nullable=False,
+    )
+    vigencia_desde: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    vigencia_hasta: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    observaciones_ajuste: Mapped[str | None] = mapped_column(Text, nullable=True)
+    opciones_avanzadas: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     estado: Mapped[EstadoPedido] = mapped_column(
-        SAEnum(EstadoPedido), default=EstadoPedido.SOLICITADO
+        SAEnum(EstadoPedido, name="estadopedido", native_enum=False),
+        default=EstadoPedido.SOLICITADO,
     )
     tipo: Mapped[TipoPedido] = mapped_column(
-        SAEnum(TipoPedido), default=TipoPedido.ALTA, nullable=False
+        SAEnum(TipoPedido, name="tipopedido", native_enum=False),
+        default=TipoPedido.ALTA,
+        nullable=False,
     )
     # Solo en tipo=RENOVACION: el servicio cuya fecha de fin se quiere correr.
     servicio_id: Mapped[int | None] = mapped_column(

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
-  Activity, Building2, ChevronDown, ClipboardCheck, LogOut,
+  Activity, Building2, ChevronDown, ClipboardCheck, Home, LogOut,
   Moon, Package, Server, Settings, Sun, Users,
 } from 'lucide-react';
 import useTheme from '../hooks/useTheme';
@@ -88,17 +88,17 @@ export default function TopNav({ user }) {
           </span>
         </button>
 
-        <div className="topnav-divider" />
+        {isAdmin && <div className="topnav-divider" />}
 
-        <nav className="topnav-links">
-          {LINKS.map(({ to, label, icon: Icon }) => (
-            <NavLink key={to} to={to} className={({ isActive }) => `topnav-link ${isActive ? 'active' : ''}`}>
-              <Icon size={16} />
-              {label}
-            </NavLink>
-          ))}
+        {isAdmin && (
+          <nav className="topnav-links">
+            {LINKS.map(({ to, label, icon: Icon }) => (
+              <NavLink key={to} to={to} className={({ isActive }) => `topnav-link ${isActive ? 'active' : ''}`}>
+                <Icon size={16} />
+                {label}
+              </NavLink>
+            ))}
 
-          {isAdmin && (
             <div className="menu" ref={adminRef} style={{ marginLeft: 6 }}>
               <button
                 className={`topnav-menu-trigger ${ADMIN_LINKS.some((l) => location.pathname.startsWith(l.to)) ? 'active' : ''}`}
@@ -119,10 +119,10 @@ export default function TopNav({ user }) {
                 </div>
               )}
             </div>
-          )}
-        </nav>
+          </nav>
+        )}
 
-        <div className="topnav-right">
+        <div className="topnav-right" style={{ marginLeft: 'auto' }}>
           <div className="menu" ref={menuRef}>
             <button
               className="avatar"
@@ -141,6 +141,31 @@ export default function TopNav({ user }) {
                     <span className="role" title={rolLabel}>{rolLabel}</span>
                   </span>
                 </div>
+
+                {/* Separador */}
+                <div style={{ height: 1, background: 'var(--color-divider)', margin: '4px 0' }} />
+
+                {/* Para cátedra, accesos directos a Inicio y Pedidos */}
+                {!isAdmin && (
+                  <NavLink
+                    to="/"
+                    end
+                    className={({ isActive }) => `menu-item ${isActive ? 'active' : ''}`}
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    <Home size={15} />
+                    Inicio
+                  </NavLink>
+                )}
+
+                <NavLink
+                  to="/pedidos"
+                  className={({ isActive }) => `menu-item ${isActive ? 'active' : ''}`}
+                  onClick={() => setMenuOpen(false)}
+                >
+                  <ClipboardCheck size={15} />
+                  Pedidos
+                </NavLink>
 
                 {/* Separador */}
                 <div style={{ height: 1, background: 'var(--color-divider)', margin: '4px 0' }} />

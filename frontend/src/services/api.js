@@ -36,6 +36,8 @@ export const login = (username, password) =>
   });
 
 export const getMe = () => api.get('/auth/me');
+export const cambiarPasswordInicial = (nuevaPassword) =>
+  api.post('/auth/cambiar-password-inicial', { nueva_password: nuevaPassword });
 
 // Cátedras
 export const getCatedras = () => api.get('/catedras/');
@@ -74,6 +76,9 @@ export const reintentarPedido = (id, data = {}) => api.post(`/pedidos/${id}/rein
 export const evaluarPedido = (id) => api.get(`/pedidos/${id}/evaluacion`);
 export const aprobarPedido = (id, data = {}) => api.post(`/pedidos/${id}/aprobar`, data);
 export const rechazarPedido = (id, motivo) => api.post(`/pedidos/${id}/rechazar`, { motivo });
+export const solicitarAjustePedido = (id, observaciones) => api.post(`/pedidos/${id}/solicitar-ajuste`, { observaciones });
+export const reenviarPedido = (id, data = {}) => api.post(`/pedidos/${id}/reenviar`, data);
+export const cancelarPedido = (id, motivo) => api.post(`/pedidos/${id}/cancelar`, { motivo });
 
 // Deshacer una aprobación antes del despliegue: libera la capacidad reservada en
 // el acto, en lugar de esperar hasta 24 h al vencimiento automático. Es una
@@ -88,14 +93,20 @@ export const revertirAprobacion = (id, motivo) => api.post(`/pedidos/${id}/rever
 export const getCapacidad = () => api.get('/capacidad/');
 
 // Templates
-export const getTemplates = (incluirRetiradas = false) =>
-  api.get('/templates/', { params: incluirRetiradas ? { incluir_retiradas: true } : {} });
+export const getTemplates = (incluirRetiradas = false, modeloServicio = null) =>
+  api.get('/templates/', {
+    params: {
+      ...(incluirRetiradas ? { incluir_retiradas: true } : {}),
+      ...(modeloServicio ? { modelo_servicio: modeloServicio } : {}),
+    },
+  });
 export const getTemplate = (id) => api.get(`/templates/${id}`);
 export const createTemplate = (data) => api.post('/templates/', data);
 export const updateTemplate = (id, data) => api.patch(`/templates/${id}`, data);
 // Retirar no borra: la plantilla sale del catálogo pero los pedidos y servicios
 // que la referencian la siguen resolviendo.
-export const retirarTemplate = (id) => api.patch(`/templates/${id}`, { activo: false });
+export const retirarTemplate = (id) => api.delete(`/templates/${id}`);
+export const deleteTemplate = (id) => api.delete(`/templates/${id}`);
 export const reactivarTemplate = (id) => api.patch(`/templates/${id}`, { activo: true });
 
 // Servicios / Orquestación

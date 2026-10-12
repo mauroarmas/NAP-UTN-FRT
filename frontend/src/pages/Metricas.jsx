@@ -113,7 +113,7 @@ export default function Metricas({ user }) {
   const ramUso = conSnap.reduce((a, s) => a + s.ultimo_snapshot.ram_usage_mb, 0);
   const ramMax = resumen.reduce((a, s) => a + (s.ram_max_mb || 0), 0);
   const diskUso = conSnap.reduce((a, s) => a + s.ultimo_snapshot.disk_usage_gb, 0);
-  const activos = resumen.filter((s) => s.estado === 'RUNNING').length;
+  const activos = resumen.filter((s) => s.estado?.toLowerCase() === 'running').length;
 
   const KPIS = [
     { label: 'CPU promedio', valor: `${cpuAvg.toFixed(0)} %`, icon: Cpu, tone: 'accent' },
@@ -186,7 +186,7 @@ export default function Metricas({ user }) {
             {resumen.map((srv) => {
               const snap = srv.ultimo_snapshot;
               const sel = seleccionado?.servicio_id === srv.servicio_id;
-              const running = srv.estado === 'RUNNING';
+              const running = srv.estado?.toLowerCase() === 'running';
               return (
                 <div
                   key={srv.servicio_id}

@@ -77,32 +77,16 @@ async def test_conservar_el_propio_nombre_no_es_duplicado(client, auth_admin, te
     assert r.json()["default_vcpus"] == 2
 
 
-async def test_disco_sobre_el_tope_sin_justificacion_se_rechaza(
+async def test_disco_grande_se_acepta_sin_restricciones(
     client, auth_admin, template
 ):
-    """T3/FR-007: la edición está sujeta al mismo tope que el alta."""
     r = await client.patch(
         f"/templates/{template.id}",
         json={"default_disk_gb": 32},
         headers=auth_admin,
     )
-    assert r.status_code == 400
-
-
-async def test_disco_sobre_el_tope_con_justificacion_se_acepta(
-    client, auth_admin, template
-):
-    r = await client.patch(
-        f"/templates/{template.id}",
-        json={
-            "default_disk_gb": 32,
-            "justificacion_disco": "Base de datos de la cátedra de BD, acordado con el titular",
-        },
-        headers=auth_admin,
-    )
     assert r.status_code == 200
     assert r.json()["default_disk_gb"] == 32
-    assert r.json()["justificacion_disco"]
 
 
 async def test_la_catedra_no_puede_editar_plantillas(client, auth_catedra, template):

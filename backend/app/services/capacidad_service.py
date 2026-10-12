@@ -177,10 +177,12 @@ async def panorama(db: AsyncSession, pve=None) -> dict:
 
 
 def costo_de(template) -> dict:
+    if not template:
+        return {"vcpus": 0, "ram_mb": 0, "storage_gb": 0}
     return {
-        "vcpus": template.default_vcpus,
-        "ram_mb": template.default_ram_mb,
-        "storage_gb": template.default_disk_gb,
+        "vcpus": getattr(template, "default_vcpus", 0),
+        "ram_mb": getattr(template, "default_ram_mb", 0),
+        "storage_gb": getattr(template, "default_disk_gb", 0),
     }
 
 

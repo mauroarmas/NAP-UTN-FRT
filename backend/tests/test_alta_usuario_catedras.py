@@ -19,6 +19,7 @@ async def test_alta_con_varias_catedras(client, db, auth_admin):
         "/usuarios/",
         json={
             "username": "mgomez",
+            "email": "mgomez@test.local",
             "nombre": "M. Gómez",
             "password": "secreto123",
             "rol": "catedra_admin",
@@ -41,6 +42,7 @@ async def test_las_catedras_quedan_a_nombre_del_nuevo_usuario(client, db, auth_a
         "/usuarios/",
         json={
             "username": "quim",
+            "email": "quim@test.local",
             "nombre": "Q. Uno",
             "password": "secreto123",
             "catedra_ids": [catedra.id],
@@ -58,6 +60,7 @@ async def test_alta_sin_catedras_se_rechaza(client, auth_admin):
         "/usuarios/",
         json={
             "username": "vacio",
+            "email": "vacio@test.local",
             "nombre": "Sin Cátedras",
             "password": "secreto123",
             "rol": "catedra_admin",
@@ -74,6 +77,7 @@ async def test_un_admin_puede_no_tener_catedras(client, auth_admin):
         "/usuarios/",
         json={
             "username": "otro_admin",
+            "email": "otro_admin@test.local",
             "nombre": "Otro Admin",
             "password": "secreto123",
             "rol": "admin",
@@ -101,6 +105,7 @@ async def test_catedra_ya_tomada_no_crea_el_usuario(client, db, auth_admin):
         "/usuarios/",
         json={
             "username": "nuevo",
+            "email": "nuevo@test.local",
             "nombre": "Nuevo",
             "password": "secreto123",
             "catedra_ids": [libre.id, ocupada.id],
@@ -126,6 +131,7 @@ async def test_catedra_inexistente_da_404(client, auth_admin):
         "/usuarios/",
         json={
             "username": "fantasma",
+            "email": "fantasma@test.local",
             "nombre": "Fantasma",
             "password": "secreto123",
             "catedra_ids": [9999],

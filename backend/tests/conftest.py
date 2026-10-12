@@ -170,3 +170,21 @@ def auth_admin(admin) -> dict:
 def auth_catedra(usuario_catedra) -> dict:
     """Cabeceras con JWT válido de responsable de cátedra."""
     return _headers(usuario_catedra)
+
+
+@pytest.fixture(autouse=True)
+def mock_email(monkeypatch) -> list[dict]:
+    """Captura los correos despachados para inspección en tests y evita envíos reales."""
+    enviados = []
+
+    def _fake_despachar(destinatarios, asunto, texto_plano, html_contenido):
+        enviados.append({
+            "destinatarios": destinatarios,
+            "asunto": asunto,
+            "texto_plano": texto_plano,
+            "html_contenido": html_contenido,
+        })
+
+    monkeypatch.setattr("app.services.email_service.despachar_email", _fake_despachar)
+    return enviados
+

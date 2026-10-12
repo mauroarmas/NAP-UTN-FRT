@@ -5,20 +5,36 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from fastapi import HTTPException, status
 
-from app.models.pedido import Pedido, PedidoHistorial, EstadoPedido, TipoPedido
+from app.models.pedido import (
+    Pedido,
+    PedidoHistorial,
+    EstadoPedido,
+    TipoPedido,
+    ModeloServicio,
+    VigenciaTipo,
+)
 from app.models.catedra import Catedra
 from app.models.usuario import Usuario, RolUsuario
 from app.models.recurso_template import RecursoTemplate
 from app.models.servicio import Servicio, EstadoServicio
 from app.services import capacidad_service, historial_service
 from app.services.acceso_service import catedras_visibles
-from app.services.limites_service import validar_disco_template
 
 
 # ===== Máquina de Estados =====
 # Define las transiciones válidas: estado_actual → [estados_posibles]
 TRANSICIONES_VALIDAS: dict[EstadoPedido, list[EstadoPedido]] = {
-    EstadoPedido.SOLICITADO: [EstadoPedido.APROBADO, EstadoPedido.RECHAZADO],
+    EstadoPedido.SOLICITADO: [
+        EstadoPedido.APROBADO,
+        EstadoPedido.RECHAZADO,
+        EstadoPedido.REQUIERE_AJUSTE,
+    ],
+    EstadoPedido.REQUIERE_AJUSTE: [
+        EstadoPedido.SOLICITADO,
+        EstadoPedido.CANCELADO,
+        EstadoPedido.RECHAZADO,
+    ],
+    EstadoPedido.CANCELADO: [],  # Estado final
     # APROBADO → RECHAZADO la ejecuta el sistema cuando vence la reserva de
     # capacidad sin que el despliegue se haya concretado. Sin esta transición,
     # ese trabajo periódico no tendría forma legítima de cambiar el estado y la
@@ -35,6 +51,7 @@ TRANSICIONES_VALIDAS: dict[EstadoPedido, list[EstadoPedido]] = {
 TRANSICIONES_ADMIN = {
     EstadoPedido.APROBADO,
     EstadoPedido.RECHAZADO,
+    EstadoPedido.REQUIERE_AJUSTE,
     EstadoPedido.EN_DESPLIEGUE,
     EstadoPedido.ACTIVO,
     EstadoPedido.ERROR,
@@ -69,10 +86,15 @@ def validar_transicion(estado_actual: EstadoPedido, estado_nuevo: EstadoPedido) 
 
 async def crear_pedido(
     db: AsyncSession,
-    template_id: int,
+    template_id: int | None,
     usuario: Usuario,
     catedra_id: int | None = None,
     parametros_extra: dict | None = None,
+    modelo_servicio: ModeloServicio = ModeloServicio.IAAS,
+    descripcion_requerimientos: str | None = None,
+    vigencia_tipo: VigenciaTipo = VigenciaTipo.PRIMER_CUATRIMESTRE,
+    vigencia_desde: datetime | None = None,
+    vigencia_hasta: datetime | None = None,
 ) -> Pedido:
     """Crea un pedido de servicio.
 
@@ -101,17 +123,33 @@ async def crear_pedido(
             detail="No podés crear pedidos a nombre de una cátedra que no es tuya",
         )
 
-    template = await db.get(RecursoTemplate, template_id)
-    if not template or not template.activo:
-        raise HTTPException(status_code=404, detail="Template no encontrado o inactivo")
+    if modelo_servicio == ModeloServicio.IAAS:
+        if not template_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Para servicios IaaS se requiere seleccionar una plantilla de recursos",
+            )
 
-    # Tope de disco por contenedor: es un límite por recurso, no una cuota.
-    validar_disco_template(template)
+    if template_id is not None:
+        template = await db.get(RecursoTemplate, template_id)
+        if not template or not template.activo:
+            raise HTTPException(status_code=404, detail="Template no encontrado o inactivo")
+    elif modelo_servicio in (ModeloServicio.SAAS, ModeloServicio.PAAS):
+        if not descripcion_requerimientos or not descripcion_requerimientos.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="Para servicios SaaS o PaaS se requiere detallar los requerimientos del software o servicio",
+            )
 
     pedido = Pedido(
         catedra_id=catedra_id,
         solicitante_id=usuario.id,
         template_id=template_id,
+        modelo_servicio=modelo_servicio,
+        descripcion_requerimientos=descripcion_requerimientos,
+        vigencia_tipo=vigencia_tipo,
+        vigencia_desde=vigencia_desde,
+        vigencia_hasta=vigencia_hasta,
         estado=EstadoPedido.SOLICITADO,
         tipo=TipoPedido.ALTA,
         parametros_extra=parametros_extra,
@@ -125,7 +163,7 @@ async def crear_pedido(
             pedido.id,
             "nuevo",
             EstadoPedido.SOLICITADO.value,
-            comentario="Pedido creado",
+            comentario=f"Pedido creado ({modelo_servicio.value.upper()})",
             usuario=usuario,
         )
     )
@@ -141,6 +179,8 @@ async def aprobar_pedido(
     admin: Usuario,
     capacidad_token: str | None = None,
     justificacion_capacidad: str | None = None,
+    template_id: int | None = None,
+    opciones_avanzadas: dict | None = None,
 ) -> Pedido:
     """Aprueba un pedido y **reserva** la capacidad correspondiente.
 
@@ -157,6 +197,14 @@ async def aprobar_pedido(
             status_code=409,
             detail=f"Solo se aprueban pedidos en estado solicitado (está en '{pedido.estado.value}')",
         )
+
+    if template_id is not None:
+        pedido.template_id = template_id
+    if opciones_avanzadas is not None:
+        pedido.opciones_avanzadas = opciones_avanzadas
+
+    if not pedido.template_id:
+        raise HTTPException(status_code=400, detail="Debe asignarse una plantilla de recursos para aprobar el pedido")
 
     template = await db.get(RecursoTemplate, pedido.template_id)
     if not template:
@@ -185,6 +233,13 @@ async def aprobar_pedido(
             costo = {"vcpus": 0, "ram_mb": 0, "storage_gb": 0}
         else:
             costo = capacidad_service.costo_de(template)
+            if opciones_avanzadas:
+                if opciones_avanzadas.get("override_vcpus") is not None:
+                    costo["vcpus"] = int(opciones_avanzadas["override_vcpus"])
+                if opciones_avanzadas.get("override_ram_mb") is not None:
+                    costo["ram_mb"] = int(opciones_avanzadas["override_ram_mb"])
+                if opciones_avanzadas.get("override_disk_gb") is not None:
+                    costo["storage_gb"] = int(opciones_avanzadas["override_disk_gb"])
 
         if capacidad_service.excede(estado["libre"], costo) and not (
             justificacion_capacidad and justificacion_capacidad.strip()
@@ -238,6 +293,97 @@ async def rechazar_pedido(
         raise HTTPException(status_code=400, detail="Se requiere un motivo de rechazo")
     return await cambiar_estado(
         db, pedido_id, EstadoPedido.RECHAZADO.value, admin, motivo_rechazo=motivo
+    )
+
+
+async def solicitar_ajuste(
+    db: AsyncSession, pedido_id: int, admin: Usuario, observaciones: str
+) -> Pedido:
+    """El administrador devuelve el pedido a la cátedra para ajustes con observaciones obligatorias."""
+    if not observaciones or not observaciones.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Se requieren observaciones para solicitar un ajuste al pedido",
+        )
+    observaciones = observaciones.strip()
+    pedido = await db.get(Pedido, pedido_id)
+    if not pedido:
+        raise HTTPException(status_code=404, detail="Pedido no encontrado")
+    pedido.observaciones_ajuste = observaciones
+    return await cambiar_estado(
+        db,
+        pedido_id,
+        EstadoPedido.REQUIERE_AJUSTE.value,
+        admin,
+        comentario=f"Ajuste solicitado por administración: {observaciones}",
+    )
+
+
+async def reenviar_pedido(
+    db: AsyncSession,
+    pedido_id: int,
+    usuario: Usuario,
+    template_id: int | None = None,
+    descripcion_requerimientos: str | None = None,
+    vigencia_tipo: VigenciaTipo | None = None,
+    vigencia_desde: datetime | None = None,
+    vigencia_hasta: datetime | None = None,
+) -> Pedido:
+    """La cátedra reenvía un pedido que estaba en REQUIERE_AJUSTE tras aplicar modificaciones."""
+    pedido = await db.get(Pedido, pedido_id)
+    if not pedido:
+        raise HTTPException(status_code=404, detail="Pedido no encontrado")
+
+    visibles = await catedras_visibles(db, usuario)
+    if usuario.rol != RolUsuario.ADMIN and pedido.catedra_id not in visibles:
+        raise HTTPException(status_code=403, detail="No tenés permiso sobre este pedido")
+
+    if template_id is not None:
+        template = await db.get(RecursoTemplate, template_id)
+        if not template or not template.activo:
+            raise HTTPException(status_code=404, detail="Template no encontrado o inactivo")
+        pedido.template_id = template_id
+
+    if descripcion_requerimientos is not None:
+        pedido.descripcion_requerimientos = descripcion_requerimientos
+    if vigencia_tipo is not None:
+        pedido.vigencia_tipo = vigencia_tipo
+    if vigencia_desde is not None:
+        pedido.vigencia_desde = vigencia_desde
+    if vigencia_hasta is not None:
+        pedido.vigencia_hasta = vigencia_hasta
+
+    return await cambiar_estado(
+        db,
+        pedido_id,
+        EstadoPedido.SOLICITADO.value,
+        usuario,
+        comentario="Pedido reenviado por la cátedra tras ajustes",
+    )
+
+
+async def cancelar_pedido(
+    db: AsyncSession,
+    pedido_id: int,
+    usuario: Usuario,
+    motivo: str | None = None,
+) -> Pedido:
+    """La cátedra o admin cancela una solicitud en estado REQUIERE_AJUSTE."""
+    pedido = await db.get(Pedido, pedido_id)
+    if not pedido:
+        raise HTTPException(status_code=404, detail="Pedido no encontrado")
+
+    visibles = await catedras_visibles(db, usuario)
+    if usuario.rol != RolUsuario.ADMIN and pedido.catedra_id not in visibles:
+        raise HTTPException(status_code=403, detail="No tenés permiso sobre este pedido")
+
+    comentario = f"Pedido cancelado: {motivo}" if motivo else "Pedido cancelado por la cátedra"
+    return await cambiar_estado(
+        db,
+        pedido_id,
+        EstadoPedido.CANCELADO.value,
+        usuario,
+        comentario=comentario,
     )
 
 

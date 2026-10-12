@@ -10,6 +10,7 @@ import Templates from './pages/Templates';
 import Usuarios from './pages/Usuarios';
 import Metricas from './pages/Metricas';
 import TopNav from './components/TopNav';
+import CambiarPasswordInicialModal from './components/CambiarPasswordInicialModal';
 import './index.css';
 
 function ProtectedLayout({ user }) {
@@ -21,13 +22,14 @@ function ProtectedLayout({ user }) {
           <Routes>
             <Route path="/" element={<Dashboard user={user} />} />
             <Route path="/pedidos" element={<Pedidos user={user} />} />
-            <Route path="/catalogo" element={<Catalogo user={user} />} />
-            <Route path="/servicios" element={<Servicios user={user} />} />
-            <Route path="/metricas" element={<Metricas user={user} />} />
             {user?.rol === 'admin' && (
               <>
+                <Route path="/catalogo" element={<Catalogo user={user} />} />
+                <Route path="/servicios" element={<Servicios user={user} />} />
+                <Route path="/metricas" element={<Metricas user={user} />} />
                 <Route path="/catedras" element={<Catedras />} />
                 <Route path="/templates" element={<Templates />} />
+                <Route path="/admin/templates" element={<Templates />} />
                 <Route path="/usuarios" element={<Usuarios user={user} />} />
               </>
             )}
@@ -52,10 +54,22 @@ export default function App() {
     setLoading(false);
   }, []);
 
+  const handlePasswordCambiada = (usuarioActualizado) => {
+    const updated = { ...user, ...usuarioActualizado, debe_cambiar_password: false };
+    localStorage.setItem('user', JSON.stringify(updated));
+    setUser(updated);
+  };
+
   if (loading) return null;
 
   return (
     <BrowserRouter>
+      {user && user.debe_cambiar_password && (
+        <CambiarPasswordInicialModal
+          user={user}
+          onPasswordCambiada={handlePasswordCambiada}
+        />
+      )}
       <Routes>
         <Route
           path="/login"

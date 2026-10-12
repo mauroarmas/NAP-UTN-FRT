@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -7,10 +7,12 @@ from app.models.usuario import Usuario, RolUsuario
 from app.models.catedra import Catedra
 from app.routers.auth import get_current_user, require_admin
 from app.schemas.usuario import UsuarioRetiroResponse, UsuarioCreate, UsuarioResponse, UsuarioUpdate
+from app.services.email_service import enviar_email_bienvenida
 from app.services.usuario_service import (
     catedras_de,
     con_catedras,
     es_ultimo_admin_activo,
+    generar_password_provisoria,
     tiene_historial,
 )
 from app.utils.security import get_password_hash
@@ -62,10 +64,15 @@ async def obtener_usuario(
 @router.post("/", response_model=UsuarioResponse, status_code=201)
 async def crear_usuario(
     data: UsuarioCreate,
+    background_tasks: BackgroundTasks,
     current_user: Usuario = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """Crea un nuevo usuario. Solo administradores."""
+    """Crea un nuevo usuario con contraseña provisoria automática. Solo administradores."""
+    # Verificar email obligatorio
+    if not data.email or not data.email.strip():
+        raise HTTPException(status_code=400, detail="El email es obligatorio")
+
     # Verificar username único
     result = await db.execute(
         select(Usuario).where(Usuario.username == data.username)
@@ -73,13 +80,12 @@ async def crear_usuario(
     if result.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="El nombre de usuario ya existe")
 
-    # Verificar email único si viene
-    if data.email:
-        result = await db.execute(
-            select(Usuario).where(Usuario.email == data.email)
-        )
-        if result.scalar_one_or_none():
-            raise HTTPException(status_code=400, detail="El email ya está registrado")
+    # Verificar email único
+    result = await db.execute(
+        select(Usuario).where(Usuario.email == data.email)
+    )
+    if result.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="El email ya está registrado")
 
     rol = RolUsuario(data.rol)
 
@@ -92,8 +98,7 @@ async def crear_usuario(
         )
 
     # Se resuelve la disponibilidad **antes** de crear nada: si alguna cátedra
-    # ya tiene titular, la operación entera se rechaza. Crear el usuario y
-    # dejarlo con menos cátedras de las pedidas sería peor que no crearlo.
+    # ya tiene titular, la operación entera se rechaza.
     catedras: list[Catedra] = []
     ocupadas: list[dict] = []
     for catedra_id in data.catedra_ids or []:
@@ -123,13 +128,17 @@ async def crear_usuario(
             },
         )
 
+    password_provisoria = data.password or generar_password_provisoria()
+
     usuario = Usuario(
         username=data.username,
         email=data.email,
         nombre=data.nombre,
-        password_hash=get_password_hash(data.password),
+        password_hash=get_password_hash(password_provisoria),
         rol=rol,
         activo=True,
+        debe_cambiar_password=True,
+        recibir_notificaciones_email=True,
     )
     db.add(usuario)
     await db.flush()
@@ -139,6 +148,16 @@ async def crear_usuario(
 
     await db.commit()
     await db.refresh(usuario)
+
+    # Despachar correo de bienvenida en segundo plano
+    background_tasks.add_task(
+        enviar_email_bienvenida,
+        email=usuario.email,
+        nombre=usuario.nombre,
+        username=usuario.username,
+        password_provisoria=password_provisoria,
+    )
+
     return await con_catedras(db, usuario)
 
 
@@ -203,6 +222,8 @@ async def actualizar_usuario(
         usuario.rol = RolUsuario(data.rol)
     if data.activo is not None:
         usuario.activo = data.activo
+    if data.recibir_notificaciones_email is not None:
+        usuario.recibir_notificaciones_email = data.recibir_notificaciones_email
 
     # Cambio de contraseña opcional
     if data.nueva_password:

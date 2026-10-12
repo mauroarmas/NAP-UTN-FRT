@@ -1,31 +1,35 @@
 import { useState, useEffect } from 'react';
-import { Send, Package, Cpu, Zap, MemoryStick, HardDrive, Pencil, EyeOff, Eye } from 'lucide-react';
-import { getTemplates, createTemplate, updateTemplate, retirarTemplate, reactivarTemplate, getProxmoxTemplates } from '../services/api';
-import { PageHead, Empty, Dialog } from '../components/ui';
+import { Send, Package, Cpu, Zap, MemoryStick, HardDrive, Pencil, EyeOff, Eye, Filter } from 'lucide-react';
+import { getTemplates, retirarTemplate, reactivarTemplate } from '../services/api';
+import { PageHead, Empty } from '../components/ui';
+import TemplatesAdmin from '../components/TemplatesAdmin';
 
-const FORM_INICIAL = {
-  nombre: '', descripcion: '', tipo: 'lxc',
-  default_vcpus: 1, default_ram_mb: 256, default_disk_gb: 2, os_template: '',
+const MODELOS = [
+  { id: 'todos', label: 'Todos los modelos' },
+  { id: 'iaas', label: 'IaaS (Infraestructura)' },
+  { id: 'paas', label: 'PaaS (Plataforma)' },
+  { id: 'saas', label: 'SaaS (Software)' },
+];
+
+const MODELO_STYLES = {
+  iaas: { label: 'IaaS', bg: 'rgba(59, 130, 246, 0.12)', color: '#3b82f6', border: 'rgba(59, 130, 246, 0.3)' },
+  paas: { label: 'PaaS', bg: 'rgba(168, 85, 247, 0.12)', color: '#a855f7', border: 'rgba(168, 85, 247, 0.3)' },
+  saas: { label: 'SaaS', bg: 'rgba(16, 185, 129, 0.12)', color: '#10b981', border: 'rgba(16, 185, 129, 0.3)' },
 };
 
 export default function Templates() {
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState(FORM_INICIAL);
-  const [saving, setSaving] = useState(false);
-  const [osTemplates, setOsTemplates] = useState([]);
-  const [loadingOs, setLoadingOs] = useState(true);
-  const [osError, setOsError] = useState(false);
-  // id de la plantilla que se está corrigiendo; null = alta de una nueva.
-  const [editando, setEditando] = useState(null);
+  const [modalAdminOpen, setModalAdminOpen] = useState(false);
+  const [templateEditando, setTemplateEditando] = useState(null);
   const [verRetiradas, setVerRetiradas] = useState(false);
-  // Qué quedó fuera del alcance de la última corrección (informativo, FR-003).
+  const [filtroModelo, setFiltroModelo] = useState('todos');
   const [alcance, setAlcance] = useState(null);
 
   const fetchTemplates = async () => {
     try {
-      const { data } = await getTemplates(verRetiradas);
+      const modeloParam = filtroModelo === 'todos' ? null : filtroModelo;
+      const { data } = await getTemplates(verRetiradas, modeloParam);
       setTemplates(data);
     } catch (err) {
       console.error(err);
@@ -37,63 +41,28 @@ export default function Templates() {
   useEffect(() => {
     fetchTemplates();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [verRetiradas]);
+  }, [verRetiradas, filtroModelo]);
 
-  useEffect(() => {
-    getProxmoxTemplates()
-      .then(({ data }) => setOsTemplates(data))
-      .catch(() => setOsError(true))
-      .finally(() => setLoadingOs(false));
-  }, []);
+  const abrirCreacion = () => {
+    setTemplateEditando(null);
+    setModalAdminOpen(true);
+  };
 
   const abrirEdicion = (t) => {
-    setEditando(t.id);
-    setForm({
-      nombre: t.nombre, descripcion: t.descripcion || '', tipo: t.tipo,
-      default_vcpus: t.default_vcpus, default_ram_mb: t.default_ram_mb,
-      default_disk_gb: t.default_disk_gb, os_template: t.os_template || '',
-      justificacion_disco: t.justificacion_disco || '',
-    });
-    setShowForm(true);
-  };
-
-  const cerrarForm = () => {
-    setShowForm(false);
-    setEditando(null);
-    setForm(FORM_INICIAL);
-  };
-
-  const handleGuardar = async (e) => {
-    e.preventDefault();
-    setSaving(true);
-    try {
-      const payload = { ...form, os_template: form.os_template || null };
-      if (editando) {
-        // El tipo no se puede cambiar: el backend lo rechaza y con razón, así
-        // que ni siquiera se envía al corregir.
-        delete payload.tipo;
-        const { data } = await updateTemplate(editando, payload);
-        setAlcance(data.alcance_del_cambio || null);
-      } else {
-        await createTemplate(payload);
-      }
-      cerrarForm();
-      fetchTemplates();
-    } catch (err) {
-      const d = err.response?.data?.detail;
-      alert(typeof d === 'string' ? d : d?.mensaje || 'No se pudo guardar la plantilla');
-    } finally {
-      setSaving(false);
-    }
+    setTemplateEditando(t);
+    setModalAdminOpen(true);
   };
 
   const handleRetiro = async (t) => {
     const accion = t.activo ? 'retirar del catálogo' : 'volver a habilitar';
-    if (t.activo && !confirm(
-      `¿${t.nombre} se ${accion}?\n\nDeja de ofrecerse en pedidos nuevos. ` +
-      'Los servicios ya desplegados siguen funcionando y los pedidos históricos ' +
-      'la siguen mostrando.'
-    )) return;
+    if (
+      t.activo &&
+      !confirm(
+        `¿${t.nombre} se ${accion}?\n\nDeja de ofrecerse en pedidos nuevos. ` +
+          'Los servicios ya desplegados siguen funcionando y los pedidos históricos la siguen mostrando.'
+      )
+    )
+      return;
     try {
       await (t.activo ? retirarTemplate(t.id) : reactivarTemplate(t.id));
       fetchTemplates();
@@ -106,11 +75,12 @@ export default function Templates() {
     <div className="fade-in">
       <PageHead
         kicker="Administración"
-        title="Templates"
-        subtitle="Catálogo estandarizado, adaptado a la capacidad real de la infraestructura."
+        title="Catálogo de Plantillas"
+        subtitle="Gestión y parametrización de plantillas homologadas IaaS, PaaS y SaaS para las cátedras."
       >
-        <button className="btn-send" onClick={() => setShowForm(true)}>
-          <Send size={17} /><span>Nuevo template</span>
+        <button className="btn-send" onClick={abrirCreacion}>
+          <Send size={17} />
+          <span>Nuevo template</span>
         </button>
       </PageHead>
 
@@ -120,12 +90,16 @@ export default function Templates() {
           <p className="card-body" style={{ marginTop: 6 }}>
             Rigen para los pedidos nuevos.{' '}
             {alcance.servicios_desplegados > 0 && (
-              <>Los <strong>{alcance.servicios_desplegados}</strong> servicios ya desplegados
-              con esta plantilla siguen con los recursos que se les asignó. </>
+              <>
+                Los <strong>{alcance.servicios_desplegados}</strong> servicios ya desplegados con esta plantilla siguen
+                con los recursos que se les asignó.{' '}
+              </>
             )}
             {alcance.pedidos_aprobados_pendientes > 0 && (
-              <>Hay <strong>{alcance.pedidos_aprobados_pendientes}</strong> pedido(s) aprobados
-              sin desplegar: se desplegarán con la capacidad que ya tienen reservada. </>
+              <>
+                Hay <strong>{alcance.pedidos_aprobados_pendientes}</strong> pedido(s) aprobados sin desplegar: se
+                desplegarán con la capacidad que ya tienen reservada.{' '}
+              </>
             )}
           </p>
           <button className="btn btn-secondary" style={{ marginTop: 10 }} onClick={() => setAlcance(null)}>
@@ -134,10 +108,31 @@ export default function Templates() {
         </div>
       )}
 
-      <div className="row between mb-4" style={{ alignItems: 'baseline' }}>
-        <div className="section-label">Catálogo</div>
-        <div className="row gap-3" style={{ alignItems: 'baseline' }}>
-          <label className="card-meta" style={{ cursor: 'pointer' }}>
+      {/* Barra de filtros por modelo de servicio y retiradas */}
+      <div className="row between mb-4" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
+        <div className="row gap-2" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
+          <span className="card-meta" style={{ display: 'flex', alignItems: 'center', gap: 4, marginRight: 4 }}>
+            <Filter size={14} /> Modelo:
+          </span>
+          {MODELOS.map((m) => (
+            <button
+              key={m.id}
+              className={`btn btn-secondary ${filtroModelo === m.id ? 'active' : ''}`}
+              style={{
+                fontSize: '0.8rem',
+                padding: '4px 10px',
+                borderColor: filtroModelo === m.id ? 'var(--color-accent)' : undefined,
+                background: filtroModelo === m.id ? 'var(--color-accent-subtle)' : undefined,
+              }}
+              onClick={() => setFiltroModelo(m.id)}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="row gap-3" style={{ alignItems: 'center' }}>
+          <label className="card-meta" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
             <input
               type="checkbox"
               checked={verRetiradas}
@@ -151,34 +146,78 @@ export default function Templates() {
       </div>
 
       {templates.length > 0 ? (
-        <div className="grid cols-4">
+        <div className="grid cols-3">
           {templates.map((t) => {
             const Icon = t.tipo === 'lxc' ? Package : Cpu;
+            const modeloInfo = MODELO_STYLES[t.modelo_servicio?.toLowerCase()] || MODELO_STYLES.iaas;
+
             return (
-              <div key={t.id} className="card" style={{ justifyContent: 'space-between', gap: 'var(--space-3)' }}>
-                <div className="row between" style={{ alignItems: 'flex-start' }}>
-                  <span className="stat__glyph"><Icon size={16} /></span>
-                  <div className="row gap-2" style={{ alignItems: 'center' }}>
-                    {!t.activo && <span className="tag">Retirada</span>}
-                    <span className="tag">{t.tipo?.toUpperCase()}</span>
-                  </div>
-                </div>
+              <div
+                key={t.id}
+                className="card"
+                style={{
+                  justifyContent: 'space-between',
+                  gap: 'var(--space-3)',
+                  opacity: t.activo ? 1 : 0.65,
+                }}
+              >
                 <div>
+                  <div className="row between" style={{ alignItems: 'flex-start', marginBottom: 'var(--space-2)' }}>
+                    <span className="stat__glyph"><Icon size={16} /></span>
+                    <div className="row gap-2" style={{ alignItems: 'center' }}>
+                      <span
+                        className="tag"
+                        style={{
+                          background: modeloInfo.bg,
+                          color: modeloInfo.color,
+                          border: `1px solid ${modeloInfo.border}`,
+                          fontWeight: 600,
+                        }}
+                      >
+                        {modeloInfo.label}
+                      </span>
+                      <span className="tag">{t.tipo?.toUpperCase()}</span>
+                      {!t.activo && <span className="tag" style={{ background: 'var(--color-divider)' }}>Retirada</span>}
+                    </div>
+                  </div>
+
                   <div className="card-title" style={{ fontSize: 17 }}>{t.nombre}</div>
-                  {t.descripcion && <p className="card-body" style={{ marginTop: 6 }}>{t.descripcion}</p>}
+                  {t.descripcion && (
+                    <p className="card-body" style={{ marginTop: 6, fontSize: '0.85rem' }}>
+                      {t.descripcion}
+                    </p>
+                  )}
                 </div>
-                <div className="row wrap gap-3" style={{ paddingTop: 'var(--space-3)', borderTop: '1px solid var(--color-divider)' }}>
-                  <span className="card-meta tabnum"><Zap size={12} /> {t.default_vcpus} vCPU</span>
-                  <span className="card-meta tabnum"><MemoryStick size={12} /> {t.default_ram_mb} MB</span>
-                  <span className="card-meta tabnum"><HardDrive size={12} /> {t.default_disk_gb} GB</span>
-                </div>
-                <div className="row gap-2" style={{ paddingTop: 'var(--space-2)' }}>
-                  <button className="btn btn-secondary" onClick={() => abrirEdicion(t)}>
-                    <Pencil size={13} /> Corregir
-                  </button>
-                  <button className="btn btn-secondary" onClick={() => handleRetiro(t)}>
-                    {t.activo ? <><EyeOff size={13} /> Retirar</> : <><Eye size={13} /> Habilitar</>}
-                  </button>
+
+                <div>
+                  <div
+                    className="row wrap gap-3"
+                    style={{
+                      paddingTop: 'var(--space-3)',
+                      borderTop: '1px solid var(--color-divider)',
+                    }}
+                  >
+                    <span className="card-meta tabnum"><Zap size={12} /> {t.default_vcpus} vCPU</span>
+                    <span className="card-meta tabnum"><MemoryStick size={12} /> {t.default_ram_mb} MB</span>
+                    <span className="card-meta tabnum"><HardDrive size={12} /> {t.default_disk_gb} GB</span>
+                  </div>
+
+                  <div className="row gap-2" style={{ paddingTop: 'var(--space-3)' }}>
+                    <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => abrirEdicion(t)}>
+                      <Pencil size={13} /> Corregir
+                    </button>
+                    <button
+                      className="btn btn-secondary"
+                      style={{ flex: 1 }}
+                      onClick={() => handleRetiro(t)}
+                    >
+                      {t.activo ? (
+                        <><EyeOff size={13} /> Retirar</>
+                      ) : (
+                        <><Eye size={13} /> Habilitar</>
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
             );
@@ -186,71 +225,25 @@ export default function Templates() {
         </div>
       ) : (
         <div className="card">
-          <Empty icon={<Package size={22} />}>{loading ? 'Cargando…' : 'No hay templates creados.'}</Empty>
+          <Empty icon={<Package size={22} />}>
+            {loading ? 'Cargando plantillas…' : 'No hay plantillas que coincidan con los filtros seleccionados.'}
+          </Empty>
         </div>
       )}
 
-      {showForm && (
-        <Dialog
-          title={editando ? 'Corregir plantilla' : 'Nuevo template'}
-          onClose={cerrarForm}
-          actions={
-            <>
-              <button className="btn btn-secondary" onClick={cerrarForm}>Cancelar</button>
-              <button className="btn btn-primary" onClick={handleGuardar} disabled={saving}>
-                {saving ? 'Guardando…' : editando ? 'Guardar cambios' : 'Crear template'}
-              </button>
-            </>
-          }
-        >
-          <form onSubmit={handleGuardar}>
-            <div className="grid cols-2">
-              <div className="field">
-                <label>Nombre</label>
-                <input className="input" value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} required placeholder="Ej: Ubuntu Server Small" />
-              </div>
-              <div className="field">
-                <label>Tipo</label>
-                <select className="input" value={form.tipo} disabled={!!editando} title={editando ? 'El tipo no se puede cambiar: creá una plantilla nueva' : undefined} onChange={(e) => setForm({ ...form, tipo: e.target.value })}>
-                  <option value="lxc">LXC (Contenedor)</option>
-                  <option value="qemu">QEMU (VM)</option>
-                </select>
-              </div>
-            </div>
-            <div className="field">
-              <label>Descripción</label>
-              <input className="input" value={form.descripcion} onChange={(e) => setForm({ ...form, descripcion: e.target.value })} placeholder="Descripción del template" />
-            </div>
-            <div className="grid cols-3">
-              <div className="field">
-                <label>vCPUs</label>
-                <input className="input" type="number" min="1" value={form.default_vcpus} onChange={(e) => setForm({ ...form, default_vcpus: parseInt(e.target.value) })} />
-              </div>
-              <div className="field">
-                <label>RAM (MB)</label>
-                <input className="input" type="number" min="64" step="64" value={form.default_ram_mb} onChange={(e) => setForm({ ...form, default_ram_mb: parseInt(e.target.value) })} />
-              </div>
-              <div className="field">
-                <label>Disco (GB)</label>
-                <input className="input" type="number" min="1" value={form.default_disk_gb} onChange={(e) => setForm({ ...form, default_disk_gb: parseInt(e.target.value) })} />
-              </div>
-            </div>
-            <div className="field">
-              <label>OS Template (Proxmox)</label>
-              {osError ? (
-                <input className="input" value={form.os_template} onChange={(e) => setForm({ ...form, os_template: e.target.value })} placeholder="local:vztmpl/ubuntu-22.04-standard_22.04-1_amd64.tar.zst" />
-              ) : (
-                <select className="input" value={form.os_template} onChange={(e) => setForm({ ...form, os_template: e.target.value })} disabled={loadingOs}>
-                  <option value="">{loadingOs ? 'Cargando…' : 'Sin template'}</option>
-                  {osTemplates.map((t) => (
-                    <option key={t.volid} value={t.volid}>{t.volid.split('/').pop()}</option>
-                  ))}
-                </select>
-              )}
-            </div>
-          </form>
-        </Dialog>
-      )}
+      {/* Modal ABM de administración de plantillas */}
+      <TemplatesAdmin
+        open={modalAdminOpen}
+        template={templateEditando}
+        onClose={() => {
+          setModalAdminOpen(false);
+          setTemplateEditando(null);
+        }}
+        onGuardado={(data) => {
+          if (data?.alcance_del_cambio) setAlcance(data.alcance_del_cambio);
+          fetchTemplates();
+        }}
+      />
     </div>
   );
 }

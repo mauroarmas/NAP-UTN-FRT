@@ -1,11 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.database import get_db
 from app.models.usuario import Usuario, RolUsuario
-from app.schemas.auth import Token, LoginRequest, Setup2FAResponse, Verify2FARequest
+from app.schemas.auth import Token, LoginRequest, Setup2FAResponse, Verify2FARequest, CambiarPasswordInicialRequest
 from app.schemas.usuario import UsuarioCreate, UsuarioResponse
 from app.services.usuario_service import con_catedras
 from app.utils.security import (
@@ -68,7 +68,9 @@ async def login(
 ):
     """Login con usuario y contraseña. Devuelve JWT token."""
     result = await db.execute(
-        select(Usuario).where(Usuario.username == form_data.username)
+        select(Usuario).where(
+            (Usuario.username == form_data.username) | (Usuario.email == form_data.username)
+        )
     )
     user = result.scalar_one_or_none()
 
@@ -147,6 +149,7 @@ async def verify_2fa(
 @router.post("/register", response_model=UsuarioResponse)
 async def register_user(
     user_data: UsuarioCreate,
+    background_tasks: BackgroundTasks,
     current_user: Usuario = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
@@ -158,4 +161,31 @@ async def register_user(
     """
     from app.routers.usuarios import crear_usuario
 
-    return await crear_usuario(user_data, current_user=current_user, db=db)
+    return await crear_usuario(
+        user_data,
+        background_tasks=background_tasks,
+        current_user=current_user,
+        db=db,
+    )
+
+
+@router.post("/cambiar-password-inicial", response_model=UsuarioResponse)
+async def cambiar_password_inicial(
+    data: CambiarPasswordInicialRequest,
+    current_user: Usuario = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Establece la nueva contraseña definitiva para un usuario en su primer ingreso."""
+    if not data.nueva_password or len(data.nueva_password.strip()) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La nueva contraseña debe tener al menos 8 caracteres",
+        )
+
+    current_user.password_hash = get_password_hash(data.nueva_password.strip())
+    current_user.debe_cambiar_password = False
+    await db.commit()
+    await db.refresh(current_user)
+
+    return await con_catedras(db, current_user)
+

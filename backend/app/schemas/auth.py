@@ -29,3 +29,8 @@ class Setup2FAResponse(BaseModel):
 
 class Verify2FARequest(BaseModel):
     totp_code: str
+
+
+class CambiarPasswordInicialRequest(BaseModel):
+    nueva_password: str
+

@@ -1,0 +1,117 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Usuarios API - Creación y Preferencias de Notificación",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/v1/usuarios/": {
+      "post": {
+        "summary": "Crea un nuevo usuario generando contraseña provisoria automática",
+        "description": "Solo administradores. Requiere email obligatorio. Si rol es catedra_admin, requiere catedra_ids.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UsuarioCreateAdmin"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Usuario creado satisfactoriamente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsuarioResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Falta email, username duplicado o falta cátedra obligatoria"
+          },
+          "409": {
+            "description": "Alguna de las cátedras seleccionadas ya posee responsable titular"
+          }
+        }
+      }
+    },
+    "/api/v1/usuarios/{usuario_id}": {
+      "patch": {
+        "summary": "Actualiza datos y preferencias del usuario",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UsuarioUpdateAdmin"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Usuario actualizado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsuarioResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "UsuarioCreateAdmin": {
+        "type": "object",
+        "required": ["username", "nombre", "email", "rol"],
+        "properties": {
+          "username": { "type": "string" },
+          "nombre": { "type": "string" },
+          "email": { "type": "string", "format": "email" },
+          "rol": { "type": "string", "enum": ["admin", "catedra_admin"] },
+          "catedra_ids": {
+            "type": "array",
+            "items": { "type": "integer" }
+          }
+        }
+      },
+      "UsuarioUpdateAdmin": {
+        "type": "object",
+        "properties": {
+          "nombre": { "type": "string" },
+          "email": { "type": "string", "format": "email" },
+          "rol": { "type": "string" },
+          "catedra_ids": {
+            "type": "array",
+            "items": { "type": "integer" }
+          },
+          "activo": { "type": "boolean" },
+          "recibir_notificaciones_email": { "type": "boolean" },
+          "nueva_password": { "type": "string" }
+        }
+      },
+      "UsuarioResponse": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "username": { "type": "string" },
+          "email": { "type": "string" },
+          "nombre": { "type": "string" },
+          "rol": { "type": "string" },
+          "activo": { "type": "boolean" },
+          "debe_cambiar_password": { "type": "boolean" },
+          "recibir_notificaciones_email": { "type": "boolean" }
+        }
+      }
+    }
+  }
+}
+

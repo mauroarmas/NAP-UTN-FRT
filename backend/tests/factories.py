@@ -5,7 +5,7 @@ from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.catedra import Catedra
-from app.models.pedido import Pedido, EstadoPedido
+from app.models.pedido import Pedido, EstadoPedido, ModeloServicio, VigenciaTipo
 from app.models.recurso_template import RecursoTemplate, TipoRecurso
 from app.models.servicio import Servicio, EstadoServicio
 from app.models.usuario import Usuario, RolUsuario
@@ -50,13 +50,17 @@ async def crear_template(
     ram_mb: int = 512,
     disk_gb: int = 4,
     tipo: TipoRecurso = TipoRecurso.LXC,
+    modelo_servicio: ModeloServicio = ModeloServicio.IAAS,
+    justificacion_disco: str | None = None,
 ) -> RecursoTemplate:
     template = RecursoTemplate(
         nombre=nombre,
         tipo=tipo,
+        modelo_servicio=modelo_servicio,
         default_vcpus=vcpus,
         default_ram_mb=ram_mb,
         default_disk_gb=disk_gb,
+        justificacion_disco=justificacion_disco,
         os_template="local:vztmpl/debian-12-standard.tar.zst",
     )
     db.add(template)
@@ -69,9 +73,15 @@ async def crear_pedido(
     db: AsyncSession,
     catedra_id: int,
     solicitante_id: int,
-    template_id: int,
+    template_id: int | None = None,
     estado: EstadoPedido = EstadoPedido.APROBADO,
     vmid_reservado: str | None = None,
+    modelo_servicio: ModeloServicio = ModeloServicio.IAAS,
+    descripcion_requerimientos: str | None = None,
+    vigencia_tipo: VigenciaTipo | None = None,
+    vigencia_desde: datetime | None = None,
+    vigencia_hasta: datetime | None = None,
+    opciones_avanzadas: dict | None = None,
 ) -> Pedido:
     pedido = Pedido(
         catedra_id=catedra_id,
@@ -79,6 +89,12 @@ async def crear_pedido(
         template_id=template_id,
         estado=estado,
         vmid_reservado=vmid_reservado,
+        modelo_servicio=modelo_servicio,
+        descripcion_requerimientos=descripcion_requerimientos,
+        vigencia_tipo=vigencia_tipo,
+        vigencia_desde=vigencia_desde,
+        vigencia_hasta=vigencia_hasta,
+        opciones_avanzadas=opciones_avanzadas,
     )
     db.add(pedido)
     await db.commit()

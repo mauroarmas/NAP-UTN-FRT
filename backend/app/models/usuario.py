@@ -26,6 +26,8 @@ class Usuario(Base):
         SAEnum(RolUsuario), default=RolUsuario.CATEDRA_ADMIN
     )
     activo: Mapped[bool] = mapped_column(Boolean, default=True)
+    debe_cambiar_password: Mapped[bool] = mapped_column(Boolean, default=False)
+    recibir_notificaciones_email: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     # Relaciones

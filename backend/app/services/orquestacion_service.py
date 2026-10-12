@@ -12,6 +12,7 @@ from fastapi import HTTPException
 from app.models.pedido import Pedido, PedidoHistorial, EstadoPedido, TipoPedido
 from app.models.servicio import Servicio, EstadoServicio
 from app.models.recurso_template import RecursoTemplate, TipoRecurso
+from app.models.catedra import Catedra
 from app.models.usuario import Usuario, RolUsuario
 from app.services.proxmox_client import (
     TASK_TIMEOUT_ACCION_SEGUNDOS,
@@ -19,6 +20,11 @@ from app.services.proxmox_client import (
 )
 from app.services import historial_service
 from app.services.acceso_service import es_visible
+from app.services.email_service import (
+    enviar_email_servicio_activo,
+    enviar_email_error_despliegue,
+    obtener_emails_administradores,
+)
 from app.services.vencimiento_service import vencimiento_por_defecto
 from app.services.pedido_service import cambiar_estado
 
@@ -257,13 +263,21 @@ def _construir_config_lxc(
     clúster sin dejar rastro. La reserva es el contrato; el template solo define
     el punto de partida en el momento de pedir.
     """
+    opciones = pedido.opciones_avanzadas or {}
+    bridge = opciones.get("bridge", "vmbr0")
+    ip_cfg = opciones.get("ip", "dhcp")
+    net0 = f"name=eth0,bridge={bridge},ip={ip_cfg}"
+    vlan = opciones.get("vlan_tag") or opciones.get("vlan")
+    if vlan:
+        net0 += f",tag={vlan}"
+
     config = {
         "vmid": vmid,
         "hostname": hostname,
         "cores": pedido.reserva_vcpus,
         "memory": pedido.reserva_ram_mb,
         "rootfs": f"{storage}:{pedido.reserva_disk_gb}",
-        "net0": "name=eth0,bridge=vmbr0,ip=dhcp",
+        "net0": net0,
         "start": 1,          # arranca automáticamente al crear
         "unprivileged": 1,   # contenedor sin privilegios (más seguro)
     }
@@ -326,6 +340,56 @@ def _resolver_vmid(pve, pedido: Pedido, hostname: str) -> tuple[int, dict | None
     return pve.get_next_vmid(), None
 
 
+async def _notificar_servicio_activo_seguro(
+    db: AsyncSession,
+    pedido: Pedido,
+    servicio: Servicio,
+    template_nombre: str | None = None,
+) -> None:
+    try:
+        solicitante = await db.get(Usuario, pedido.solicitante_id)
+        if not solicitante or not solicitante.email:
+            return
+        catedra = await db.get(Catedra, pedido.catedra_id)
+        catedra_nom = catedra.nombre if catedra else f"Cátedra #{pedido.catedra_id}"
+        nom_serv = servicio.hostname or template_nombre or f"Servicio #{servicio.id}"
+        enviar_email_servicio_activo(
+            email=solicitante.email,
+            nombre_docente=solicitante.nombre,
+            pedido_id=pedido.id,
+            servicio_id=servicio.id,
+            servicio_nombre=nom_serv,
+            catedra_nombre=catedra_nom,
+            url_acceso=servicio.url_acceso,
+        )
+    except Exception as exc:
+        logger.error(f"Error al notificar servicio activo para pedido {pedido.id}: {exc}")
+
+
+async def _notificar_error_despliegue_seguro(
+    db: AsyncSession,
+    pedido: Pedido,
+    detalle_error: str,
+) -> None:
+    try:
+        solicitante = await db.get(Usuario, pedido.solicitante_id)
+        catedra = await db.get(Catedra, pedido.catedra_id)
+        catedra_nom = catedra.nombre if catedra else f"Cátedra #{pedido.catedra_id}"
+        solic_nom = solicitante.nombre if solicitante else "Docente"
+        admin_emails = await obtener_emails_administradores(db)
+        destinatarios = list(set(admin_emails + ([solicitante.email] if solicitante and solicitante.email else [])))
+        if destinatarios:
+            enviar_email_error_despliegue(
+                destinatarios=destinatarios,
+                pedido_id=pedido.id,
+                catedra_nombre=catedra_nom,
+                solicitante_nombre=solic_nom,
+                detalle_error=detalle_error,
+            )
+    except Exception as exc:
+        logger.error(f"Error al notificar fallo de despliegue para pedido {pedido.id}: {exc}")
+
+
 async def _ejecutar_despliegue(
     db: AsyncSession,
     pedido: Pedido,
@@ -369,6 +433,12 @@ async def _ejecutar_despliegue(
             node = adoptado.get("node") or node
             logger.info(f"Adoptando contenedor existente VMID={vmid} en nodo {node}")
         else:
+            opciones = pedido.opciones_avanzadas or {}
+            if not node:
+                node = opciones.get("nodo_destino") or opciones.get("node")
+            if storage == "local-lvm" and (opciones.get("storage_pool") or opciones.get("storage")):
+                storage = opciones.get("storage_pool") or opciones.get("storage")
+
             # Elegir nodo automáticamente si no se especificó
             if not node:
                 nodes = pve.get_nodes()
@@ -410,11 +480,20 @@ async def _ejecutar_despliegue(
             comentario=f"Error Proxmox: {error_msg[:200]}",
             origen_sistema=True,
         )
+        await _notificar_error_despliegue_seguro(db, pedido, error_msg[:200])
 
         raise HTTPException(
             status_code=502,
             detail=f"Error al crear recurso en Proxmox: {error_msg}",
         )
+
+    vence_at = (
+        pedido.vigencia_hasta
+        if pedido.vigencia_hasta
+        else vencimiento_por_defecto()
+    )
+    url_acceso = f"http://{hostname}.utn.local"
+    credenciales_acceso = f"Usuario: catedra{pedido.catedra_id} / Acceso vía red institucional"
 
     # --- Registrar Servicio en la DB ---
     servicio = Servicio(
@@ -432,14 +511,17 @@ async def _ejecutar_despliegue(
         vcpus_asignados=pedido.reserva_vcpus,
         ram_asignada_mb=pedido.reserva_ram_mb,
         disk_asignado_gb=pedido.reserva_disk_gb,
+        url_acceso=url_acceso,
+        credenciales_acceso=credenciales_acceso,
         deployed_at=datetime.utcnow(),
         # Todo servicio nace con fecha de fin conocida. Es la vía determinista
         # de recuperación de capacidad: no depende de medir nada, y la cátedra
         # sabe desde el primer día hasta cuándo lo tiene.
-        vence_at=vencimiento_por_defecto(),
+        vence_at=vence_at,
     )
     db.add(servicio)
     await db.flush()
+    pedido.servicio_id = servicio.id
 
     # --- Transicionar pedido a ACTIVO ---
     detalle = "adoptado" if adoptado is not None else "desplegado"
@@ -456,6 +538,10 @@ async def _ejecutar_despliegue(
 
     await db.commit()
     await db.refresh(servicio)
+
+    await _notificar_servicio_activo_seguro(
+        db, pedido, servicio, template.nombre if template else None
+    )
 
     logger.info(f"Pedido {pedido.id} desplegado exitosamente → Servicio ID={servicio.id}")
     return servicio
@@ -566,6 +652,7 @@ async def _ejecutar_renovacion(
     )
 
     await db.refresh(servicio)
+    await _notificar_servicio_activo_seguro(db, pedido, servicio, "Renovación de Servicio")
     return servicio
 
 

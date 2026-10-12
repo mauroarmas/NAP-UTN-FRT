@@ -51,12 +51,12 @@ export default function Login({ onLogin }) {
           {error && <div className="login__error">{error}</div>}
 
           <div className="field">
-            <label htmlFor="login-user">Usuario</label>
+            <label htmlFor="login-user">Usuario o Correo</label>
             <input
               id="login-user"
               className="input"
               type="text"
-              placeholder="usuario"
+              placeholder="usuario o correo"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               required

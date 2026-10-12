@@ -191,6 +191,45 @@ async def reiniciar(
     return await reiniciar_servicio(db, servicio_id, current_user)
 
 
+@router.post("/{servicio_id}/reboot", response_model=ServicioResponse)
+async def reiniciar_alias(
+    servicio_id: int,
+    current_user: Usuario = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Alias para reiniciar un servicio en ejecución en Proxmox."""
+    return await reiniciar_servicio(db, servicio_id, current_user)
+
+
+@router.get("/{servicio_id}/metricas")
+async def metricas_en_tiempo_real(
+    servicio_id: int,
+    current_user: Usuario = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Consulta y devuelve las métricas en tiempo real de Proxmox para este servicio."""
+    servicio = vigente_o_404(
+        await db.get(Servicio, servicio_id), "Servicio no encontrado"
+    )
+    await requiere_propio_o_admin(db, servicio, current_user)
+
+    from app.services.metricas_service import capturar_snapshot_servicio, obtener_ultimo_snapshot
+    snapshot = await capturar_snapshot_servicio(db, servicio)
+    if not snapshot:
+        snapshot = await obtener_ultimo_snapshot(db, servicio.id)
+
+    return {
+        "servicio_id": servicio_id,
+        "estado": servicio.estado.value,
+        "cpu_usage_percent": snapshot.cpu_usage_percent if snapshot else 0.0,
+        "ram_usage_mb": snapshot.ram_usage_mb if snapshot else 0.0,
+        "disk_usage_gb": snapshot.disk_usage_gb if snapshot else 0.0,
+        "net_in_bytes": snapshot.net_in_bytes if snapshot else 0.0,
+        "net_out_bytes": snapshot.net_out_bytes if snapshot else 0.0,
+        "timestamp": snapshot.timestamp if snapshot else datetime.utcnow(),
+    }
+
+
 @router.post("/{servicio_id}/reactivar", response_model=ServicioResponse)
 async def reactivar_servicio(
     servicio_id: int,

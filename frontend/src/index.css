@@ -388,6 +388,7 @@ code, pre { font-family: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, monosp
 }
 
 .topnav-right {
+  margin-left: auto;
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -427,6 +428,7 @@ code, pre { font-family: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, monosp
   text-decoration: none;
 }
 .menu-item:hover { background: var(--hover-tint); color: var(--color-text); }
+.menu-item.active { background: var(--hover-tint); color: var(--color-accent-700); font-weight: 500; }
 .menu-item.danger { color: var(--color-accent-700); }
 .menu-item.danger:hover { background: var(--accent-tint); }
 .menu-head {
@@ -867,6 +869,10 @@ td .cell-strong { color: var(--color-text); font-weight: 600; }
 .btn-icon:disabled { opacity: 0.4; cursor: not-allowed; }
 .btn-icon.danger { color: var(--st-bad); }
 .btn-icon.danger:hover:not(:disabled) { background: var(--st-bad-bg); }
+.btn-icon.ok { color: var(--st-ok); }
+.btn-icon.ok:hover:not(:disabled) { background: var(--st-ok-bg); }
+.btn-icon.warn { color: var(--st-warn); }
+.btn-icon.warn:hover:not(:disabled) { background: var(--st-warn-bg); }
 
 /* Acción con etiqueta y color de estado (Iniciar / Detener / Reactivar). */
 .pill-btn {
@@ -1007,7 +1013,7 @@ select.form-input { appearance: none; -webkit-appearance: none; background-image
   border: 1px solid var(--color-divider);
   box-shadow: var(--shadow-lg);
 }
-.dialog.wide { width: min(680px, 100%); }
+.dialog.wide { width: min(740px, 100%); }
 .dialog-head {
   position: sticky;
   top: 0;
@@ -1189,9 +1195,114 @@ select.form-input { appearance: none; -webkit-appearance: none; background-image
 .selector-catedras__vacio,
 .selector-catedras__ayuda { padding: 10px; margin: 0; font-size: 0.82rem; color: var(--text-soft); }
 
-/* ===================== Panel de capacidad (aprobación) ================= */
+/* ===================== Panel de capacidad y Modal Detalle ================= */
 
-.panel-capacidad { display: flex; flex-direction: column; gap: var(--space-2); }
+.panel-capacidad,
+.panel-capacidad-moderno {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.capacidad-status-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  font-size: 0.82rem;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.capacidad-status-pill.ok {
+  background: var(--st-ok-bg);
+  color: var(--st-ok);
+  border: 1px solid var(--st-ok-bd);
+}
+.capacidad-status-pill.warn {
+  background: var(--st-warn-bg);
+  color: var(--st-warn);
+  border: 1px solid var(--st-warn-bd);
+}
+
+.capacidad-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-2);
+}
+@media (max-width: 600px) {
+  .capacidad-cards-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.capacidad-metric-card {
+  background: var(--color-bg);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color var(--transition-fast);
+}
+.capacidad-metric-card.is-excedido {
+  border-color: var(--st-bad-bd);
+  background: var(--st-bad-bg);
+}
+
+.capacidad-metric-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.capacidad-metric-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--text-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.capacidad-metric-body {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.capacidad-metric-value {
+  font-size: 1.2rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-strong);
+}
+
+.capacidad-metric-footer {
+  font-size: 0.74rem;
+  color: var(--text-soft);
+  border-top: 1px solid var(--color-divider);
+  padding-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.capacidad-footer-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.76rem;
+  color: var(--text-faint);
+  background: var(--color-bg);
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-divider);
+  line-height: 1.4;
+}
+
+/* Clases previas para compatibilidad */
 .capacidad-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -1223,6 +1334,42 @@ select.form-input { appearance: none; -webkit-appearance: none; background-image
   font-size: 0.86rem;
 }
 .capacidad-riesgo { font-size: 0.8rem; color: var(--text-faint); margin-top: 4px; }
+
+/* Modal Detalle */
+.detalle-header-ribbon {
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  margin-bottom: var(--space-3);
+}
+
+.detalle-content-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  margin-bottom: var(--space-3);
+}
+
+.decision-container {
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  margin-bottom: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.rechazo-panel {
+  background: var(--st-bad-bg);
+  border: 1px solid var(--st-bad-bd);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  margin-top: 6px;
+}
 
 /* =============================== Utilidades ============================= */
 

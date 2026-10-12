@@ -1,0 +1,183 @@
+openapi: 3.0.3
+info:
+  title: API de Pedidos y Solicitudes de Recursos - NAP
+  version: 1.0.0
+  description: Contratos de endpoints para creación, evaluación, negociación y aprobación de pedidos.
+
+paths:
+  /api/v1/pedidos:
+    post:
+      summary: Crear una nueva solicitud de servicio
+      description: Permite a un docente de cátedra solicitar recursos bajo IaaS, PaaS o SaaS.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - modelo_servicio
+                - vigencia_tipo
+              properties:
+                modelo_servicio:
+                  type: string
+                  enum: [iaas, paas, saas]
+                template_id:
+                  type: integer
+                  description: Obligatorio si modelo_servicio es iaas; opcional si es saas/paas.
+                descripcion_requerimientos:
+                  type: string
+                  description: Detalle de software, API o propósito académico.
+                vigencia_tipo:
+                  type: string
+                  enum: [primer_cuatrimestre, segundo_cuatrimestre, anual, personalizado]
+                vigencia_desde:
+                  type: string
+                  format: date-time
+                vigencia_hasta:
+                  type: string
+                  format: date-time
+                catedra_id:
+                  type: integer
+                  description: Opcional si el docente pertenece a una única cátedra.
+      responses:
+        '201':
+          description: Pedido creado exitosamente en estado SOLICITADO.
+        '400':
+          description: Datos inválidos o faltantes.
+
+  /api/v1/pedidos/{id}/aprobar:
+    post:
+      summary: Aprobar pedido y despachar aprovisionamiento
+      description: Endpoint administrativo para confirmar la aprobación, asignar template y opciones avanzadas.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                template_id:
+                  type: integer
+                  description: Template homologado asignado definitivamente.
+                opciones_avanzadas:
+                  type: object
+                  properties:
+                    nodo_destino:
+                      type: string
+                    storage_pool:
+                      type: string
+                    vlan_tag:
+                      type: integer
+                    override_vcpus:
+                      type: integer
+                    override_ram_mb:
+                      type: integer
+                    override_disk_gb:
+                      type: integer
+                justificacion_capacidad:
+                  type: string
+      responses:
+        '200':
+          description: Aprobación registrada, capacidad reservada y despliegue iniciado.
+        '409':
+          description: Conflicto de estado o capacidad insuficiente sin justificación.
+
+  /api/v1/pedidos/{id}/rechazar:
+    post:
+      summary: Rechazar pedido con motivo obligatorio
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - motivo
+              properties:
+                motivo:
+                  type: string
+                  minLength: 5
+      responses:
+        '200':
+          description: Pedido transicionado a RECHAZADO con motivo registrado.
+
+  /api/v1/pedidos/{id}/solicitar-ajuste:
+    post:
+      summary: Devolver pedido a la cátedra para ajustes
+      description: El administrador propone cambios técnicos o temporales a la cátedra.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - observaciones
+              properties:
+                observaciones:
+                  type: string
+      responses:
+        '200':
+          description: Pedido transicionado a REQUIERE_AJUSTE.
+
+  /api/v1/pedidos/{id}/reenviar:
+    post:
+      summary: Cátedra reenvía pedido ajustado
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                template_id:
+                  type: integer
+                descripcion_requerimientos:
+                  type: string
+                vigencia_tipo:
+                  type: string
+                vigencia_hasta:
+                  type: string
+                  format: date-time
+      responses:
+        '200':
+          description: Pedido transicionado de REQUIERE_AJUSTE a SOLICITADO.
+
+  /api/v1/pedidos/{id}/cancelar:
+    post:
+      summary: Cátedra cancela solicitud en estado de ajuste
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Pedido transicionado a CANCELADO.
+

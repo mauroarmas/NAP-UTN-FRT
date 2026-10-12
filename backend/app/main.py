@@ -15,7 +15,12 @@ from app.routers import (
     capacidad,
     admin_jobs,
 )
+import logging
 from app.services import scheduler
+
+# Configuración de logging para visibilidad de eventos y correos
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+logging.getLogger("app.services.email_service").setLevel(logging.INFO)
 
 settings = get_settings()
 
@@ -26,6 +31,7 @@ async def lifespan(app: FastAPI):
     print(f"🚀 {settings.app_name} iniciando...")
     print(f"📡 Proxmox VE: {settings.proxmox_host}:{settings.proxmox_port}")
     print(f"🗄️  Base de datos: {settings.database_url.split('@')[1] if '@' in settings.database_url else 'N/A'}")
+    print(f"📧 SMTP: {settings.smtp_host or 'Sin servidor (mock)'}:{settings.smtp_port} (From: {settings.smtp_from})")
 
     # Importar los módulos de trabajos registra sus funciones en el planificador.
     from app.services import capacidad_service, vencimiento_service, inactividad_service  # noqa: F401

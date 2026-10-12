@@ -1,7 +1,7 @@
 from app.models.usuario import Usuario
 from app.models.catedra import Catedra
 from app.models.recurso_template import RecursoTemplate
-from app.models.pedido import Pedido, PedidoHistorial, TipoPedido
+from app.models.pedido import Pedido, PedidoHistorial, TipoPedido, EstadoPedido, ModeloServicio, VigenciaTipo
 from app.models.servicio import Servicio
 from app.models.servicio_historial import ServicioHistorial
 from app.models.metrica import MetricaSnapshot
@@ -15,6 +15,9 @@ __all__ = [
     "Pedido",
     "PedidoHistorial",
     "TipoPedido",
+    "EstadoPedido",
+    "ModeloServicio",
+    "VigenciaTipo",
     "Servicio",
     "ServicioHistorial",
     "MetricaSnapshot",

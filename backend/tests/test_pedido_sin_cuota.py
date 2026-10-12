@@ -90,34 +90,12 @@ async def test_una_persona_sin_catedras_no_puede_pedir(client, db, auth_admin, t
     assert "cátedra" in r.json()["detail"].lower()
 
 
-async def test_el_tope_de_disco_sigue_aplicando_al_pedir(
-    client, db, catedra, auth_catedra, auth_admin
-):
-    """Quitar la cuota por cátedra no relajó el límite por contenedor.
-
-    Es un límite por recurso individual, no un techo agregado: son cosas
-    distintas y solo desapareció la segunda.
-    """
-    grande = await factories.crear_template(
-        db, nombre="LXC Desmedido", disk_gb=64
-    )
-
-    r = await client.post(
-        "/pedidos/", json={"template_id": grande.id}, headers=auth_catedra
-    )
-
-    assert r.status_code == 400, r.text
-    assert "8 GB" in r.json()["detail"]
-
-
-async def test_un_template_grande_justificado_si_se_puede_pedir(
+async def test_un_template_grande_se_puede_pedir_sin_bloqueo(
     client, db, catedra, auth_catedra
 ):
     grande = await factories.crear_template(
-        db, nombre="LXC Justificado", disk_gb=64
+        db, nombre="LXC Grande", disk_gb=64
     )
-    grande.justificacion_disco = "Dataset de la materia, aprobado por dirección"
-    await db.commit()
 
     r = await client.post(
         "/pedidos/", json={"template_id": grande.id}, headers=auth_catedra

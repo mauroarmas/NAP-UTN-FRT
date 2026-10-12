@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Send, Pencil, Users, Trash2 } from 'lucide-react';
+import { UserPlus, Pencil, Users, Trash2 } from 'lucide-react';
 import { getUsuarios, createUsuario, updateUsuario, retirarUsuario, getCatedras } from '../services/api';
 import SelectorCatedras from '../components/SelectorCatedras';
 import { PageHead, StatusPill, Empty, Dialog, iniciales } from '../components/ui';
@@ -12,6 +12,7 @@ const ROL = {
 const FORM_INICIAL = {
   username: '', nombre: '', email: '', password: '',
   rol: 'catedra_admin', catedra_ids: [],
+  recibir_notificaciones_email: true,
 };
 
 export default function Usuarios({ user }) {
@@ -50,6 +51,7 @@ export default function Usuarios({ user }) {
     setForm({
       username: u.username, nombre: u.nombre, email: u.email || '', password: '',
       rol: u.rol, catedra_ids: (u.catedras || []).map((c) => c.id),
+      recibir_notificaciones_email: u.recibir_notificaciones_email !== undefined ? u.recibir_notificaciones_email : true,
     });
     setError('');
     setShowForm(true);
@@ -73,10 +75,17 @@ export default function Usuarios({ user }) {
         const update = { ...payload };
         delete update.username;
         if (form.password) update.nueva_password = form.password;
+        if (form.rol === 'admin') {
+          update.recibir_notificaciones_email = form.recibir_notificaciones_email;
+        }
         await updateUsuario(editando.id, update);
       } else {
-        if (!form.password) { setError('La contraseña es requerida'); setSaving(false); return; }
-        await createUsuario({ ...payload, password: form.password });
+        if (!form.email || !form.email.trim()) {
+          setError('El email es obligatorio para enviar la contraseña provisoria');
+          setSaving(false);
+          return;
+        }
+        await createUsuario(payload);
       }
       setShowForm(false);
       fetchAll();
@@ -139,7 +148,7 @@ export default function Usuarios({ user }) {
     <div className="fade-in">
       <PageHead kicker="Administración" title="Usuarios" subtitle="Cuentas, roles y asignación a cátedras.">
         <button className="btn-send" onClick={abrirNuevo}>
-          <Send size={17} /><span>Invitar usuario</span>
+          <UserPlus size={17} /><span>Nuevo usuario</span>
         </button>
       </PageHead>
 
@@ -228,12 +237,8 @@ export default function Usuarios({ user }) {
                 <input className="input" value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} required placeholder="ej: Juan Pérez" />
               </div>
               <div className="field">
-                <label>Email</label>
-                <input className="input" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="usuario@frt.utn.edu.ar" />
-              </div>
-              <div className="field">
-                <label>{editando ? 'Nueva contraseña (vacío = sin cambio)' : 'Contraseña'}</label>
-                <input className="input" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required={!editando} placeholder={editando ? 'Sin cambios' : 'Mínimo 8 caracteres'} />
+                <label>Email *</label>
+                <input className="input" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required placeholder="usuario@frt.utn.edu.ar" />
               </div>
               <div className="field">
                 <label>Rol</label>
@@ -242,6 +247,18 @@ export default function Usuarios({ user }) {
                   <option value="admin">Administrador</option>
                 </select>
               </div>
+              {editando ? (
+                <div className="field" style={{ gridColumn: 'span 2' }}>
+                  <label>Nueva contraseña (dejar vacío para mantener la actual)</label>
+                  <input className="input" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="Sin cambios" />
+                </div>
+              ) : (
+                <div className="field" style={{ gridColumn: 'span 2' }}>
+                  <div style={{ fontSize: '13px', color: 'var(--color-text-muted)', background: 'var(--color-bg-subtle, #f8fafc)', padding: '10px 14px', borderRadius: '4px', border: '1px solid var(--color-border, #e2e8f0)' }}>
+                    ℹ️ <strong>Contraseña provisoria:</strong> El sistema generará automáticamente una credencial aleatoria segura y la enviará al correo del usuario para su primer ingreso.
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="field">
@@ -254,6 +271,19 @@ export default function Usuarios({ user }) {
                 disabled={saving}
               />
             </div>
+
+            {form.rol === 'admin' && (
+              <div className="field" style={{ marginTop: 'var(--space-3)' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 'normal' }}>
+                  <input
+                    type="checkbox"
+                    checked={form.recibir_notificaciones_email}
+                    onChange={(e) => setForm({ ...form, recibir_notificaciones_email: e.target.checked })}
+                  />
+                  <span>Recibir notificaciones por correo electrónico (nuevos pedidos y alertas operativas)</span>
+                </label>
+              </div>
+            )}
           </form>
         </Dialog>
       )}

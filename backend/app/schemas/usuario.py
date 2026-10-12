@@ -15,7 +15,8 @@ class UsuarioBase(BaseModel):
 
 
 class UsuarioCreate(UsuarioBase):
-    password: str
+    email: str
+    password: str | None = None
     # Las cátedras se asignan en el mismo acto que el alta: crear la persona y
     # después acordarse de asignarle sus materias es el paso que se olvida.
     catedra_ids: list[int] = []
@@ -29,12 +30,15 @@ class UsuarioUpdate(BaseModel):
     # quedan sin titular. `None` significa "no tocar la titularidad".
     catedra_ids: list[int] | None = None
     activo: bool | None = None
+    recibir_notificaciones_email: bool | None = None
     nueva_password: str | None = None
 
 
 class UsuarioResponse(UsuarioBase):
     id: int
     activo: bool
+    debe_cambiar_password: bool = False
+    recibir_notificaciones_email: bool = True
     totp_habilitado: bool
     created_at: datetime
     catedras: list[CatedraBreve] = []

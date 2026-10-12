@@ -6,7 +6,7 @@ from app.database import get_db
 from app.models.recurso_template import RecursoTemplate, TipoRecurso
 from app.models.usuario import Usuario, RolUsuario
 from app.routers.auth import get_current_user, require_admin
-from app.models.pedido import Pedido, EstadoPedido
+from app.models.pedido import Pedido, EstadoPedido, ModeloServicio
 from app.models.servicio import Servicio
 from app.schemas.template import (
     AlcanceDelCambio,
@@ -14,7 +14,6 @@ from app.schemas.template import (
     TemplateResponse,
     TemplateUpdate,
 )
-from app.services.limites_service import validar_disco
 
 router = APIRouter(prefix="/templates", tags=["Templates"])
 
@@ -22,6 +21,7 @@ router = APIRouter(prefix="/templates", tags=["Templates"])
 @router.get("/", response_model=list[TemplateResponse])
 async def listar_templates(
     incluir_retiradas: bool = False,
+    modelo_servicio: str | None = None,
     current_user: Usuario = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -31,10 +31,13 @@ async def listar_templates(
     `incluir_retiradas` las trae todas, y es lo que le permite al administrador
     encontrar una plantilla que retiró para volver a habilitarla. Sin eso, retirar
     sería un camino de ida desde la interfaz.
+    `modelo_servicio` permite filtrar plantillas por iaas, paas o saas.
     """
     consulta = select(RecursoTemplate)
     if not (incluir_retiradas and current_user.rol == RolUsuario.ADMIN):
         consulta = consulta.where(RecursoTemplate.activo == True)
+    if modelo_servicio:
+        consulta = consulta.where(RecursoTemplate.modelo_servicio == modelo_servicio.lower())
     result = await db.execute(consulta)
     return result.scalars().all()
 
@@ -66,12 +69,20 @@ async def crear_template(
     if result.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Ya existe un template con ese nombre")
 
-    # Tope de disco por contenedor: superarlo exige justificación registrada.
-    validar_disco(data.default_disk_gb, data.justificacion_disco)
+    modelo_enum = ModeloServicio.IAAS
+    if data.modelo_servicio:
+        try:
+            modelo_enum = ModeloServicio(data.modelo_servicio.lower())
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Modelo de servicio inválido: {data.modelo_servicio}. Debe ser iaas, paas o saas",
+            )
 
     template = RecursoTemplate(
         nombre=data.nombre,
         descripcion=data.descripcion,
+        modelo_servicio=modelo_enum,
         tipo=TipoRecurso(data.tipo),
         default_vcpus=data.default_vcpus,
         default_ram_mb=data.default_ram_mb,
@@ -161,16 +172,38 @@ async def actualizar_template(
                 status_code=409, detail="Ya existe otra plantilla con ese nombre"
             )
 
-    # El tope de disco rige igual que en el alta. Se evalúa contra los valores
-    # que quedarían después de aplicar el cambio, no contra los enviados: subir
-    # el disco y agregar la justificación en la misma operación es válido.
-    disco = cambios.get("default_disk_gb", template.default_disk_gb)
-    justificacion = cambios.get("justificacion_disco", template.justificacion_disco)
-    validar_disco(disco, justificacion)
+    if "modelo_servicio" in cambios and cambios["modelo_servicio"]:
+        try:
+            cambios["modelo_servicio"] = ModeloServicio(cambios["modelo_servicio"].lower())
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Modelo de servicio inválido: {cambios['modelo_servicio']}",
+            )
 
     for campo, valor in cambios.items():
         setattr(template, campo, valor)
 
+    await db.commit()
+    await db.refresh(template)
+
+    respuesta = TemplateResponse.model_validate(template)
+    respuesta.alcance_del_cambio = await _alcance_del_cambio(db, template_id)
+    return respuesta
+
+
+@router.delete("/{template_id}", response_model=TemplateResponse)
+async def desactivar_template(
+    template_id: int,
+    current_user: Usuario = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Desactiva (soft-delete / retira) una plantilla del catálogo. Solo administradores."""
+    template = await db.get(RecursoTemplate, template_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="Template no encontrado")
+
+    template.activo = False
     await db.commit()
     await db.refresh(template)
 

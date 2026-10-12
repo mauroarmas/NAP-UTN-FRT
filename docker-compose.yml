@@ -17,6 +17,14 @@ services:
       retries: 5
     restart: unless-stopped
 
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: ps_mailpit
+    ports:
+      - "8025:8025"
+      - "1025:1025"
+    restart: unless-stopped
+
   api:
     build:
       context: .
@@ -26,7 +34,7 @@ services:
       - "8001:8000"
     environment:
       DATABASE_URL: postgresql+asyncpg://ps_user:ps_password@db:5432/ps_db
-      PROXMOX_HOST: ${PROXMOX_HOST:-192.168.1.92}
+      PROXMOX_HOST: ${PROXMOX_HOST:-172.16.36.100}
       PROXMOX_PORT: 8006
       PROXMOX_USER: root@pam
       PROXMOX_TOKEN_NAME: ${PROXMOX_TOKEN_NAME:-ps-dev}
@@ -35,9 +43,18 @@ services:
       SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
       APP_ENV: development
       APP_DEBUG: "true"
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-noreply@frt.utn.edu.ar}
+      SMTP_TLS: ${SMTP_TLS:-false}
+      SMTP_SSL: ${SMTP_SSL:-false}
     depends_on:
       db:
         condition: service_healthy
+      mailpit:
+        condition: service_started
     restart: unless-stopped
 
   frontend:

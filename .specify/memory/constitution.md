@@ -175,7 +175,6 @@ punto donde eso se controla es la aprobación del pedido.
   tener un vencimiento conocido por su cátedra desde que queda disponible.
 - El cómputo de consumo MUST considerar únicamente recursos vigentes: lo dado de baja no ocupa
   capacidad.
-- El disco de un contenedor MUST NOT superar los 8 GB sin una justificación explícita registrada.
 
 **Rationale**: La cuota fija por cátedra obligaba a declarar por adelantado un techo que nadie sabe
 estimar antes de que empiece la cursada, y convertía errores de estimación en denegaciones
@@ -318,4 +317,4 @@ violación aceptada MUST registrarse en la tabla de Complexity Tracking con su j
 alternativa más simple que se descartó; una violación sin justificación registrada bloquea la
 implementación.
 
-**Version**: 3.0.0 | **Ratified**: 2026-08-07 | **Last Amended**: 2026-08-30
+**Version**: 3.1.0 | **Ratified**: 2026-08-07 | **Last Amended**: 2026-10-12

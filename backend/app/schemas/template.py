@@ -4,11 +4,11 @@ from pydantic import BaseModel
 class TemplateBase(BaseModel):
     nombre: str
     descripcion: str | None = None
+    modelo_servicio: str = "iaas"
     tipo: str = "lxc"
     default_vcpus: int = 1
     default_ram_mb: int = 256
     default_disk_gb: int = 2
-    # Obligatoria para superar el tope de 8 GB por contenedor.
     justificacion_disco: str | None = None
     os_template: str | None = None
     config_extra: dict | None = None
@@ -29,6 +29,7 @@ class TemplateUpdate(BaseModel):
 
     nombre: str | None = None
     descripcion: str | None = None
+    modelo_servicio: str | None = None
     # `tipo` figura acá **solo para poder rechazarlo con un mensaje que explique
     # por qué**. Dejarlo fuera del schema haría que Pydantic lo descartara en
     # silencio y el administrador creería haberlo cambiado.

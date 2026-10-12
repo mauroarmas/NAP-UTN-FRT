@@ -10,6 +10,8 @@ alguien intenta usar el endpoint. Por eso las cátedras se consultan
 explícitamente en lugar de dejar que el ORM las resuelva solo.
 """
 
+import secrets
+import string
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,6 +19,24 @@ from app.models.catedra import Catedra
 from app.models.pedido import Pedido
 from app.models.usuario import Usuario, RolUsuario
 from app.schemas.usuario import UsuarioResponse
+
+
+def generar_password_provisoria(longitud: int = 10) -> str:
+    """Genera una contraseña provisoria segura de alta entropía.
+
+    Usa letras mayúsculas, minúsculas, dígitos y símbolos excluyendo
+    caracteres ambiguos (0, O, l, I) para evitar confusiones de lectura.
+    """
+    alfabeto = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!#$%"
+    pwd = [
+        secrets.choice("abcdefghijkmnpqrstuvwxyz"),
+        secrets.choice("ABCDEFGHJKLMNPQRSTUVWXYZ"),
+        secrets.choice("23456789"),
+    ]
+    for _ in range(max(longitud, 8) - len(pwd)):
+        pwd.append(secrets.choice(alfabeto))
+    secrets.SystemRandom().shuffle(pwd)
+    return "".join(pwd)
 
 
 async def catedras_de(db: AsyncSession, usuario_id: int) -> list[Catedra]:
@@ -51,6 +71,8 @@ async def con_catedras(db: AsyncSession, usuario: Usuario) -> UsuarioResponse:
         nombre=usuario.nombre,
         rol=usuario.rol.value,
         activo=usuario.activo,
+        debe_cambiar_password=getattr(usuario, "debe_cambiar_password", False),
+        recibir_notificaciones_email=getattr(usuario, "recibir_notificaciones_email", True),
         created_at=usuario.created_at,
         totp_habilitado=usuario.totp_habilitado,
         catedras=[{"id": c.id, "nombre": c.nombre} for c in catedras],

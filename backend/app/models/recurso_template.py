@@ -3,6 +3,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 import enum
 
 from app.database import Base
+from app.models.pedido import ModeloServicio
 
 
 class TipoRecurso(str, enum.Enum):
@@ -16,15 +17,22 @@ class RecursoTemplate(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     nombre: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     descripcion: Mapped[str | None] = mapped_column(Text, nullable=True)
+    modelo_servicio: Mapped[ModeloServicio] = mapped_column(
+        SAEnum(
+            ModeloServicio,
+            name="modeloservicio",
+            values_callable=lambda obj: [e.value for e in obj],
+            native_enum=False,
+        ),
+        default=ModeloServicio.IAAS,
+        nullable=False,
+    )
     tipo: Mapped[TipoRecurso] = mapped_column(
         SAEnum(TipoRecurso), default=TipoRecurso.LXC
     )
     default_vcpus: Mapped[int] = mapped_column(Integer, default=1)
     default_ram_mb: Mapped[int] = mapped_column(Integer, default=256)
     default_disk_gb: Mapped[int] = mapped_column(Integer, default=2)
-    # Requerida para superar el tope de 8 GB por contenedor. Hasta ahora ese
-    # tope se cumplía de casualidad, porque la cuota de disco por cátedra valía
-    # 8 GB por defecto; al eliminarse las cuotas pasa a ser una regla explícita.
     justificacion_disco: Mapped[str | None] = mapped_column(Text, nullable=True)
     os_template: Mapped[str | None] = mapped_column(String(200), nullable=True)
     config_extra: Mapped[dict | None] = mapped_column(JSON, nullable=True)

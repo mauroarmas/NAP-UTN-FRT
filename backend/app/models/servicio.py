@@ -7,6 +7,8 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    JSON,
+    Text,
     Enum as SAEnum,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -53,6 +55,8 @@ class Servicio(Base):
     ram_asignada_mb: Mapped[int] = mapped_column(Integer, default=256)
     disk_asignado_gb: Mapped[int] = mapped_column(Integer, default=2)
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    url_acceso: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    credenciales_acceso: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     deployed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 

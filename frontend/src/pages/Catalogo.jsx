@@ -71,7 +71,9 @@ export default function Catalogo({ user }) {
       const { data } = await createPedido({
         template_id: activa.id,
         catedra_id: catedraId ? parseInt(catedraId) : null,
-        parametros_extra: justificacion.trim() ? { justificacion_uso: justificacion.trim() } : null,
+        parametros_extra: justificacion.trim()
+          ? { justificacion_uso: justificacion.trim(), descripcion: justificacion.trim() }
+          : null,
       });
       setConfirmado({ id: data.id, nombre: activa.nombre });
       setActiva(null);
@@ -175,7 +177,7 @@ export default function Catalogo({ user }) {
           </div>
 
           <div className="field">
-            <label>Justificación de uso <span style={{ color: 'var(--text-faint)' }}>(opcional)</span></label>
+            <label>Descripción / Justificación de uso <span style={{ color: 'var(--text-faint)' }}>(opcional)</span></label>
             <textarea
               className="input"
               rows={3}

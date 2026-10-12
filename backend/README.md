@@ -176,3 +176,26 @@ El bloqueo por cátedras a cargo **aplica aunque la cátedra esté dada de baja*
 darla de baja no detiene sus servicios, así que sigue necesitando responsable. Es
 la razón por la que el mensaje dice "reasignalas" y no "dalas de baja" — lo
 segundo no destraba nada.
+
+## Notificaciones por Correo Electrónico (feature 008)
+
+El portal emite notificaciones institucionales automáticas (HTML con identidad UTN FRT y alternativa en texto plano) ante eventos del ciclo de vida de usuarios y pedidos:
+
+1. **Alta de usuario**: Generación automática de contraseña provisoria y despacho de credenciales.
+2. **Ciclo de pedidos**: Alerta de nuevo pedido/reenvío a administradores, solicitud de ajuste a docentes, rechazo fundamentado, servicio activo con datos de acceso y errores técnicos de despliegue.
+
+El despacho se ejecuta de forma asíncrona no bloqueante mediante `BackgroundTasks` de FastAPI y `aiosmtplib` (o `smtplib` estándar). En entorno de pruebas (`pytest`), las llamadas se capturan en memoria mediante fixture `mock_email` sin salida a la red.
+
+### Variables de entorno SMTP
+
+| Variable | Tipo | Default | Descripción |
+|---|---|---|---|
+| `SMTP_HOST` | `str` | `"localhost"` | Host del servidor o relay SMTP institucional |
+| `SMTP_PORT` | `int` | `587` | Puerto del servicio SMTP (`587` para STARTTLS, `465` para SSL, `25` para local) |
+| `SMTP_USER` | `str` | `""` | Usuario de autenticación SMTP (opcional si relay abierto) |
+| `SMTP_PASSWORD` | `str` | `""` | Contraseña de autenticación SMTP |
+| `SMTP_FROM` | `str` | `"portal-computos@frt.utn.edu.ar"` | Dirección de correo y nombre remitente |
+| `SMTP_TLS` | `bool` | `True` | Habilitar cifrado STARTTLS en la conexión |
+| `SMTP_SSL` | `bool` | `False` | Habilitar SSL directo (típicamente puerto 465) |
+| `APP_FRONTEND_URL` | `str` | `"http://localhost:5173"` | URL del frontend para enlaces de acceso en los correos |
+

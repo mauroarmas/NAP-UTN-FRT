@@ -17,6 +17,8 @@ class ServicioResponse(BaseModel):
     ram_asignada_mb: int
     disk_asignado_gb: int
     ip_address: str | None
+    url_acceso: str | None = None
+    credenciales_acceso: str | None = None
     deployed_at: datetime | None
     deleted_at: datetime | None = None
     # --- Vencimiento y pausado ---

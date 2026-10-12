@@ -4,7 +4,7 @@ from functools import lru_cache
 
 class Settings(BaseSettings):
     # Proxmox VE
-    proxmox_host: str = "192.168.1.92"
+    proxmox_host: str = "172.16.36.100"
     proxmox_port: int = 8006
     proxmox_user: str = "root@pam"
     proxmox_token_name: str = "ps-dev"
@@ -23,6 +23,16 @@ class Settings(BaseSettings):
     app_name: str = "Portal de Gestión - Nube Privada UTN FRT"
     app_env: str = "development"
     app_debug: bool = True
+    app_frontend_url: str = "http://localhost:5173"
+
+    # SMTP & Notificaciones
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = "noreply@frt.utn.edu.ar"
+    smtp_tls: bool = True
+    smtp_ssl: bool = False
 
     model_config = {
         "env_file": "../.env",
