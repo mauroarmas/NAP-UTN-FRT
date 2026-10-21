@@ -41,6 +41,10 @@ services:
       PROXMOX_TOKEN_VALUE: ${PROXMOX_TOKEN_VALUE:-}
       PROXMOX_VERIFY_SSL: "false"
       SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
+      CSRF_SECRET: ${CSRF_SECRET:-}
+      SECRET_KEYRING: ${SECRET_KEYRING:?Configurar SECRET_KEYRING en .env antes de iniciar el portal}
+      SECRET_ACTIVE_KEY: ${SECRET_ACTIVE_KEY:-}
+      APP_FRONTEND_URL: http://localhost:5174
       APP_ENV: development
       APP_DEBUG: "true"
       SMTP_HOST: ${SMTP_HOST:-mailpit}
@@ -61,11 +65,12 @@ services:
     build:
       context: .
       dockerfile: frontend.dockerfile
+      target: dev
     container_name: ps_frontend
     ports:
       - "5174:5173"
     environment:
-      VITE_API_URL: http://localhost:8001
+      NAP_BACKEND_PROXY: http://api:8000
     depends_on:
       - api
     restart: unless-stopped

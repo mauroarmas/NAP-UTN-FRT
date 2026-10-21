@@ -1,285 +1,125 @@
-import { useState, useEffect } from 'react';
-import { CheckCircle2, ChevronDown, ChevronRight, Settings, Server, HardDrive, Network, Zap } from 'lucide-react';
-import { aprobarPedido } from '../services/api';
+import { useEffect, useRef, useState } from 'react';
+import { aprobarPedido, evaluarPedido, getCapacidad } from '../services/api';
+import ErrorFormulario from './ErrorFormulario';
 import PanelCapacidad from './PanelCapacidad';
+import VigenciaFields from './VigenciaFields';
+import { vigenciaInicial } from '../utils/vigencia';
 import { Dialog } from './ui';
+const EMPTY = [];
 
-export default function AprobarPedidoModal({
-  open,
-  pedido,
-  evaluacion,
-  templates = [],
-  onClose,
-  onAprobado,
-  onRecargarCapacidad,
-}) {
+export default function AprobarPedidoModal({ open, pedido, templates = EMPTY, onClose, onAprobado }) {
   const [templateId, setTemplateId] = useState('');
-  const [desplegarInmediatamente, setDesplegarInmediatamente] = useState(true);
-  const [mostrarAvanzadas, setMostrarAvanzadas] = useState(false);
-  const [nodoDestino, setNodoDestino] = useState('');
-  const [storagePool, setStoragePool] = useState('local-lvm');
-  const [vlanTag, setVlanTag] = useState('');
-  const [overrideVcpus, setOverrideVcpus] = useState('');
-  const [overrideRamMb, setOverrideRamMb] = useState('');
-  const [overrideDiskGb, setOverrideDiskGb] = useState('');
-  const [justificacion, setJustificacion] = useState('');
-  const [enviando, setEnviando] = useState(false);
-  const [error, setError] = useState(null);
-
+  const [resources, setResources] = useState({ vcpus: 1, ram_mb: 512, disk_gb: 4 });
+  const [dates, setDates] = useState(vigenciaInicial);
+  const [validDates, setValidDates] = useState(false);
+  const [destination, setDestination] = useState('');
+  const [destinations, setDestinations] = useState([]);
+  const [evaluation, setEvaluation] = useState(null);
+  const [justification, setJustification] = useState('');
+  const [deployNow, setDeployNow] = useState(false);
+  const [error, setError] = useState('');
+  const [evaluating, setEvaluating] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const sequence = useRef(0);
+  const request = useRef(null);
+  const submitting = useRef(false);
+  const key = useRef(crypto.randomUUID());
+  const renewal = pedido?.tipo === 'renovacion';
+  const available = templates.filter((t) => renewal ? t.id === pedido?.template_id
+    : t.activo !== false && t.oferta_disponible !== false && t.tipo === 'lxc' && t.modelo_servicio === pedido?.modelo_servicio);
   useEffect(() => {
     if (!open || !pedido) return;
-    setError(null);
-    setJustificacion('');
-    setTemplateId(pedido.template_id ? String(pedido.template_id) : (templates.length > 0 ? String(templates[0].id) : ''));
-    setDesplegarInmediatamente(true);
-    setMostrarAvanzadas(false);
-    setNodoDestino('');
-    setStoragePool('local-lvm');
-    setVlanTag('');
-    setOverrideVcpus('');
-    setOverrideRamMb('');
-    setOverrideDiskGb('');
+    let active = true;
+    sequence.current += 1; request.current?.abort();
+    const template = templates.find((t) => t.id === pedido.template_id);
+    const snapshot = pedido.asignacion_snapshot;
+    setTemplateId(String(pedido.template_id || ''));
+    setResources({ vcpus: snapshot?.vcpus ?? template?.default_vcpus ?? 1,
+      ram_mb: snapshot?.ram_mb ?? template?.default_ram_mb ?? 512, disk_gb: snapshot?.disk_gb ?? template?.default_disk_gb ?? 4 });
+    setDates(pedido.vigencia ? { ...pedido.vigencia } : vigenciaInicial()); setValidDates(false);
+    setDestination(''); setEvaluation(null); setJustification(''); setDeployNow(false); setError('');
+    setBusy(false); setEvaluating(false); submitting.current = false; key.current = crypto.randomUUID();
+    getCapacidad().then((response) => { if (active) setDestinations(response?.data?.destinos || []); })
+      .catch(() => { if (active) setDestinations([]); });
+    return () => { active = false; sequence.current += 1; request.current?.abort(); };
   }, [open, pedido, templates]);
-
   if (!open || !pedido) return null;
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError(null);
-
-    if (!templateId) {
-      setError('Debes seleccionar una plantilla para aprobar el pedido.');
-      return;
-    }
-
-    if (evaluacion?.excede_capacidad && !justificacion.trim()) {
-      setError('Aprobar por encima de la capacidad libre requiere una justificación.');
-      return;
-    }
-
-    setEnviando(true);
-    try {
-      const opcionesAvanzadas = {};
-      if (nodoDestino.trim()) opcionesAvanzadas.nodo_destino = nodoDestino.trim();
-      if (storagePool.trim() && storagePool !== 'local-lvm') opcionesAvanzadas.storage_pool = storagePool.trim();
-      if (vlanTag) opcionesAvanzadas.vlan_tag = parseInt(vlanTag);
-      if (overrideVcpus) opcionesAvanzadas.override_vcpus = parseInt(overrideVcpus);
-      if (overrideRamMb) opcionesAvanzadas.override_ram_mb = parseInt(overrideRamMb);
-      if (overrideDiskGb) opcionesAvanzadas.override_disk_gb = parseInt(overrideDiskGb);
-
-      const payload = {
-        capacidad_token: evaluacion?.capacidad_token || null,
-        justificacion_capacidad: justificacion.trim() || null,
-        template_id: parseInt(templateId),
-        desplegar_inmediatamente: desplegarInmediatamente,
-        opciones_avanzadas: Object.keys(opcionesAvanzadas).length > 0 ? opcionesAvanzadas : null,
-      };
-
-      const { data } = await aprobarPedido(pedido.id, payload);
-      if (onAprobado) onAprobado(data);
-      onClose();
-    } catch (err) {
-      const d = err.response?.data?.detail;
-      if (d?.codigo === 'token_desactualizado') {
-        setError('La capacidad del clúster cambió mientras evaluabas. Actualizá la capacidad y reconfirmá.');
-        if (onRecargarCapacidad) onRecargarCapacidad();
-      } else if (d?.codigo === 'excede_capacidad') {
-        setError(d.mensaje);
-        if (onRecargarCapacidad) onRecargarCapacidad();
-      } else {
-        setError(typeof d === 'string' ? d : err.message || 'Error al aprobar el pedido');
-      }
-    } finally {
-      setEnviando(false);
-    }
+  const selected = templates.find((t) => String(t.id) === templateId);
+  const definitionId = renewal ? pedido.asignacion_snapshot?.definicion_version_id : selected?.definicion_version_id;
+  const payload = { asignacion: { template_id: Number(templateId),
+    ...Object.fromEntries(Object.entries(resources).map(([name, value]) => [name, Number(value)])),
+    ...(definitionId ? { definicion_version_id: definitionId } : {}) }, vigencia: dates,
+    ...(destination ? { destino: JSON.parse(destination) } : {}) };
+  const invalidate = () => {
+    sequence.current += 1; request.current?.abort(); setEvaluation(null); setEvaluating(false);
+    key.current = crypto.randomUUID(); setError('');
   };
-
-  return (
-    <Dialog wide title={`Aprobar Pedido #${pedido.id}`} onClose={onClose}>
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-        {error && (
-          <div className="callout bad">
-            <span>{error}</span>
-          </div>
-        )}
-
-        {/* Resumen del pedido */}
-        <div style={{ background: 'var(--color-surface)', padding: 'var(--space-3)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-divider)' }}>
-          <div style={{ fontSize: 13, color: 'var(--text-soft)' }}>
-            <strong>Modelo:</strong> {(pedido.modelo_servicio || 'iaas').toUpperCase()} · <strong>Cátedra:</strong> {pedido.catedra?.nombre || `#${pedido.catedra_id}`}
-          </div>
-          {pedido.descripcion_requerimientos && (
-            <div style={{ fontSize: 13, marginTop: 4, fontStyle: 'italic' }}>
-              “{pedido.descripcion_requerimientos}”
-            </div>
-          )}
-        </div>
-
-        {/* 1. Selección de plantilla homologada */}
-        <div>
-          <label className="label" style={{ fontWeight: 600 }}>
-            1. Plantilla de Recursos Asignada
-          </label>
-          <select
-            className="input select"
-            value={templateId}
-            onChange={(e) => setTemplateId(e.target.value)}
-            required
-          >
-            {templates.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.nombre} ({t.default_vcpus} vCPU · {t.default_ram_mb} MB RAM · {t.default_disk_gb} GB Disco)
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* 2. Capacidad del Clúster */}
-        {evaluacion && <PanelCapacidad evaluacion={evaluacion} />}
-
-        {evaluacion?.excede_capacidad && (
-          <div className="field">
-            <label className="label" style={{ fontWeight: 600 }}>
-              Justificación obligatoria (por exceder capacidad libre)
-            </label>
-            <input
-              className="input"
-              placeholder="Ej: Aprobado para curso intensivo con apagado de laboratorios"
-              value={justificacion}
-              onChange={(e) => setJustificacion(e.target.value)}
-              required
-            />
-          </div>
-        )}
-
-        {/* 3. Despliegue automático o solo reserva */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 'var(--space-2)',
-            padding: 'var(--space-3)',
-            borderRadius: 'var(--radius-sm)',
-            border: '1px solid var(--color-divider)',
-            background: desplegarInmediatamente ? 'var(--accent-tint)' : 'transparent',
-          }}
-        >
-          <input
-            type="checkbox"
-            id="desplegar_inmediatamente"
-            checked={desplegarInmediatamente}
-            onChange={(e) => setDesplegarInmediatamente(e.target.checked)}
-            style={{ width: 18, height: 18, cursor: 'pointer' }}
-          />
-          <label htmlFor="desplegar_inmediatamente" style={{ cursor: 'pointer', fontSize: 13 }}>
-            <strong>Desplegar inmediatamente en Proxmox</strong> (Aprovisionamiento 100% automático tras aprobación).
-          </label>
-        </div>
-
-        {/* 4. Opciones Avanzadas (Acordeón colapsable) */}
-        <div style={{ border: '1px solid var(--color-divider)', borderRadius: 'var(--radius-sm)' }}>
-          <button
-            type="button"
-            className="btn btn-ghost"
-            style={{ width: '100%', justifyContent: 'space-between', padding: '10px 14px' }}
-            onClick={() => setMostrarAvanzadas(!mostrarAvanzadas)}
-          >
-            <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600 }}>
-              <Settings size={15} />
-              Opciones Avanzadas (Nodo, Red VLAN, Storage, Overrides)
-            </span>
-            {mostrarAvanzadas ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-          </button>
-
-          {mostrarAvanzadas && (
-            <div style={{ padding: '14px', borderTop: '1px solid var(--color-divider)', display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--space-2)' }}>
-                <div>
-                  <label className="label" style={{ fontSize: 12 }}>Nodo Proxmox</label>
-                  <input
-                    className="input"
-                    placeholder="Automático (menor carga)"
-                    value={nodoDestino}
-                    onChange={(e) => setNodoDestino(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="label" style={{ fontSize: 12 }}>Storage Pool</label>
-                  <input
-                    className="input"
-                    placeholder="local-lvm"
-                    value={storagePool}
-                    onChange={(e) => setStoragePool(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="label" style={{ fontSize: 12 }}>VLAN Tag</label>
-                  <input
-                    type="number"
-                    className="input"
-                    placeholder="Ej. 100"
-                    value={vlanTag}
-                    onChange={(e) => setVlanTag(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="label" style={{ fontSize: 12, fontWeight: 600 }}>
-                  Ajustes manuales de capacidad (Overrides de plantilla)
-                </label>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--space-2)' }}>
-                  <div>
-                    <label className="label" style={{ fontSize: 11 }}>vCPUs</label>
-                    <input
-                      type="number"
-                      className="input"
-                      placeholder="Ej. 2"
-                      value={overrideVcpus}
-                      onChange={(e) => setOverrideVcpus(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="label" style={{ fontSize: 11 }}>RAM (MB)</label>
-                    <input
-                      type="number"
-                      className="input"
-                      placeholder="Ej. 1024"
-                      value={overrideRamMb}
-                      onChange={(e) => setOverrideRamMb(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="label" style={{ fontSize: 11 }}>Disco (GB)</label>
-                    <input
-                      type="number"
-                      className="input"
-                      placeholder="Ej. 8"
-                      value={overrideDiskGb}
-                      onChange={(e) => setOverrideDiskGb(e.target.value)}
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Botones de acción */}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)', marginTop: 'var(--space-2)' }}>
-          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={enviando}>
-            Cancelar
-          </button>
-          <button type="submit" className="btn btn-primary" disabled={enviando}>
-            {enviando
-              ? 'Procesando...'
-              : desplegarInmediatamente
-              ? 'Aprobar y Desplegar'
-              : 'Solo Aprobar y Reservar'}
-          </button>
-        </div>
-      </form>
-    </Dialog>
-  );
+  const evaluate = async () => {
+    if (busy || evaluating) return;
+    if (!templateId || !validDates || Object.values(resources).some((value) => !Number.isInteger(Number(value)) || Number(value) <= 0)) {
+      setError('Revisá plantilla, recursos positivos y vigencia completa.'); return;
+    }
+    const current = ++sequence.current;
+    const controller = new AbortController(); request.current = controller;
+    setEvaluating(true); setError(''); setEvaluation(null);
+    try {
+      const { data } = await evaluarPedido(pedido.id, payload, controller.signal);
+      if (sequence.current === current) setEvaluation({ data, expires: Date.now() + 60000 });
+    } catch (err) { if (sequence.current === current) setError(err); }
+    finally { if (sequence.current === current) setEvaluating(false); }
+  };
+  const submit = async (event) => {
+    event.preventDefault();
+    if (submitting.current || !evaluation || !validDates) return;
+    if (Date.now() >= evaluation.expires) { setEvaluation(null); setError('La evaluación venció. Evaluá nuevamente.'); return; }
+    if (evaluation.data.justificacion_requerida && !justification.trim()) { setError('Ingresá la justificación de sobreasignación.'); return; }
+    submitting.current = true; setBusy(true); setError('');
+    try {
+      const body = { ...evaluation.data.seleccion, capacidad_token: evaluation.data.capacidad_token,
+        ...(justification.trim() ? { justificacion_capacidad: justification.trim() } : {}), desplegar_inmediatamente: deployNow && !renewal };
+      const response = await aprobarPedido(pedido.id, body, key.current);
+      onAprobado?.(response.data); onClose();
+    } catch (err) {
+      setError(err);
+      if (err.response?.status === 409) setEvaluation(null);
+    } finally { submitting.current = false; setBusy(false); }
+  };
+  const changeTemplate = (value) => {
+    const t = templates.find((item) => String(item.id) === value);
+    setTemplateId(value);
+    if (t) setResources({ vcpus: t.default_vcpus, ram_mb: t.default_ram_mb, disk_gb: t.default_disk_gb });
+    invalidate();
+  };
+  return <Dialog wide title={`Aprobar pedido #${pedido.id}`} onClose={onClose} closeDisabled={busy}>
+    <form onSubmit={submit} className="col gap-3">
+      <ErrorFormulario error={error} />
+      <label htmlFor="approval-template">Plantilla</label>
+      <select id="approval-template" value={templateId} onChange={(e) => changeTemplate(e.target.value)} disabled={busy || renewal} required>
+        <option value="">Seleccioná una plantilla compatible</option>
+        {available.map((t) => <option key={t.id} value={String(t.id)}>{renewal ? pedido.asignacion_snapshot?.nombre || t.nombre : t.nombre}</option>)}
+        {renewal && !available.length && <option value={String(pedido.template_id)}>{pedido.asignacion_snapshot?.nombre || 'Asignación histórica'}</option>}
+      </select>
+      <fieldset disabled={busy || renewal} className="row gap-2">
+        <legend>Recursos efectivos</legend>
+        {[['vcpus', 'vCPU'], ['ram_mb', 'RAM (MiB)'], ['disk_gb', 'Disco (GiB)']].map(([name, label]) => <label key={name}>{label}
+          <input aria-label={label} type="number" min="1" step="1" value={resources[name]} onChange={(e) => { setResources((previous) => ({ ...previous, [name]: e.target.value })); invalidate(); }} required />
+        </label>)}
+      </fieldset>
+      <fieldset disabled={busy}><VigenciaFields value={dates} onChange={(value) => { setDates(value); invalidate(); }} onValid={setValidDates} /></fieldset>
+      {!renewal && <><label htmlFor="approval-destination">Destino autorizado</label>
+        <select id="approval-destination" value={destination} onChange={(e) => { setDestination(e.target.value); invalidate(); }} disabled={busy}>
+          <option value="">Selección automática entre destinos elegibles</option>
+          {destinations.map((d) => <option key={`${d.destino.nodo}:${d.destino.storage}`} value={JSON.stringify(d.destino)}>{d.destino.nodo} / {d.destino.storage}</option>)}
+        </select></>}
+      <button type="button" className="btn btn-secondary" onClick={evaluate} disabled={busy || evaluating || !validDates}>{evaluating ? 'Evaluando…' : 'Evaluar asignación'}</button>
+      {evaluation && <PanelCapacidad evaluacion={evaluation.data} />}
+      {evaluation?.data.justificacion_requerida && <label>Justificación de sobreasignación
+        <textarea aria-label="Justificación de sobreasignación" value={justification} maxLength={2000} onChange={(e) => { setJustification(e.target.value); key.current = crypto.randomUUID(); }} required />
+      </label>}
+      {!renewal && <label><input type="checkbox" checked={deployNow} disabled={busy} onChange={(e) => { setDeployNow(e.target.checked); key.current = crypto.randomUUID(); }} />Solicitar despliegue después de aprobar, si la fecha inicial ya está habilitada.</label>}
+      {renewal && <p>La renovación registra condiciones. El estado del contenedor y sus datos se conservan.</p>}
+      <div className="row gap-2"><button type="button" onClick={onClose} disabled={busy}>Cerrar</button>
+        <button type="submit" className="btn btn-primary" disabled={busy || !validDates || !evaluation || Boolean(evaluation?.data.restricciones_fisicas?.length)}>{busy ? 'Guardando…' : renewal ? 'Aprobar renovación' : 'Aprobar asignación'}</button></div>
+    </form>
+  </Dialog>;
 }
-

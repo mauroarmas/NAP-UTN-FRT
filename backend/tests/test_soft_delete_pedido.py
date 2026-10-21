@@ -48,7 +48,7 @@ async def test_pedido_con_servicio_vigente_responde_409(
     r = await client.delete(f"/pedidos/{pedido.id}", headers=auth_admin)
 
     assert r.status_code == 409, r.text
-    assert str(servicio.id) in r.json()["detail"]
+    assert str(servicio.id) in r.json()["detail"]["mensaje"]
     await db.refresh(pedido)
     assert pedido.deleted_at is None
 

@@ -1,0 +1,41 @@
+{
+  "entorno": "laboratorio_local_real",
+  "observado_at": "2026-10-21T16:29:43.284637+00:00",
+  "nodo": "proxmox",
+  "estado": "tres_imagenes_reconocidas_por_api",
+  "imagenes": [
+    {
+      "producto": "linux",
+      "volid": "local:vztmpl/nap009-linux-1.0.0.tar.gz",
+      "bytes": 58906401,
+      "content": "vztmpl"
+    },
+    {
+      "producto": "postgresql",
+      "volid": "local:vztmpl/nap009-postgresql-1.0.0.tar.gz",
+      "bytes": 149334940,
+      "content": "vztmpl"
+    },
+    {
+      "producto": "bookstack",
+      "volid": "local:vztmpl/nap009-bookstack-1.0.0.tar.gz",
+      "bytes": 171276813,
+      "content": "vztmpl"
+    }
+  ],
+  "invitados_observados": [
+    {
+      "vmid": 101,
+      "tipo": "lxc",
+      "estado": "stopped"
+    },
+    {
+      "vmid": 103,
+      "tipo": "lxc",
+      "estado": "stopped"
+    }
+  ],
+  "bundles": "Copia y SHA confirmados por recibo root compartido por el usuario; no inspeccionados por API",
+  "hash_imagenes": "Confirmado por instalador root del recibo; la API sólo verifica presencia y tamaño",
+  "registro_perfiles_permisos_red_tls_ensayos_pendientes": true
+}

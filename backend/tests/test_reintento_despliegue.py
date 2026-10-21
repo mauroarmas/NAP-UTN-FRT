@@ -94,7 +94,7 @@ async def test_reintento_sobre_estado_invalido_responde_409(
     r = await client.post(f"/pedidos/{pedido.id}/reintentar", headers=auth_admin)
 
     assert r.status_code == 409, r.text
-    assert estado.value in r.json()["detail"]
+    assert estado.value in r.json()["detail"]["mensaje"]
     assert proxmox.creados == []
 
 

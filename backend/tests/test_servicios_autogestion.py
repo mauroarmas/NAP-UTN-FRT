@@ -1,7 +1,7 @@
 import pytest
 from app.models.servicio import EstadoServicio, Servicio
 from app.models.usuario import RolUsuario
-from app.utils.security import create_access_token
+from tests.auth_helpers import headers_para
 from tests import factories
 
 NODO = [
@@ -21,10 +21,6 @@ def cluster(proxmox):
     proxmox.nodos = NODO
     return proxmox
 
-
-async def _headers_de(usuario) -> dict:
-    token = create_access_token({"sub": usuario.username, "rol": usuario.rol.value})
-    return {"Authorization": f"Bearer {token}"}
 
 
 async def test_obtener_servicio_expone_accesos(
@@ -108,7 +104,7 @@ async def test_aislamiento_multicatedra_en_servicios(
         proxmox_node="pve1",
     )
 
-    auth_b = await _headers_de(usuario_b)
+    auth_b = await headers_para(db, usuario_b)
 
     # Usuario B intenta acceder al servicio de A
     r_get = await client.get(f"/servicios/{servicio_a.id}", headers=auth_b)

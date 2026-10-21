@@ -120,12 +120,9 @@ async def test_una_catedra_ajena_sigue_sin_ver_el_pedido_revertido(
     )
     otro = await factories.crear_usuario(db, "ajeno")
     await factories.crear_catedra(db, nombre="Otra", titular_id=otro.id)
-    from app.utils.security import create_access_token
+    from tests.auth_helpers import headers_para
 
-    headers = {
-        "Authorization": "Bearer "
-        + create_access_token({"sub": otro.username, "rol": otro.rol.value})
-    }
+    headers = await headers_para(db, otro)
 
     r = await client.get(f"/pedidos/{pedido.id}", headers=headers)
 

@@ -1,0 +1,31 @@
+{
+  "observado_at": "2026-10-21T17:03:27.326639+00:00",
+  "usuarios": [],
+  "roles": [],
+  "pools": [],
+  "mutaciones": false,
+  "respuesta_local": {
+    "bytes": 0,
+    "modo": "0600",
+    "contenido_no_impreso": true
+  },
+  "certificado_presentado": {
+    "fuente": "handshake sin autenticación, sólo diagnóstico público; no se usó para confiar una CA",
+    "subject": "CN=proxmox.ve,O=Proxmox Virtual Environment,OU=PVE Cluster Node",
+    "ip_san": [
+      "127.0.0.1",
+      "::1",
+      "192.168.1.2"
+    ],
+    "dns_san": [
+      "localhost",
+      "proxmox",
+      "proxmox.ve"
+    ],
+    "sha256": "a29b7f65244d5f98ea69abd32c57178b1ea9ccfacd5a48d9641cafaefefc0e57",
+    "ip_actual_ausente": true
+  },
+  "ip_local_reportada_por_api": "172.16.36.100",
+  "limitacion": "El mensaje del primer intento era genérico; su código TLS exacto no se registró. El SAN observado impide verificar la IP actual.",
+  "accion": "Lanzador corregido para renovación condicionada y diagnóstico de etapa/código TLS; pendiente ejecución manual"
+}

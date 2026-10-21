@@ -1,0 +1,149 @@
+# Archivo autónomo. No combinar con el compose de desarrollo/override.
+name: nap-production
+
+x-runtime: &runtime
+  image: nap-api:${NAP_RELEASE:?Identificador de release revisada}
+  build:
+    context: .
+    dockerfile: dockerfile
+  user: "${NAP_RUN_UID:?UID no root propietario de secretos}:${NAP_RUN_GID:?GID de ejecución}"
+  init: true
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  tmpfs: ['/tmp:size=64m,mode=1777']
+  pids_limit: 256
+  environment:
+    NAP_SETTINGS_FILE: /run/secrets/settings.json
+  secrets:
+    - source: settings_runtime
+      target: settings.json
+  volumes:
+    - type: bind
+      source: ${NAP_PVE_CA_FILE:?CA pública de Proxmox}
+      target: /run/pve-ca.pem
+      read_only: true
+      bind: {create_host_path: false}
+    - type: bind
+      source: ${NAP_ARTIFACTS_DIR:?Artefactos verificados}
+      target: /run/nap-artifacts
+      read_only: true
+      bind: {create_host_path: false}
+    - type: bind
+      source: ${NAP_RUNNER_SSH_DIR:?Clave dedicada y known_hosts}
+      target: /run/nap-runner
+      read_only: true
+      bind: {create_host_path: false}
+  networks: [datos, borde]
+  depends_on:
+    db: {condition: service_healthy}
+
+services:
+  db:
+    image: postgres@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${NAP_DB_OWNER:?Rol propietario elegido}
+      POSTGRES_DB: ${NAP_DB_NAME:?Base operativa elegida}
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256 --auth-local=scram-sha-256
+    secrets: [db_password]
+    volumes: [datos_pg:/var/lib/postgresql/data]
+    networks: [datos]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    shm_size: 256m
+    pids_limit: 256
+
+  migrate:
+    <<: *runtime
+    profiles: [release]
+    restart: 'no'
+    command: [python, -m, scripts.iniciar_operativo, migrate]
+    secrets:
+      - source: settings_release
+        target: settings.json
+    # La intervención de esquema no recibe la clave SSH del runner.
+    volumes:
+      - type: bind
+        source: ${NAP_PVE_CA_FILE}
+        target: /run/pve-ca.pem
+        read_only: true
+        bind: {create_host_path: false}
+
+  preflight:
+    <<: *runtime
+    profiles: [release]
+    restart: 'no'
+    command: [python, -m, scripts.iniciar_operativo, preflight]
+
+  api:
+    <<: *runtime
+    restart: unless-stopped
+    command: [python, -m, scripts.iniciar_operativo, api]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health',timeout=2).read()"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 15s
+
+  worker:
+    <<: *runtime
+    profiles: [worker]
+    restart: unless-stopped
+    command: [python, -m, scripts.iniciar_operativo, worker]
+    stop_grace_period: 30s
+
+  proxy:
+    image: nap-web:${NAP_RELEASE}
+    build:
+      context: .
+      dockerfile: frontend.dockerfile
+      target: production
+    user: "${NAP_RUN_UID}:${NAP_RUN_GID}"
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      NAP_PUBLIC_HOST: ${NAP_PUBLIC_HOST:?Nombre DNS accesible del portal}
+      NGINX_ENVSUBST_FILTER: ^NAP_PUBLIC_HOST$$
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+      - /etc/nginx/conf.d:size=1m,uid=${NAP_RUN_UID},gid=${NAP_RUN_GID},mode=0700
+    volumes:
+      - type: bind
+        source: ${NAP_TLS_DIR:?Certificado y clave TLS del portal}
+        target: /run/tls
+        read_only: true
+        bind: {create_host_path: false}
+    ports: ['80:8080','443:8443']
+    networks:
+      borde: {ipv4_address: '${NAP_PROXY_IP:?IP fija del proxy confiable}'}
+    depends_on:
+      api: {condition: service_healthy}
+    pids_limit: 128
+
+secrets:
+  settings_runtime:
+    file: ${NAP_SECRETS_DIR:?Directorio privado fuera del repositorio}/runtime.json
+  settings_release:
+    file: ${NAP_SECRETS_DIR}/release.json
+  db_password:
+    file: ${NAP_SECRETS_DIR}/postgres_password
+
+volumes:
+  datos_pg:
+
+networks:
+  datos: {internal: true}
+  borde:
+    ipam:
+      config:
+        - subnet: ${NAP_PROXY_SUBNET:?Subred propia sin solapamiento}
+          ip_range: ${NAP_DYNAMIC_RANGE:?Rango dinámico que excluye la IP fija del proxy}

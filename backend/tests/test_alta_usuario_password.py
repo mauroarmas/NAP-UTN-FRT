@@ -35,7 +35,10 @@ async def test_crear_usuario_genera_password_provisoria_y_envia_correo(
     assert data["debe_cambiar_password"] is True
     assert data["recibir_notificaciones_email"] is True
 
-    # Verificar despacho de correo
+    # La outbox despacha después del commit, desde el worker.
+    from app.services.notificacion_service import procesar_uno
+    assert mock_email == []
+    await procesar_uno(db)
     assert len(mock_email) == 1
     email_enviado = mock_email[0]
     assert "alberto.gomez@frt.utn.edu.ar" in email_enviado["destinatarios"]
@@ -56,7 +59,8 @@ async def test_crear_usuario_genera_password_provisoria_y_envia_correo(
     )
     assert login_res.status_code == 200
     token_data = login_res.json()
-    assert "access_token" in token_data
+    assert token_data["estado"] == "onboarding"
+    assert "access_token" not in token_data
 
 
 @pytest.mark.asyncio
@@ -95,5 +99,5 @@ async def test_crear_catedra_admin_sin_catedras_falla(
 
     res = await client.post("/usuarios/", json=payload, headers=auth_admin)
     assert res.status_code == 400
-    assert "Asigná al menos una cátedra" in res.json()["detail"]
+    assert "Asigná al menos una cátedra" in res.json()["detail"]["mensaje"]
 

@@ -49,7 +49,7 @@ async def test_el_tipo_no_es_editable(client, auth_admin, template):
         headers=auth_admin,
     )
     assert r.status_code == 400
-    assert "tipo" in str(r.json()["detail"]).lower()
+    assert "tipo" in str(r.json()["detail"]["mensaje"]).lower()
 
 
 async def test_nombre_duplicado_se_rechaza(client, auth_admin, db, template):

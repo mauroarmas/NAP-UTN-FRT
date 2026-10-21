@@ -1,285 +1,152 @@
-import { useState, useEffect, useCallback } from 'react';
-import {
-  LineChart, Line, AreaChart, Area,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
-} from 'recharts';
-import { RefreshCw, Activity, Cpu, MemoryStick, HardDrive, Boxes, X } from 'lucide-react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Activity, RefreshCw, X } from 'lucide-react';
 import { getResumenMetricas, capturarMetricas, getHistorialMetricas } from '../services/api';
 import { PageHead, StatusPill, Meter, Empty } from '../components/ui';
+import EstadoConsulta from '../components/EstadoConsulta';
+const GraficasMetricas = lazy(() => import('../components/GraficasMetricas'));
+import useRemoteData from '../hooks/useRemoteData';
+import { mensajeError } from '../utils/errors';
 
-const fmtTime = (iso) => {
-  if (!iso) return '';
-  const norm = typeof iso === 'string' && !iso.endsWith('Z') && !iso.includes('+') ? iso + 'Z' : iso;
-  const d = new Date(norm);
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
+const EMPTY = [];
+const periods = { hora: 1, dia: 24, semana: 168, trimestre: 2160 };
+const states = { running: 'En funcionamiento', stopped: 'Detenido' };
+const observed = (sample) => sample?.calidad === 'confirmada';
+const number = (value, digits = 1) => Number.isFinite(value) ? value.toFixed(digits) : 'Sin confirmación';
+const date = (value) => value ? new Date(value).toLocaleString('es-AR') : 'Sin fecha';
+const exactBytes = (value) => {
+  if (value === null || value === undefined) return 'Sin intervalo completo';
+  try { return `${BigInt(value).toLocaleString('es-AR')} bytes`; } catch { return 'Sin confirmación'; }
 };
 
-const fmtBytes = (b) => {
-  if (b >= 1e9) return `${(b / 1e9).toFixed(1)} GB`;
-  if (b >= 1e6) return `${(b / 1e6).toFixed(1)} MB`;
-  if (b >= 1e3) return `${(b / 1e3).toFixed(0)} KB`;
-  return `${b} B`;
-};
-
-const GaugeBar = ({ value, max, label }) => {
-  const pct = max > 0 ? Math.min((value / max) * 100, 100) : 0;
-  return (
-    <div style={{ marginBottom: 'var(--space-3)' }}>
-      <div className="row between" style={{ marginBottom: 5 }}>
-        <span className="card-meta">{label}</span>
-        <span className="tabnum" style={{ fontSize: 12, fontWeight: 600 }}>{pct.toFixed(1)} %</span>
-      </div>
-      <Meter value={value} max={max} />
-    </div>
-  );
-};
-
-const CustomTooltip = ({ active, payload, label }) => {
-  if (!active || !payload?.length) return null;
-  return (
-    <div style={{
-      background: 'var(--color-surface)', border: '1px solid var(--color-divider)',
-      borderRadius: 'var(--radius-md)', padding: '9px 12px', fontSize: 12,
-    }}>
-      <p style={{ color: 'var(--text-soft)', marginBottom: 4 }}>{label}</p>
-      {payload.map((p) => (
-        <p key={p.dataKey} style={{ color: p.color, margin: '2px 0' }}>
-          {p.name}: <strong>{p.value?.toFixed(2)}{p.unit || ''}</strong>
-        </p>
-      ))}
-    </div>
-  );
-};
-
-export default function Metricas({ user }) {
-  const [resumen, setResumen] = useState([]);
-  const [seleccionado, setSeleccionado] = useState(null);
-  const [historial, setHistorial] = useState([]);
-  const [cargando, setCargando] = useState(true);
-  const [capturando, setCapturando] = useState(false);
-  const [autoRefresh, setAutoRefresh] = useState(false);
-  const [lastUpdate, setLastUpdate] = useState(null);
-
-  const isAdmin = user?.rol === 'admin';
-
-  const fetchResumen = useCallback(async () => {
-    try {
-      const { data } = await getResumenMetricas();
-      setResumen(data);
-      setLastUpdate(new Date());
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setCargando(false);
-    }
-  }, []);
-
-  const fetchHistorial = useCallback(async (id) => {
-    try {
-      const { data } = await getHistorialMetricas(id, 60);
-      setHistorial(data.map((s) => ({ ...s, time: fmtTime(s.timestamp) })));
-    } catch {
-      setHistorial([]);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchResumen();
-    if (!autoRefresh) return;
-    const id = setInterval(fetchResumen, 30000);
-    return () => clearInterval(id);
-  }, [autoRefresh, fetchResumen]);
-
-  useEffect(() => {
-    if (seleccionado) fetchHistorial(seleccionado.servicio_id);
-  }, [seleccionado, fetchHistorial]);
-
-  const handleCapturar = async () => {
-    setCapturando(true);
-    try {
-      await capturarMetricas();
-      await fetchResumen();
-      if (seleccionado) await fetchHistorial(seleccionado.servicio_id);
-    } catch (e) {
-      alert(e.response?.data?.detail || 'Error al capturar métricas');
-    } finally {
-      setCapturando(false);
-    }
-  };
-
-  // KPIs derivados de los snapshots por servicio (no hay serie agregada de clúster).
-  const conSnap = resumen.filter((s) => s.ultimo_snapshot);
-  const cpuAvg = conSnap.length ? conSnap.reduce((a, s) => a + s.ultimo_snapshot.cpu_usage_percent, 0) / conSnap.length : 0;
-  const ramUso = conSnap.reduce((a, s) => a + s.ultimo_snapshot.ram_usage_mb, 0);
-  const ramMax = resumen.reduce((a, s) => a + (s.ram_max_mb || 0), 0);
-  const diskUso = conSnap.reduce((a, s) => a + s.ultimo_snapshot.disk_usage_gb, 0);
-  const activos = resumen.filter((s) => s.estado?.toLowerCase() === 'running').length;
-
-  const KPIS = [
-    { label: 'CPU promedio', valor: `${cpuAvg.toFixed(0)} %`, icon: Cpu, tone: 'accent' },
-    { label: 'RAM en uso', valor: `${(ramUso / 1024).toFixed(1)} / ${(ramMax / 1024).toFixed(1)} GB`, icon: MemoryStick, tone: 'ok' },
-    { label: 'Disco en uso', valor: `${diskUso.toFixed(1)} GB`, icon: HardDrive, tone: 'warn' },
-    { label: 'Servicios activos', valor: `${activos} / ${resumen.length}`, icon: Boxes, tone: 'accent' },
-  ];
-
-  return (
-    <div className="fade-in">
-      <PageHead
-        title="Métricas"
-        subtitle={`Observabilidad de recursos y servicios en uso.${lastUpdate ? ` · Actualizado ${fmtTime(lastUpdate.toISOString())}` : ''}`}
-      >
-        <label className="row gap-2" style={{ fontSize: 13, color: 'var(--text-soft)', cursor: 'pointer' }}>
-          <input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} style={{ accentColor: 'var(--color-accent)' }} />
-          Auto-refresh (30s)
-        </label>
-        {isAdmin && (
-          <button className="btn btn-secondary" onClick={handleCapturar} disabled={capturando}>
-            <RefreshCw size={15} /> {capturando ? 'Actualizando…' : 'Actualizar'}
-          </button>
-        )}
-      </PageHead>
-
-      {cargando ? (
-        <div className="card"><Empty icon={<Activity size={22} />}>Cargando métricas…</Empty></div>
-      ) : resumen.length === 0 ? (
-        <div className="card">
-          <Empty icon={<Activity size={22} />}>
-            No hay servicios con métricas disponibles.
-            {isAdmin && (
-              <div style={{ marginTop: 'var(--space-3)' }}>
-                <button className="btn btn-primary" onClick={handleCapturar}>Capturar primera métrica</button>
-              </div>
-            )}
-          </Empty>
-        </div>
-      ) : (
-        <>
-          {/* Subtítulo: Resumen Global */}
-          <h2 className="section-subtitle" style={{
-            fontSize: 21, fontWeight: 600, color: 'var(--text-base)',
-            marginBottom: 'var(--space-4)', marginTop: 0,
-          }}>
-            Resumen Global
-          </h2>
-
-          <div className="grid cols-4 mb-6">
-            {KPIS.map((k) => (
-              <div className={`stat stat--${k.tone}`} key={k.label}>
-                <div className="stat__kicker">
-                  <span className={`stat__glyph ${k.tone === 'ok' ? 'ok' : k.tone === 'warn' ? 'warn' : ''}`}><k.icon size={16} /></span> {k.label}
-                </div>
-                <div className="stat__value tabnum">{k.valor}</div>
-              </div>
-            ))}
-          </div>
-
-          {/* Separador + Subtítulo: Métricas por Servicio */}
-          <hr style={{ border: 'none', borderTop: '1px solid var(--color-divider)', margin: 'var(--space-6) 0 var(--space-4)' }} />
-          <h2 className="section-subtitle" style={{
-            fontSize: 21, fontWeight: 600, color: 'var(--text-base)',
-            marginBottom: 'var(--space-4)',
-          }}>
-            Métricas por Servicio
-          </h2>
-
-          <div className="grid auto top mb-6">
-            {resumen.map((srv) => {
-              const snap = srv.ultimo_snapshot;
-              const sel = seleccionado?.servicio_id === srv.servicio_id;
-              const running = srv.estado?.toLowerCase() === 'running';
-              return (
-                <div
-                  key={srv.servicio_id}
-                  className="card"
-                  style={{ cursor: 'pointer', borderColor: sel ? 'var(--color-accent)' : undefined }}
-                  onClick={() => setSeleccionado(srv)}
-                >
-                  <div className="row between" style={{ alignItems: 'flex-start' }}>
-                    <div className="col" style={{ minWidth: 0 }}>
-                      <div className="row gap-2">
-                        <span className="cell-strong">{srv.hostname}</span>
-                        <span className="tag neutral">CT {srv.vmid}</span>
-                      </div>
-                      <span className="card-meta">{srv.ip_address} · {srv.node}</span>
-                    </div>
-                    <StatusPill kind={running ? 'ok' : 'off'}>{running ? 'Running' : srv.estado.toLowerCase()}</StatusPill>
-                  </div>
-
-                  {snap ? (
-                    <div style={{ marginTop: 'var(--space-3)' }}>
-                      <GaugeBar value={snap.cpu_usage_percent} max={100} label={`CPU · ${snap.cpu_usage_percent.toFixed(1)}% / ${srv.vcpus} vCPU`} />
-                      <GaugeBar value={snap.ram_usage_mb} max={srv.ram_max_mb} label={`RAM · ${snap.ram_usage_mb.toFixed(0)} / ${srv.ram_max_mb} MB`} />
-                      <GaugeBar value={snap.disk_usage_gb} max={srv.disk_max_real_gb || srv.disk_max_gb} label={`Disco · ${snap.disk_usage_gb.toFixed(1)} / ${(srv.disk_max_real_gb || srv.disk_max_gb).toFixed(1)} GB`} />
-                      <div className="row between card-meta" style={{ marginTop: 'var(--space-2)', paddingTop: 'var(--space-2)', borderTop: '1px solid var(--color-divider)' }}>
-                        <span>↑ {fmtBytes(snap.net_out_bytes)} · ↓ {fmtBytes(snap.net_in_bytes)}</span>
-                        <span>{fmtTime(snap.timestamp)}</span>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="card-meta" style={{ marginTop: 'var(--space-2)' }}>Sin datos — capturá una métrica.</div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          {seleccionado && (
-            <div className="card fade-in">
-              <div className="card-header">
-                <div className="card-title">
-                  Historial — {seleccionado.hostname || `VMID ${seleccionado.vmid}`}
-                  <span className="card-meta" style={{ marginLeft: 8 }}>(últimos {historial.length} puntos)</span>
-                </div>
-                <button className="btn-icon" onClick={() => setSeleccionado(null)} aria-label="Cerrar"><X size={16} /></button>
-              </div>
-
-              {historial.length < 2 ? (
-                <Empty icon={<Activity size={20} />}>
-                  Se necesitan al menos 2 capturas para mostrar el gráfico.
-                  {isAdmin && ' Hacé clic en "Actualizar" algunas veces.'}
-                </Empty>
-              ) : (
-                <div className="grid cols-2">
-                  <Grafico titulo="CPU (%)" data={historial} dataKey="cpu_usage_percent" name="CPU" unit="%" color="var(--st-ok)" domain={[0, 100]} />
-                  <Grafico titulo="RAM (MB)" data={historial} dataKey="ram_usage_mb" name="RAM" unit=" MB" color="var(--color-accent)" domain={[0, seleccionado.ram_max_mb]} />
-                  <Grafico titulo="Disco (GB)" data={historial} dataKey="disk_usage_gb" name="Disco" unit=" GB" color="var(--st-warn)" domain={[0, seleccionado.disk_max_gb]} />
-                  <div>
-                    <div className="section-label" style={{ marginBottom: 'var(--space-2)' }}>Red (bytes acumulados)</div>
-                    <ResponsiveContainer width="100%" height={180}>
-                      <LineChart data={historial}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="var(--color-divider)" />
-                        <XAxis dataKey="time" tick={{ fill: 'var(--text-faint)', fontSize: 10 }} />
-                        <YAxis tick={{ fill: 'var(--text-faint)', fontSize: 10 }} tickFormatter={fmtBytes} />
-                        <Tooltip content={<CustomTooltip />} />
-                        <Legend wrapperStyle={{ fontSize: 12 }} />
-                        <Line type="monotone" dataKey="net_in_bytes" name="Entrada" stroke="var(--st-warn)" strokeWidth={2} dot={false} />
-                        <Line type="monotone" dataKey="net_out_bytes" name="Salida" stroke="var(--color-accent)" strokeWidth={2} dot={false} />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  );
+function Gauge({ value, max, label, unit, estimated }) {
+  return <div className="mb-3"><p className="card-meta">{label}: {number(value)} {Number.isFinite(value) && unit}
+    {Number.isFinite(max) && ` / ${number(max)} ${unit}${estimated ? ' (límite estimado)' : ''}`}</p>
+    {Number.isFinite(value) && Number.isFinite(max) && max > 0 && <Meter value={value} max={max} />}
+  </div>;
 }
 
-function Grafico({ titulo, data, dataKey, name, unit, color, domain }) {
-  return (
-    <div>
-      <div className="section-label" style={{ marginBottom: 'var(--space-2)' }}>{titulo}</div>
-      <ResponsiveContainer width="100%" height={180}>
-        <AreaChart data={data}>
-          <CartesianGrid strokeDasharray="3 3" stroke="var(--color-divider)" />
-          <XAxis dataKey="time" tick={{ fill: 'var(--text-faint)', fontSize: 10 }} />
-          <YAxis domain={domain} tick={{ fill: 'var(--text-faint)', fontSize: 10 }} unit={unit} />
-          <Tooltip content={<CustomTooltip />} />
-          <Area type="monotone" dataKey={dataKey} name={name} stroke={color} fill={color} fillOpacity={0.12} strokeWidth={2} dot={false} unit={unit} />
-        </AreaChart>
-      </ResponsiveContainer>
-    </div>
-  );
+export default function Metricas({ user }) {
+  const [selectedId, setSelectedId] = useState(null);
+  const [period, setPeriod] = useState('dia');
+  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [capturing, setCapturing] = useState(false);
+  const [actionError, setActionError] = useState('');
+  const [notice, setNotice] = useState('');
+  const submitting = useRef(false);
+  const historySection = useRef(null);
+  const scrollHistory = useRef(false);
+  const scope = `${user?.id || ''}:${user?.rol || ''}`;
+  const summary = useRemoteData((options) => getResumenMetricas(options), { key: `metricas:${scope}`,
+    refreshMs: autoRefresh ? 30000 : 0, errorMessage: 'No se pudieron consultar las métricas.' });
+  const rows = summary.data || EMPTY;
+  const selected = rows.find((row) => row.servicio_id === selectedId);
+  useEffect(() => {
+    if (selectedId && historySection.current) {
+      scrollHistory.current = true;
+      historySection.current.focus({ preventScroll: true });
+    }
+  }, [selectedId]);
+  const history = useRemoteData((options) => {
+    const until = new Date();
+    const since = new Date(until.getTime() - periods[period] * 3600000);
+    return getHistorialMetricas(selectedId, 500, { desde: since.toISOString(), hasta: until.toISOString(), resolucion: 'auto' }, options);
+  }, { key: `historial:${scope}:${selectedId}:${period}`, enabled: Boolean(selected),
+    refreshMs: autoRefresh ? 30000 : 0, errorMessage: 'No se pudo consultar el historial de métricas.' });
+  const points = history.data || EMPTY;
+  useEffect(() => {
+    // Esperar al resultado: antes, la sección corta hacía que el navegador
+    // limitara el scroll y las gráficas quedaran por debajo de la pantalla.
+    if (scrollHistory.current && !history.loading && (history.data !== null || history.error)) {
+      scrollHistory.current = false;
+      historySection.current?.scrollIntoView?.({ block: 'start', behavior: 'instant' });
+    }
+  }, [history.loading, history.data, history.error]);
+  const current = rows.filter((row) => row.observacion_reciente && observed(row.ultimo_snapshot));
+  const cpu = current.map((row) => row.ultimo_snapshot.cpu_usage_percent).filter(Number.isFinite);
+  const cpuAverage = cpu.length ? cpu.reduce((sum, value) => sum + value, 0) / cpu.length : null;
+  const refresh = () => Promise.all([summary.reload(), history.reload()]);
+  const capture = async () => {
+    if (submitting.current) return;
+    submitting.current = true; setCapturing(true); setActionError(''); setNotice('');
+    try {
+      const { data } = await capturarMetricas();
+      setNotice(data.capturados > 0 ? 'Observaciones confirmadas. Cada minuto conserva una sola muestra por servicio.'
+        : 'No se confirmaron observaciones. La falta de datos no significa consumo cero.');
+      await refresh();
+    } catch (error) { setActionError(mensajeError(error, 'No se pudo completar la captura.')); }
+    finally { submitting.current = false; setCapturing(false); }
+  };
+  const accessibleSummary = useMemo(() => {
+    const valid = points.filter(observed);
+    const cpus = valid.map((row) => row.cpu_usage_percent).filter(Number.isFinite);
+    return `${points.length} puntos seleccionados; ${valid.length} con observación confirmada. ` +
+      (cpus.length ? `CPU máxima de los puntos mostrados: ${number(Math.max(...cpus))} %.` : 'CPU sin confirmar.');
+  }, [points]);
+  return <div className="fade-in">
+    <PageHead title="Métricas" subtitle="Observaciones registradas del servicio y su fecha.">
+      <label className="row gap-2"><input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} />Actualizar vista cada 30 segundos</label>
+      <button className="btn btn-secondary" onClick={refresh} disabled={summary.loading}><RefreshCw size={15} /> Actualizar</button>
+      {user?.rol === 'admin' && <button className="btn btn-secondary" onClick={capture} disabled={capturing}>
+        {capturing ? 'Capturando…' : 'Capturar ahora'}</button>}
+    </PageHead>
+    {summary.updatedAt && <p className="card-meta">Última consulta confirmada: {date(summary.updatedAt)}.</p>}
+    {summary.loading && <p role="status">Cargando métricas…</p>}
+    <EstadoConsulta remote={summary} nombre="métricas" />
+    {actionError && <p role="alert" className="callout bad">{actionError}</p>}
+    {notice && <p role="status">{notice}</p>}
+    {summary.data !== null && !summary.loading && !summary.error && rows.length === 0 && <Empty icon={<Activity size={22} />}>No hay servicios con métricas disponibles.</Empty>}
+    {rows.length > 0 && <>
+      <div className="callout"><p>CPU promedio con observación reciente: <strong>{number(cpuAverage)} {Number.isFinite(cpuAverage) && '%'}</strong>.
+        {' '}{current.length} de {rows.length} servicios con datos recientes. Los demás conservan su fecha y calidad de observación.</p></div>
+      <div className="grid auto top mb-6">{rows.map((row) => {
+        const sample = row.ultimo_snapshot;
+        const confirmed = observed(sample);
+        return <article className="card" key={row.servicio_id} data-servicio-id={row.servicio_id}>
+          <div className="row between"><h2 className="card-title">{row.nombre || row.hostname || `Servicio #${row.servicio_id}`}</h2>
+            <StatusPill kind={confirmed && row.observacion_reciente ? sample.aplicacion_saludable === false ? 'bad' : row.estado_observado === 'stopped' ? 'off' : 'ok' : 'warn'}>
+              {confirmed ? row.observacion_reciente ? sample.aplicacion_saludable === false ? 'Fallo comprobado' : states[row.estado_observado] || 'Observado' : 'Datos anteriores' : 'Sin confirmar'}</StatusPill></div>
+          <p className="card-meta">{sample ? `Último intento: ${date(sample.timestamp)}` : 'Todavía no hay observaciones.'}</p>
+          {sample && !confirmed && <p>La última consulta no confirmó el estado ni el consumo del servicio.</p>}
+          {confirmed && sample.aplicacion_saludable === false && <p>La comprobación local del servicio falló. Estado observado del recurso: {states[row.estado_observado] || 'sin confirmar'}.</p>}
+          {confirmed && sample.aplicacion_saludable == null && <p className="card-meta">La salud del servicio no está confirmada.</p>}
+          {sample && confirmed && <>
+            <Gauge label="CPU" value={sample.cpu_usage_percent} max={100} unit="%" />
+            <Gauge label="RAM" value={sample.ram_usage_mb} max={sample.ram_max_mb ?? row.ram_max_mb} unit="MiB" estimated={sample.ram_max_mb == null} />
+            <Gauge label="Disco" value={sample.disk_usage_gb} max={sample.disk_max_bytes != null ? sample.disk_max_bytes / 1024**3 : row.disk_max_gb} unit="GiB" estimated={sample.disk_max_bytes == null} />
+            <p className="card-meta">Tráfico del intervalo: entrada {exactBytes(sample.net_in_delta_exacto ?? sample.net_in_delta)}; salida {exactBytes(sample.net_out_delta_exacto ?? sample.net_out_delta)}.</p>
+          </>}
+          <button className="btn btn-secondary" onClick={() => setSelectedId(row.servicio_id)}>Ver historial de {row.nombre || row.hostname || `Servicio #${row.servicio_id}`}</button>
+        </article>;
+      })}</div>
+    </>}
+    {selected && <section className="card" ref={historySection} tabIndex={-1} aria-label="Historial de métricas" aria-busy={history.loading}
+      data-servicio-id={selectedId} data-periodo={period}>
+      <div className="row between"><h2>Historial · {selected.nombre || selected.hostname}</h2>
+        <button className="btn-icon" aria-label="Cerrar historial" onClick={() => setSelectedId(null)}><X size={16} /></button></div>
+      <label htmlFor="periodo-metricas">Período del historial</label>
+      <select id="periodo-metricas" className="input" value={period} onChange={(e) => {
+        scrollHistory.current = true; setPeriod(e.target.value);
+      }}>
+        <option value="hora">Última hora</option><option value="dia">Últimas 24 horas</option>
+        <option value="semana">Últimos siete días</option><option value="trimestre">Últimos noventa días</option>
+      </select>
+      <EstadoConsulta remote={history} nombre="historial" mostrarCarga />
+      {history.updatedAt && <p className="card-meta">Historial consultado: {date(history.updatedAt)}.</p>}
+      <p>Se muestran hasta 500 muestras reales, seleccionadas por bloques. Los huecos no indican consumo cero. El detalle anterior a noventa días se conserva como resumen de consumo.</p>
+      {points.length > 0 && <>
+        <p role="status" aria-label="Resumen textual del historial">{accessibleSummary}</p>
+        <p aria-label="Intervalo de observaciones">Desde {points[0].timestamp} hasta {points[points.length - 1].timestamp} (UTC).</p>
+        <Suspense fallback={<p role="status">Preparando gráficas; la tabla y el resumen ya están disponibles.</p>}><GraficasMetricas points={points} /></Suspense>
+        <details><summary>Consultar tabla de observaciones</summary><div style={{ overflowX: 'auto' }}>
+          <table><caption>Observaciones y tráfico del intervalo, con instantes UTC</caption><thead><tr>
+            <th>Instante UTC</th><th>Calidad</th><th>CPU %</th><th>RAM MiB</th><th>Entrada</th><th>Salida</th>
+          </tr></thead><tbody>{points.map((row) => <tr key={row.id}>
+            <td>{row.timestamp}</td><td>{observed(row) ? 'Confirmada' : 'Sin confirmar'}</td>
+            <td>{number(row.cpu_usage_percent)}</td><td>{number(row.ram_usage_mb)}</td>
+            <td>{exactBytes(row.net_in_delta_exacto ?? row.net_in_delta)}</td><td>{exactBytes(row.net_out_delta_exacto ?? row.net_out_delta)}</td>
+          </tr>)}</tbody></table></div></details>
+      </>}
+      {history.data !== null && !history.loading && !history.error && !points.length && <p>No hay observaciones en este período.</p>}
+    </section>}
+  </div>;
 }

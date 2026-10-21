@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "cluster_id": "REEMPLAZAR-ID-ESTABLE-INSTITUCIONAL",
+  "nodos": {
+    "pve1": {"margen_vcpus": 1, "margen_ram_mb": 1024, "storages": ["local-lvm", "shared-nfs"]},
+    "pve2": {"margen_vcpus": 1, "margen_ram_mb": 1024, "storages": ["local-lvm", "shared-nfs"]}
+  },
+  "almacenamientos": {
+    "local-lvm": {"shared": false, "pool_id": "local-lvm", "margen_logico_bytes": 10737418240, "margen_fisico_bytes": 10737418240},
+    "shared-nfs": {"shared": true, "pool_id": "shared-nfs", "margen_logico_bytes": 10737418240, "margen_fisico_bytes": 10737418240}
+  }
+}

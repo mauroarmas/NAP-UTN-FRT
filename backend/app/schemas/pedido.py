@@ -1,5 +1,9 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, StrictInt
 from datetime import datetime
+from typing import Literal
+from uuid import UUID
+from app.schemas.common import Contrato
+from app.schemas.asignacion import VigenciaSolicitud
 
 
 class CatedraBreve(BaseModel):
@@ -15,17 +19,12 @@ class CatedraBreve(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class PedidoCreate(BaseModel):
-    template_id: int | None = None
-    modelo_servicio: str = "iaas"
-    descripcion_requerimientos: str | None = None
-    vigencia_tipo: str = "primer_cuatrimestre"
-    vigencia_desde: datetime | None = None
-    vigencia_hasta: datetime | None = None
-    # Requerido solo si la persona tiene más de una cátedra; con una sola se
-    # asume y no se le pide.
-    catedra_id: int | None = None
-    parametros_extra: dict | None = None
+class PedidoCreate(Contrato):
+    template_id: StrictInt = Field(ge=1)
+    modelo_servicio: Literal['iaas', 'paas', 'saas']
+    descripcion_requerimientos: str | None = Field(default=None, max_length=5000)
+    vigencia: VigenciaSolicitud
+    catedra_id: StrictInt | None = Field(default=None, ge=1)
 
 
 class PedidoCambiarEstado(BaseModel):
@@ -34,36 +33,26 @@ class PedidoCambiarEstado(BaseModel):
     motivo_rechazo: str | None = None
 
 
-class PedidoAprobar(BaseModel):
-    # Huella de la capacidad que se le mostró al administrador. Si cambió desde
-    # entonces, la aprobación se rechaza y hay que confirmar sobre los valores
-    # vigentes.
-    capacidad_token: str | None = None
-    # Obligatoria solo si la aprobación excede la capacidad libre.
-    justificacion_capacidad: str | None = None
-    template_id: int | None = None
-    opciones_avanzadas: dict | None = None
-    desplegar_inmediatamente: bool = False
+from app.schemas.asignacion import AprobacionEfectiva as PedidoAprobar, SeleccionEvaluacion as PedidoEvaluacion
 
 
-class PedidoSolicitarAjuste(BaseModel):
-    observaciones: str
+class PedidoSolicitarAjuste(Contrato):
+    observaciones: str = Field(min_length=1, max_length=2000)
 
 
-class PedidoReenviar(BaseModel):
-    template_id: int | None = None
-    descripcion_requerimientos: str | None = None
-    vigencia_tipo: str | None = None
-    vigencia_desde: datetime | None = None
-    vigencia_hasta: datetime | None = None
+class PedidoReenviar(Contrato):
+    template_id: StrictInt | None = Field(default=None, ge=1)
+    modelo_servicio: Literal['iaas', 'paas', 'saas'] | None = None
+    descripcion_requerimientos: str | None = Field(default=None, max_length=5000)
+    vigencia: VigenciaSolicitud
 
 
-class PedidoCancelar(BaseModel):
-    motivo: str | None = None
+class PedidoCancelar(Contrato):
+    motivo: str = Field(min_length=1, max_length=2000)
 
 
-class PedidoRechazar(BaseModel):
-    motivo: str
+class PedidoRechazar(Contrato):
+    motivo: str = Field(min_length=1, max_length=2000)
 
 
 class PedidoRevertir(BaseModel):
@@ -86,7 +75,28 @@ class CapacidadLiberada(BaseModel):
     storage_gb: int
 
 
+class CompromisoPedidoResponse(Contrato):
+    estado: Literal['reservado','materializado','incierto']
+    vcpus_retenidos: int = Field(ge=0)
+    ram_mb_retenida: int = Field(ge=0)
+    disk_bytes_retenidos: int = Field(ge=0)
+    expira_at: datetime | None = None
+
+
 class PedidoResponse(BaseModel):
+    compromiso_capacidad: CompromisoPedidoResponse | None = None
+    operation_id: UUID | None = None
+    vigencia: dict | None = None
+    vigencia_aprobada: dict | None = None
+    despliegue_habilitado: bool = False
+    anio_lectivo: int | None = None
+    revision: int = 1
+    revision_decision: int = 0
+    definicion_version_id: UUID | None = None
+    sustituye_vigencia_id: UUID | None = None
+    asignacion_snapshot: dict | None = None
+    destino_snapshot: dict | None = None
+    decision_snapshot: dict | None = None
     id: int
     catedra_id: int
     catedra: CatedraBreve | None = None
@@ -109,10 +119,6 @@ class PedidoResponse(BaseModel):
     resolved_at: datetime | None
     vmid_reservado: str | None = None
     deleted_at: datetime | None = None
-    reserva_vcpus: int = 0
-    reserva_ram_mb: int = 0
-    reserva_disk_gb: int = 0
-    reserva_expira_at: datetime | None = None
     justificacion_capacidad: str | None = None
 
     model_config = {"from_attributes": True}

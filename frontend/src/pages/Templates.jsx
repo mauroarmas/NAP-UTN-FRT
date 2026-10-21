@@ -1,3 +1,4 @@
+import { mensajeError } from '../utils/errors.js';
 import { useState, useEffect } from 'react';
 import { Send, Package, Cpu, Zap, MemoryStick, HardDrive, Pencil, EyeOff, Eye, Filter } from 'lucide-react';
 import { getTemplates, retirarTemplate, reactivarTemplate } from '../services/api';
@@ -67,7 +68,7 @@ export default function Templates() {
       await (t.activo ? retirarTemplate(t.id) : reactivarTemplate(t.id));
       fetchTemplates();
     } catch (err) {
-      alert(err.response?.data?.detail || 'No se pudo cambiar el estado de la plantilla');
+      alert(mensajeError(err, 'No se pudo cambiar el estado de la plantilla'));
     }
   };
 
@@ -75,12 +76,12 @@ export default function Templates() {
     <div className="fade-in">
       <PageHead
         kicker="Administración"
-        title="Catálogo de Plantillas"
-        subtitle="Gestión y parametrización de plantillas homologadas IaaS, PaaS y SaaS para las cátedras."
+        title="Perfiles de recursos"
+        subtitle="Vinculá recursos a una definición publicada. Las asignaciones aprobadas conservan su versión."
       >
         <button className="btn-send" onClick={abrirCreacion}>
           <Send size={17} />
-          <span>Nuevo template</span>
+          <span>Nuevo perfil</span>
         </button>
       </PageHead>
 
@@ -182,6 +183,7 @@ export default function Templates() {
                   </div>
 
                   <div className="card-title" style={{ fontSize: 17 }}>{t.nombre}</div>
+                  <p className="card-meta">{t.oferta_disponible ? 'Disponible para nuevas solicitudes' : 'Sin oferta disponible: revisá definición, compatibilidad y estado'}</p>
                   {t.descripcion && (
                     <p className="card-body" style={{ marginTop: 6, fontSize: '0.85rem' }}>
                       {t.descripcion}

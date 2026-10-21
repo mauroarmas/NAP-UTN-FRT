@@ -4,7 +4,7 @@ import Metricas from '../pages/Metricas';
 export default function PanelCatedra({ user }) {
   return (
     <div className="fade-in">
-      <Servicios user={user} />
+      <section aria-label="Servicios y accesos de tus cátedras"><Servicios user={user} /></section>
 
       <hr
         style={{

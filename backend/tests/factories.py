@@ -1,6 +1,7 @@
 """Helpers para dar de alta datos en la base de pruebas."""
 
 from datetime import datetime
+from types import SimpleNamespace
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,6 +11,28 @@ from app.models.recurso_template import RecursoTemplate, TipoRecurso
 from app.models.servicio import Servicio, EstadoServicio
 from app.models.usuario import Usuario, RolUsuario
 from app.utils.security import get_password_hash
+
+
+async def crear_tres_catedras(db):
+    """Dos propias y una ajena, con titulares explícitos para regresiones."""
+    titular = await crear_usuario(db, 'titular_multiple')
+    otro = await crear_usuario(db, 'otro_titular')
+    propias = [await crear_catedra(db, nombre=n, titular_id=titular.id) for n in ['Propia A', 'Propia B']]
+    ajena = await crear_catedra(db, nombre='Ajena', titular_id=otro.id)
+    return SimpleNamespace(titular=titular, otro=otro, propias=propias, ajena=ajena)
+
+
+def inventario_destinos():
+    """Storage compartido visible en dos nodos y discos locales separados."""
+    return {
+        'nodes': [{'node': n, 'status': 'online', 'maxcpu': 8, 'maxmem': 16 * 1024**3} for n in ['pve1', 'pve2']],
+        'storages': [
+            {'node': n, 'storage': storage, 'content': 'rootdir,images', 'active': 1, 'enabled': 1,
+             'shared': int(shared), 'total': 100 * 1024**3, 'avail': 80 * 1024**3,
+             'scope': f'shared:{storage}' if shared else f'node:{n}:{storage}'}
+            for n in ['pve1', 'pve2'] for storage, shared in [('local-lvm', False), ('shared-nfs', True)]
+        ]
+    }
 
 
 async def crear_catedra(
@@ -36,6 +59,9 @@ async def crear_usuario(
         nombre=username.title(),
         password_hash=get_password_hash(password),
         rol=rol,
+        inventario_consola='sin_identidad',
+        inventario_consola_ref='TEST-FIXTURE-SIN-INFRAESTRUCTURA',
+        inventario_consola_actor='test-fixture',
     )
     db.add(usuario)
     await db.commit()

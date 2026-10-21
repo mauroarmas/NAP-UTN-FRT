@@ -1,14 +1,22 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import useRemoteData from '../hooks/useRemoteData';
+import EstadoConsulta from '../components/EstadoConsulta';
+import AlertasServicio from '../components/AlertasServicio';
+import useOperacion, { operacionAbierta, textoOperacion } from '../hooks/useOperacion.js';
+import { mensajeError } from '../utils/errors.js';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
-  RefreshCw, Play, Pause, RotateCw, Trash2, Terminal, Activity,
-  Pin, PinOff, CalendarClock, Send, Loader2, Copy, Search, X, ExternalLink, Settings,
+  RefreshCw, Play, Pause, RotateCw, Trash2, Activity,
+  Pin, PinOff, CalendarClock, Send, Loader2, Search, X, Settings,
 } from 'lucide-react';
 import {
   getPedidos, listarServicios, desplegarPedido, iniciarServicio, detenerServicio,
   reiniciarServicio, eliminarServicio, getStatusServicio, getCatedras, getCatedrasMias,
-  getTemplates, getBaseConsolaProxmox, reactivarServicio, actualizarServicio, renovarServicio,
+  getTemplates, reactivarServicio, actualizarServicio, listarOperaciones,
 } from '../services/api';
 import { PageHead, StatusPill, Empty, Dialog } from '../components/ui';
+import RenovarServicioModal from '../components/RenovarServicioModal';
+import AccesoServicio from '../components/AccesoServicio';
+import RegularizarServicioModal from '../components/RegularizarServicioModal';
 
 const CFG = {
   running: { label: 'Corriendo', kind: 'ok' },
@@ -18,6 +26,7 @@ const CFG = {
 };
 
 const INTERVALO_REFRESCO_MS = 10000;
+const EMPTY = [];
 
 const EN_CURSO = {
   start: 'Iniciando…',
@@ -32,16 +41,47 @@ const EN_CURSO = {
 
 const Spinner = ({ size = 13 }) => <Loader2 size={size} className="spin" aria-hidden="true" />;
 
+function CoberturaServicio({ servicio, isAdmin, onModificar, disabled }) {
+  const labels = { con_cobertura: 'Dentro del período autorizado', receso: 'En receso · datos conservados',
+    esperando_inicio: 'Esperando fecha inicial', vencido: 'Período finalizado · datos conservados', sin_regularizar: 'Períodos pendientes de regularización' };
+  return <div className="col gap-1">
+    <span className="card-meta">{labels[servicio.estado_cobertura] || 'Cobertura sin confirmar'}</span>
+    {servicio.fin_efectivo_at && <span className="card-meta">Cobertura actual hasta {new Date(servicio.fin_efectivo_at).toLocaleString('es-AR')} (fin exclusivo).</span>}
+    {servicio.proximo_inicio && <span className="card-meta">Próximo inicio: {new Date(servicio.proximo_inicio).toLocaleString('es-AR')}. La reactivación requiere capacidad y una acción explícita.</span>}
+    {servicio.periodos_autorizados?.length > 0 && <details>
+      <summary>Períodos autorizados</summary>
+      <ul>{servicio.periodos_autorizados.map((periodo) => <li key={periodo.id}>
+        {periodo.desde} al {periodo.hasta}, inclusive ({periodo.zona_horaria}).
+        {isAdmin && <button className="btn btn-ghost btn-sm" disabled={disabled} onClick={() => onModificar(periodo)}>Solicitar modificación</button>}
+      </li>)}</ul>
+    </details>}
+  </div>;
+}
+
 export default function Servicios({ user }) {
-  const [servicios, setServicios] = useState([]);
-  const [pedidosAprobados, setPedidosAprobados] = useState([]);
-  const [catedras, setCatedras] = useState([]);
-  const [templates, setTemplates] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [accionando, setAccionando] = useState(null);
   const [statusDetalle, setStatusDetalle] = useState(null);
-  const [proxmoxBase, setProxmoxBase] = useState(null);
-  const [actualizadoAt, setActualizadoAt] = useState(null);
+  const [operationIds, setOperationIds] = useState([]);
+  const [renovacion, setRenovacion] = useState(null);
+  const [notice, setNotice] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [access, setAccess] = useState(null);
+  const [regularizacion, setRegularizacion] = useState(null);
+  const intentKeys = useRef({});
+  const claveIntencion = (tipo, id) => {
+    const key = `${tipo}:${id}`;
+    if (!intentKeys.current[key]) intentKeys.current[key] = crypto.randomUUID();
+    return intentKeys.current[key];
+  };
+  const registrarOrden = (response, tipo, id) => {
+    const operationId = response.data?.operation_id;
+    if (operationId) setOperationIds((current) => [...new Set([...current, operationId])]);
+    delete intentKeys.current[`${tipo}:${id}`];
+  };
+  const registrarConflicto = (err) => {
+    const id = err.response?.data?.detail?.operation_id;
+    if (id) setOperationIds((current) => [...new Set([...current, id])]);
+  };
 
   // Filtros
   const [filtroCatedra, setFiltroCatedra] = useState('');
@@ -57,37 +97,43 @@ export default function Servicios({ user }) {
   const marcarAccion = (tipo, id) => {
     const v = tipo ? { tipo, id } : null;
     accionandoRef.current = v;
+    if (tipo) setActionError('');
     setAccionando(v);
   };
 
   const enCurso = (tipo, id) => accionando?.tipo === tipo && accionando?.id === id;
 
-  const fetchData = async () => {
-    try {
-      const [srvRes, pedRes, catRes, baseRes, tplRes] = await Promise.allSettled([
-        listarServicios(),
-        isAdmin ? getPedidos('aprobado') : Promise.resolve({ data: [] }),
-        isAdmin ? getCatedras() : getCatedrasMias(),
-        getBaseConsolaProxmox(),
-        getTemplates(),
-      ]);
-      if (srvRes.status === 'fulfilled') { setServicios(srvRes.value.data); setActualizadoAt(new Date()); }
-      if (pedRes.status === 'fulfilled') setPedidosAprobados(pedRes.value.data);
-      if (catRes.status === 'fulfilled') setCatedras(catRes.value.data);
-      if (baseRes.status === 'fulfilled') setProxmoxBase(baseRes.value.data.base_url || null);
-      if (tplRes.status === 'fulfilled') setTemplates(tplRes.value.data);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  const scope = `${user?.id || ''}:${user?.rol || ''}`;
+  const common = { refreshMs: INTERVALO_REFRESCO_MS, canRefresh: () => !accionandoRef.current };
+  const srvRemote = useRemoteData((options) => listarServicios({ ...options,
+    params: filtroTipo ? { modelo_servicio: filtroTipo } : {} }), {
+    ...common, key: `servicios:${scope}:${filtroTipo}`, errorMessage: 'No se pudieron consultar los servicios.' });
+  const pedRemote = useRemoteData((options) => getPedidos('aprobado', options), {
+    ...common, key: `pedidos:${scope}`, enabled: isAdmin, errorMessage: 'No se pudieron consultar los pedidos aprobados.' });
+  const catRemote = useRemoteData((options) => isAdmin ? getCatedras(options) : getCatedrasMias(options), {
+    ...common, key: `catedras:${scope}`, errorMessage: 'No se pudieron consultar las cátedras.' });
+  const tplRemote = useRemoteData((options) => getTemplates(false, null, options), {
+    ...common, key: `perfiles:${scope}`, errorMessage: 'No se pudo consultar el catálogo de perfiles.' });
+  const opRemote = useRemoteData((options) => listarOperaciones({ abiertas: true }, options), {
+    ...common, key: `operaciones:${scope}`, errorMessage: 'No se pudieron consultar las operaciones.' });
+  const servicios = srvRemote.data || EMPTY;
+  const pedidosAprobados = pedRemote.data || EMPTY;
+  const catedras = catRemote.data || EMPTY;
+  const templates = tplRemote.data || EMPTY;
+  const loading = srvRemote.loading && srvRemote.data === null;
+  const actualizadoAt = srvRemote.updatedAt;
+  const { reload: reloadServices } = srvRemote;
+  const { reload: reloadOrders } = pedRemote;
+  const { reload: reloadCategories } = catRemote;
+  const { reload: reloadProfiles } = tplRemote;
+  const { reload: reloadOperations } = opRemote;
+  const fetchData = useCallback(() => Promise.all([reloadServices(), reloadOrders(), reloadCategories(),
+    reloadProfiles(), reloadOperations()]), [reloadServices, reloadOrders, reloadCategories, reloadProfiles, reloadOperations]);
   useEffect(() => {
-    fetchData();
-    const timer = setInterval(() => { if (!accionandoRef.current) fetchData(); }, INTERVALO_REFRESCO_MS);
-    return () => clearInterval(timer);
-  }, []);
+    const ids = [...(srvRemote.data || EMPTY).map((row) => row.operation_id), ...(opRemote.data || EMPTY).map((row) => row.operation_id)].filter(Boolean);
+    setOperationIds((current) => [...new Set([...current, ...ids])]);
+  }, [srvRemote.data, opRemote.data]);
+  const operaciones = useOperacion(operationIds, fetchData);
 
   // Cerrar menú de engranaje al hacer clic fuera
   useEffect(() => {
@@ -105,9 +151,9 @@ export default function Servicios({ user }) {
   const templateDe = (s) => templates.find((t) => t.id === s.template_id);
 
   const tipoServicioBadge = (s) => {
-    const tpl = templateDe(s);
-    if (tpl?.modelo_servicio === 'saas') return { label: 'SaaS', kind: 'accent' };
-    if (tpl?.modelo_servicio === 'paas') return { label: 'PaaS', kind: 'accent' };
+    if (!s.modelo_servicio) return { label: 'Modelo sin regularizar', kind: 'warn' };
+    if (s.modelo_servicio === 'saas') return { label: 'SaaS', kind: 'accent' };
+    if (s.modelo_servicio === 'paas') return { label: 'PaaS', kind: 'accent' };
     return { label: 'IaaS', kind: 'neutral' };
   };
 
@@ -121,32 +167,30 @@ export default function Servicios({ user }) {
     return new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
   };
 
-  const urlConsolaProxmox = (s) =>
-    `${proxmoxBase}/?console=lxc&xtermjs=1&vmid=${s.proxmox_vmid}` +
-    `&vmname=${encodeURIComponent(s.hostname || '')}&node=${encodeURIComponent(s.proxmox_node || '')}&cmd=`;
-
   const handleDesplegar = async (pedidoId) => {
-    if (!confirm(`¿Desplegar pedido #${pedidoId} en Proxmox?`)) return;
+    if (accionandoRef.current || !confirm(`¿Desplegar pedido #${pedidoId} en Proxmox?`)) return;
     marcarAccion('deploy', pedidoId);
     try {
-      await desplegarPedido(pedidoId);
+      registrarOrden(await desplegarPedido(pedidoId, {}, claveIntencion('deploy', pedidoId)), 'deploy', pedidoId);
       await fetchData();
-      alert(`Pedido #${pedidoId} desplegado exitosamente`);
     } catch (err) {
-      alert(`Error: ${err.response?.data?.detail || err.message}`);
+      registrarConflicto(err);
+      setActionError(`Error: ${mensajeError(err, 'No se confirmó la acción. Volvé a consultar el servicio.')}`);
     } finally {
       marcarAccion(null);
     }
   };
 
   const handleReactivar = async (id) => {
+    if (accionandoRef.current) return;
     marcarAccion('reactivar', id);
     try {
-      await reactivarServicio(id);
+      registrarOrden(await reactivarServicio(id, claveIntencion('reactivar', id)), 'reactivar', id);
       await fetchData();
     } catch (err) {
+      registrarConflicto(err);
       const d = err.response?.data?.detail;
-      alert(d?.codigo === 'sin_capacidad' ? d.mensaje : (typeof d === 'string' ? d : err.message));
+      setActionError(d?.codigo === 'sin_capacidad' ? d.mensaje : (typeof d === 'string' ? d : 'No se confirmó el inicio del servicio.'));
       await fetchData();
     } finally {
       marcarAccion(null);
@@ -164,37 +208,27 @@ export default function Servicios({ user }) {
       await actualizarServicio(s.id, { exento_pausado: activando });
       await fetchData();
     } catch (err) {
-      alert(err.response?.data?.detail || err.message);
+      registrarConflicto(err);
+      setActionError(mensajeError(err, 'No se confirmó la acción. Volvé a consultar el servicio.'));
     } finally {
       marcarAccion(null);
     }
   };
 
-  const handleRenovar = async (s) => {
-    if (!confirm(
-      `Solicitar renovación de ${s.hostname || `servicio #${s.id}`}.\n\n` +
-      'Crea un pedido que un administrador tiene que aprobar. El servicio sigue funcionando mientras tanto.'
-    )) return;
-    marcarAccion('renovar', s.id);
-    try {
-      await renovarServicio(s.id);
-      alert('Pedido de renovación creado.');
-      await fetchData();
-    } catch (err) {
-      alert(err.response?.data?.detail || err.message);
-    } finally {
-      marcarAccion(null);
-    }
+  const handleRenovar = (servicio, periodo = null) => {
+    setNotice('');
+    setRenovacion({ servicio, periodo });
   };
 
   const accionSimple = (verbo, fn, confirmMsg) => async (id) => {
-    if (confirmMsg && !confirm(confirmMsg)) return;
+    if (accionandoRef.current || (confirmMsg && !confirm(confirmMsg))) return;
     marcarAccion(verbo, id);
     try {
-      await fn(id);
+      registrarOrden(await fn(id, claveIntencion(verbo, id)), verbo, id);
       await fetchData();
     } catch (err) {
-      alert(err.response?.data?.detail || err.message);
+      registrarConflicto(err);
+      setActionError(mensajeError(err, 'No se confirmó la acción. Volvé a consultar el servicio.'));
       await fetchData();
     } finally {
       marcarAccion(null);
@@ -210,13 +244,14 @@ export default function Servicios({ user }) {
     const aviso = huerfano
       ? `El contenedor ${s.proxmox_vmid} ya no existe en Proxmox.\n¿Dar de baja el registro del servicio?`
       : `¿Dar de baja el servicio y eliminar el contenedor ${s.proxmox_vmid} en Proxmox?\nEsta acción no se puede deshacer.`;
-    if (!confirm(aviso)) return;
+    if (accionandoRef.current || !confirm(aviso)) return;
     marcarAccion('delete', s.id);
     try {
-      await eliminarServicio(s.id);
+      registrarOrden(await eliminarServicio(s.id, claveIntencion('delete', s.id)), 'delete', s.id);
       await fetchData();
     } catch (err) {
-      alert(err.response?.data?.detail || err.message);
+      registrarConflicto(err);
+      setActionError(mensajeError(err, 'No se confirmó la acción. Volvé a consultar el servicio.'));
       await fetchData();
     } finally {
       marcarAccion(null);
@@ -228,7 +263,8 @@ export default function Servicios({ user }) {
       const { data } = await getStatusServicio(id);
       setStatusDetalle(data);
     } catch (err) {
-      alert(err.response?.data?.detail || err.message);
+      registrarConflicto(err);
+      setActionError(mensajeError(err, 'No se confirmó la acción. Volvé a consultar el servicio.'));
     }
   };
 
@@ -239,20 +275,10 @@ export default function Servicios({ user }) {
       if (filtroCatedra && String(s.catedra_id) !== String(filtroCatedra)) {
         return false;
       }
-      if (filtroTipo) {
-        if (filtroTipo === 'saas') {
-          if (tpl?.modelo_servicio !== 'saas') return false;
-        } else if (filtroTipo === 'paas') {
-          if (tpl?.modelo_servicio !== 'paas') return false;
-        } else if (filtroTipo === 'iaas') {
-          // Contenedores y VMs entran dentro de IaaS según requerimiento
-          const esIaas = tpl?.modelo_servicio === 'iaas' || !tpl?.modelo_servicio || s.tipo === 'lxc' || s.tipo === 'qemu';
-          if (!esIaas) return false;
-        }
-      }
+      if (filtroTipo && s.modelo_servicio !== filtroTipo) return false;
       if (busqueda.trim()) {
         const q = busqueda.trim().toLowerCase();
-        const nombreTpl = tpl?.nombre?.toLowerCase() || '';
+        const nombreTpl = (s.nombre_snapshot || tpl?.nombre || '').toLowerCase();
         const hostname = s.hostname?.toLowerCase() || '';
         const ip = s.ip_address?.toLowerCase() || '';
         const cat = catedraNombre(s.catedra_id).toLowerCase();
@@ -272,15 +298,35 @@ export default function Servicios({ user }) {
     <div className="fade-in">
       <PageHead title="Servicios" subtitle="Servicios desplegados y en funcionamiento.">
         <div className="col" style={{ alignItems: 'flex-end', gap: 6 }}>
-          <button className="btn btn-secondary" onClick={fetchData}>
+          <button className="btn btn-secondary" onClick={fetchData} disabled={srvRemote.loading}>
             <RefreshCw size={15} /> Actualizar
           </button>
           <span className="card-meta">
-            {actualizadoAt ? `Actualizado al ${actualizadoAt.toLocaleTimeString('es-AR')}` : 'Consultando servicios…'}
+            {actualizadoAt ? `Última consulta confirmada: ${actualizadoAt.toLocaleString('es-AR')}` : 'Consultando servicios…'}
           </span>
         </div>
       </PageHead>
 
+      <EstadoConsulta remote={srvRemote} nombre="servicios" mostrarCarga />
+      <EstadoConsulta remote={pedRemote} nombre="pedidos aprobados" />
+      <EstadoConsulta remote={catRemote} nombre="cátedras" />
+      <EstadoConsulta remote={tplRemote} nombre="catálogo" />
+      <EstadoConsulta remote={opRemote} nombre="operaciones" />
+      <AlertasServicio user={user} />
+      {actionError && <p role="alert" className="callout bad">{actionError}</p>}
+      {notice && <p role="status" className="callout ok">{notice}</p>}
+      {isAdmin && regularizacion && <RegularizarServicioModal key={regularizacion.id} servicio={regularizacion} user={user}
+        onClose={() => setRegularizacion(null)} onConfirmed={(data) => {
+          if (data.operation_id) setOperationIds((current) => [...new Set([...current, data.operation_id])]);
+          setNotice(data.estado === 'registro_duplicado_archivado' ? `Registro duplicado archivado. Principal #${data.principal_id}.`
+            : `Regularización registrada. El acceso sigue sin verificar.${data.operation_id ? ' Pausa solicitada; esperando confirmación.' : ''}`);
+          fetchData();
+        }} />}
+      {renovacion && <RenovarServicioModal servicio={renovacion.servicio} periodo={renovacion.periodo} user={user}
+        onClose={() => setRenovacion(null)} onCreated={(data) => {
+          setNotice(`Solicitud de ${renovacion.periodo ? 'modificación' : 'renovación'} #${data.pedido_id} pendiente de aprobación.`);
+          fetchData();
+        }} />}
       <div className="grid cols-3 mb-6">
         <div className="stat stat--ok">
           <div className="stat__kicker">Corriendo</div>
@@ -295,6 +341,17 @@ export default function Servicios({ user }) {
           <div className="stat__value">{servicios.length}</div>
         </div>
       </div>
+
+      {Object.keys(operaciones).length > 0 && (
+        <section aria-label="Operaciones de infraestructura" aria-live="polite" className="card" style={{ padding: 16, marginBottom: 16 }}>
+          {Object.values(operaciones).map((op) => (
+            <p key={op.operation_id} role="status">
+              {op.servicio_id ? `Servicio #${op.servicio_id}` : op.pedido_id ? `Pedido #${op.pedido_id}` : 'Operación'}: {textoOperacion(op)}
+              {op.error_detalle_seguro && <span> {op.error_detalle_seguro}</span>}
+            </p>
+          ))}
+        </section>
+      )}
 
       {isAdmin && pedidosAprobados.length > 0 && (
         <div className="card mb-6" style={{ borderColor: 'var(--accent-tint-bd)' }}>
@@ -427,6 +484,8 @@ export default function Servicios({ user }) {
         {serviciosFiltrados.length > 0 ? (
           <div
             className="table-container"
+            aria-label="Listado de servicios" aria-busy={srvRemote.loading}
+            data-modelo={filtroTipo}
             style={{
               minHeight: serviciosFiltrados.length <= 3 ? 240 : undefined,
               paddingBottom: menuAccionesAbierto ? 90 : 0,
@@ -451,13 +510,14 @@ export default function Servicios({ user }) {
                   const tpl = templateDe(s);
                   const badge = tipoServicioBadge(s);
                   const busy = (k) => enCurso(k, s.id);
-                  const ocupada = accionando !== null
-                    && accionando.tipo !== 'deploy'
-                    && accionando.id === s.id;
+                  const operacion = Object.values(operaciones).find((op) => op.servicio_id === s.id && operacionAbierta(op));
+                  const ocupada = Boolean(operacion) || Boolean(s.operation_id && !operaciones[s.operation_id]) || (accionando !== null
+                    && accionando.tipo !== 'deploy' && accionando.id === s.id);
+                  const permite = (accion) => !ocupada && Boolean(s.acciones_habilitadas?.includes(accion));
                   const abreHaciaArriba = serviciosFiltrados.length > 1 && idx >= serviciosFiltrados.length - 1;
 
                   return (
-                    <tr key={s.id}>
+                    <tr key={s.id} data-servicio-id={s.id} data-modelo={s.modelo_servicio}>
                       {isAdmin && (
                         <td className="cell-strong tabnum" style={{ color: 'var(--color-accent-700)' }}>
                           {s.proxmox_vmid || '—'}
@@ -467,7 +527,7 @@ export default function Servicios({ user }) {
                         <div className="col gap-1" style={{ alignItems: 'flex-start' }}>
                           <div className="row gap-2" style={{ alignItems: 'center' }}>
                             <span className="cell-strong">
-                              {tpl?.nombre || s.hostname || `Servicio #${s.id}`}
+                              {s.nombre_snapshot || tpl?.nombre || s.hostname || `Servicio #${s.id}`}
                             </span>
                             <span className={`tag ${badge.kind}`} style={{ fontSize: 10, padding: '1px 6px' }}>
                               {badge.label}
@@ -483,62 +543,8 @@ export default function Servicios({ user }) {
                               IP: {s.ip_address}
                             </span>
                           )}
+                          <button className="btn btn-secondary btn-sm" onClick={() => setAccess(s)}>Ver acceso</button>
 
-                          {s.url_acceso && (
-                            <div className="row gap-1" style={{ alignItems: 'center', marginTop: 2 }}>
-                              <a
-                                href={s.url_acceso}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                style={{
-                                  fontSize: 12,
-                                  color: 'var(--color-accent-700)',
-                                  textDecoration: 'underline',
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: 4,
-                                }}
-                              >
-                                {s.url_acceso}
-                                <ExternalLink size={11} />
-                              </a>
-                              <button
-                                className="btn-icon"
-                                style={{ padding: 2, width: 20, height: 20 }}
-                                title="Copiar URL"
-                                onClick={() => {
-                                  navigator.clipboard.writeText(s.url_acceso);
-                                  alert('URL copiada al portapapeles');
-                                }}
-                              >
-                                <Copy size={11} />
-                              </button>
-                            </div>
-                          )}
-
-                          {s.credenciales_acceso && (
-                            <div className="row gap-1" style={{ alignItems: 'center' }}>
-                              <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>
-                                {typeof s.credenciales_acceso === 'object'
-                                  ? JSON.stringify(s.credenciales_acceso)
-                                  : s.credenciales_acceso}
-                              </span>
-                              <button
-                                className="btn-icon"
-                                style={{ padding: 2, width: 20, height: 20 }}
-                                title="Copiar credenciales"
-                                onClick={() => {
-                                  const txt = typeof s.credenciales_acceso === 'object'
-                                    ? JSON.stringify(s.credenciales_acceso, null, 2)
-                                    : s.credenciales_acceso;
-                                  navigator.clipboard.writeText(txt);
-                                  alert('Credenciales copiadas al portapapeles');
-                                }}
-                              >
-                                <Copy size={11} />
-                              </button>
-                            </div>
-                          )}
                         </div>
                       </td>
 
@@ -567,7 +573,7 @@ export default function Servicios({ user }) {
                           {ocupada && (
                             <span className="card-meta"
                                   style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--st-warn)' }}>
-                              <Spinner size={11} /> {EN_CURSO[accionando.tipo]}
+                              <Spinner size={11} /> {operacion ? textoOperacion(operacion) : EN_CURSO[accionando?.tipo] || 'Operación pendiente…'}
                             </span>
                           )}
                           {s.existe_en_proxmox === false ? (
@@ -586,14 +592,13 @@ export default function Servicios({ user }) {
                             </span>
                           )}
                           {s.exento_pausado && <span className="card-meta">siempre activo</span>}
-                          {s.vence_at && (() => {
-                            const diffDias = Math.ceil((new Date(s.vence_at) - new Date()) / (1000 * 60 * 60 * 24));
-                            return (
-                              <span className="card-meta" style={{ color: diffDias <= 7 ? 'var(--st-warn)' : 'var(--text-soft)' }}>
-                                {diffDias > 0 ? `Vence en ${diffDias} días (${new Date(s.vence_at).toLocaleDateString('es-AR')})` : `Vencido (${new Date(s.vence_at).toLocaleDateString('es-AR')})`}
-                              </span>
-                            );
-                          })()}
+                          <CoberturaServicio servicio={s} isAdmin={isAdmin} onModificar={(periodo) => handleRenovar(s, periodo)} disabled={ocupada || !s.acciones_habilitadas?.includes('renovar')} />
+                          {s.motivo_bloqueo && <span className="card-meta">{s.motivo_bloqueo}</span>}
+                          {isAdmin && s.regularizacion_legacy && s.regularizacion_pendiente && <button
+                            className="btn btn-secondary btn-sm" disabled={ocupada} onClick={() => { setNotice(''); setRegularizacion(s); }}>
+                            Regularizar registro
+                          </button>}
+                          <span className="card-meta">{s.confirmado_at ? `Última confirmación: ${new Date(s.confirmado_at).toLocaleString('es-AR')}` : 'Sin confirmación registrada'} · {s.fuente_observacion === 'worker' ? 'Observación del sistema' : 'Sin observación reciente'}</span>
                         </div>
                       </td>
 
@@ -604,7 +609,7 @@ export default function Servicios({ user }) {
                           {s.existe_en_proxmox === false ? (
                             isAdmin ? (
                               <button className="btn-icon danger" onClick={() => handleEliminar(s)}
-                                disabled={ocupada} aria-busy={busy('delete')} title="Dar de baja">
+                                disabled={!permite('delete')} aria-busy={busy('delete')} title="Dar de baja">
                                 {busy('delete') ? <Spinner size={14} /> : <Trash2 size={16} />}
                               </button>
                             ) : (
@@ -617,7 +622,7 @@ export default function Servicios({ user }) {
                                 <button
                                   className="btn-icon ok"
                                   onClick={() => handleReactivar(s.id)}
-                                  disabled={ocupada}
+                                  disabled={!permite('start')}
                                   aria-busy={busy('reactivar')}
                                   title="Reanudar / Reactivar servicio"
                                 >
@@ -627,7 +632,7 @@ export default function Servicios({ user }) {
                                 <button
                                   className="btn-icon warn"
                                   onClick={() => handleStop(s.id)}
-                                  disabled={ocupada}
+                                  disabled={!permite('stop')}
                                   aria-busy={busy('stop')}
                                   title="Pausar / Detener servicio"
                                 >
@@ -637,7 +642,7 @@ export default function Servicios({ user }) {
                                 <button
                                   className="btn-icon ok"
                                   onClick={() => handleStart(s.id)}
-                                  disabled={ocupada}
+                                  disabled={!permite('start')}
                                   aria-busy={busy('start')}
                                   title="Iniciar servicio"
                                 >
@@ -676,7 +681,7 @@ export default function Servicios({ user }) {
                                         setMenuAccionesAbierto(null);
                                         handleRestart(s.id);
                                       }}
-                                      disabled={ocupada || s.estado !== 'running'}
+                                      disabled={!permite('restart')}
                                       title={s.estado !== 'running' ? 'El servicio debe estar corriendo para reiniciarlo' : undefined}
                                     >
                                       <RotateCw size={14} />
@@ -690,7 +695,7 @@ export default function Servicios({ user }) {
                                         setMenuAccionesAbierto(null);
                                         handleRenovar(s);
                                       }}
-                                      disabled={ocupada}
+                                      disabled={!permite('renovar')}
                                     >
                                       <CalendarClock size={14} />
                                       <span>Solicitar renovación</span>
@@ -721,22 +726,8 @@ export default function Servicios({ user }) {
                                       <span>Estado en Proxmox</span>
                                     </button>
 
-                                    {/* Consola Terminal (si está disponible) */}
-                                    {proxmoxBase && s.estado === 'running' && s.proxmox_vmid && (
-                                      <a
-                                        className="menu-item"
-                                        href={urlConsolaProxmox(s)}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        onClick={() => setMenuAccionesAbierto(null)}
-                                      >
-                                        <Terminal size={14} />
-                                        <span>Abrir consola</span>
-                                      </a>
-                                    )}
-
-                                    {/* Dar de baja (si es admin o huérfano) */}
-                                    {(isAdmin || s.existe_en_proxmox === false) && (
+                                    {/* Dar de baja */}
+                                    {isAdmin && (
                                       <>
                                         <div style={{ height: 1, background: 'var(--color-divider)', margin: '4px 0' }} />
                                         <button
@@ -745,7 +736,7 @@ export default function Servicios({ user }) {
                                             setMenuAccionesAbierto(null);
                                             handleEliminar(s);
                                           }}
-                                          disabled={ocupada}
+                                          disabled={!permite('delete')}
                                         >
                                           <Trash2 size={14} />
                                           <span>Dar de baja</span>
@@ -770,10 +761,14 @@ export default function Servicios({ user }) {
             icon={<RefreshCw size={22} />}
             hint={hayFiltrosActivos ? 'Probá cambiando o limpiando los filtros seleccionados.' : (isAdmin && !loading ? 'Aprobá un pedido y desplegalo desde esta vista.' : undefined)}
           >
-            {loading ? 'Cargando…' : (hayFiltrosActivos ? 'No se encontraron servicios que coincidan con los filtros.' : 'No hay servicios desplegados aún.')}
+            {loading ? 'Cargando…' : (srvRemote.error ? 'No se pudo confirmar el listado de servicios.' : hayFiltrosActivos ? 'No se encontraron servicios que coincidan con los filtros.' : 'No hay servicios desplegados aún.')}
           </Empty>
         )}
       </div>
+
+      {access && <Dialog wide title={`Acceso: ${access.nombre_snapshot || `Servicio #${access.id}`}`} onClose={() => setAccess(null)}>
+        <AccesoServicio servicio={access} user={user} onVerified={fetchData} />
+      </Dialog>}
 
       {statusDetalle && (
         <Dialog wide title={`Estado en Proxmox — VMID ${statusDetalle.vmid}`} onClose={() => setStatusDetalle(null)}>

@@ -46,7 +46,7 @@ async def test_crear_pedido_iaas_sin_template_falla(
     }
     resp = await client.post("/pedidos/", json=payload, headers=auth_catedra)
     assert resp.status_code == 400
-    assert "plantilla" in resp.json()["detail"].lower()
+    assert "plantilla" in resp.json()["detail"]["mensaje"].lower()
 
 
 @pytest.mark.asyncio
@@ -87,7 +87,7 @@ async def test_crear_pedido_saas_sin_descripcion_falla(
     }
     resp = await client.post("/pedidos/", json=payload, headers=auth_catedra)
     assert resp.status_code == 400
-    assert "requerimientos" in resp.json()["detail"].lower()
+    assert "requerimientos" in resp.json()["detail"]["mensaje"].lower()
 
 
 @pytest.mark.asyncio
@@ -106,5 +106,5 @@ async def test_crear_pedido_modelo_invalido_falla(
     }
     resp = await client.post("/pedidos/", json=payload, headers=auth_catedra)
     assert resp.status_code == 400
-    assert "modelo de servicio inválido" in resp.json()["detail"].lower()
+    assert "modelo de servicio inválido" in resp.json()["detail"]["mensaje"].lower()
 

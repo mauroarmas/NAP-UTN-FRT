@@ -8,7 +8,7 @@ capacidad real del clúster. Lo que sí se conserva de esta pantalla es el
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -24,6 +24,8 @@ from app.schemas.catedra import (
     CatedraConUso,
 )
 from app.services.acceso_service import catedras_visibles, es_visible
+from app.services.catedra_service import preparar_cambio
+from app.utils.responses import respuesta_decision
 
 router = APIRouter(prefix="/catedras", tags=["Cátedras"])
 logger = logging.getLogger(__name__)
@@ -47,6 +49,7 @@ async def _a_respuesta(db: AsyncSession, catedra: Catedra) -> CatedraResponse:
         created_at=catedra.created_at,
         titular_id=catedra.titular_id,
         titular=await _titular_de(db, catedra),
+        revision_admin=catedra.revision_admin,
     )
 
 
@@ -178,6 +181,7 @@ async def actualizar_catedra(
     ),
     current_user: Usuario = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
+    clave: str | None = Header(default=None, alias='Idempotency-Key'),
 ):
     """Actualiza una cátedra, incluida la reasignación de titular.
 
@@ -193,6 +197,7 @@ async def actualizar_catedra(
         )
 
     update_data = data.model_dump(exclude_unset=True)
+    revision = update_data.pop('revision_esperada', None)
 
     if update_data.get("titular_id") is not None:
         if await db.get(Usuario, update_data["titular_id"]) is None:
@@ -228,8 +233,14 @@ async def actualizar_catedra(
                 },
             )
 
+    result = await preparar_cambio(db, catedra, update_data, revision=revision, actor=current_user, clave=clave)
+    if result is not None:
+        await db.commit()
+        return respuesta_decision(result)
+
     for field, value in update_data.items():
         setattr(catedra, field, value)
+    catedra.revision_admin += 1
 
     await db.commit()
     await db.refresh(catedra)

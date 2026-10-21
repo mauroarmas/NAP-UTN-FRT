@@ -1,0 +1,7 @@
+{
+  "estado": "interrumpido_incompleto_no_aceptado",
+  "motivo": "Las gr\u00e1ficas pod\u00edan quedar fuera del viewport por scroll anterior a la llegada de datos; se corrigi\u00f3 para esperar el resultado. Ensayo detenido para corregir interfaz. No se usa para p95 ni aceptaci\u00f3n.",
+  "operation_id": "1f757868-8928-490b-be03-25fd377f50d2",
+  "muestras": "No se export\u00f3 el buffer de este proceso interrumpido; recuento desconocido. Los ensayos completos se conservan por separado.",
+  "correccion_registro": "Los siguientes ensayos escriben diario por muestra antes de completar el informe."
+}

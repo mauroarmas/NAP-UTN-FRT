@@ -1,137 +1,72 @@
-import { useState, useEffect } from 'react';
-import { Send, Calendar, AlertCircle } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { getTemplates, reenviarPedido } from '../services/api';
+import ErrorFormulario from './ErrorFormulario';
 import { Dialog } from './ui';
+import VigenciaFields from './VigenciaFields';
+import { vigenciaInicial } from '../utils/vigencia';
 
-const VIGENCIAS = [
-  { key: 'primer_cuatrimestre', label: '1° Cuatrimestre' },
-  { key: 'segundo_cuatrimestre', label: '2° Cuatrimestre' },
-  { key: 'anual', label: 'Ciclo Lectivo Anual' },
-  { key: 'personalizado', label: 'Personalizado' },
-];
-
-export default function ReenviarPedidoModal({ open, pedido, onClose, onReenviado }) {
+export default function ReenviarPedidoModal({ open, pedido, user, onClose, onReenviado }) {
   const [templates, setTemplates] = useState([]);
+  const [model, setModel] = useState('iaas');
   const [templateId, setTemplateId] = useState('');
-  const [descripcion, setDescripcion] = useState('');
-  const [vigenciaTipo, setVigenciaTipo] = useState('primer_cuatrimestre');
-  const [enviando, setEnviando] = useState(false);
-  const [error, setError] = useState(null);
-
+  const [description, setDescription] = useState('');
+  const [dates, setDates] = useState(vigenciaInicial);
+  const [validDates, setValidDates] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const key = useRef(crypto.randomUUID());
+  const submitting = useRef(false);
+  const admin = user?.rol === 'admin';
+  const renewal = pedido?.tipo === 'renovacion';
   useEffect(() => {
-    if (!open || !pedido) return;
-    setError(null);
-    setDescripcion(pedido.descripcion_requerimientos || '');
-    setTemplateId(pedido.template_id ? String(pedido.template_id) : '');
-    setVigenciaTipo(pedido.vigencia_tipo || 'primer_cuatrimestre');
-
-    getTemplates()
-      .then(({ data }) => {
-        setTemplates(data.filter((t) => t.activo !== false));
-      })
-      .catch(console.error);
-  }, [open, pedido]);
-
-  if (!open || !pedido) return null;
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError(null);
-    setEnviando(true);
-    try {
-      const payload = {
-        template_id: templateId ? parseInt(templateId) : null,
-        descripcion_requerimientos: descripcion.trim() || null,
-        vigencia_tipo: vigenciaTipo,
-      };
-      const { data } = await reenviarPedido(pedido.id, payload);
-      if (onReenviado) onReenviado(data);
-      onClose();
-    } catch (err) {
-      setError(err.response?.data?.detail || 'Error al reenviar la solicitud.');
-    } finally {
-      setEnviando(false);
-    }
+    if (!open || !pedido || !admin) return;
+    let active = true;
+    setModel(pedido.modelo_servicio); setTemplateId(String(pedido.template_id || '')); setDescription(pedido.descripcion_requerimientos || '');
+    setDates(pedido.vigencia ? { ...pedido.vigencia } : vigenciaInicial()); setError(''); setBusy(false); setValidDates(false);
+    key.current = crypto.randomUUID(); submitting.current = false;
+    getTemplates().then(({ data }) => { if (active) setTemplates(data); })
+      .catch((err) => { if (active) setError(err); });
+    return () => { active = false; };
+  }, [open, pedido, admin]);
+  if (!open || !pedido || !admin) return null;
+  const available = templates.filter((t) => renewal ? t.id === pedido.template_id
+    : t.activo !== false && t.oferta_disponible !== false && t.tipo === 'lxc' && t.modelo_servicio === model);
+  const edit = (setter, value) => { setter(value); key.current = crypto.randomUUID(); };
+  const changeModel = (value) => {
+    setModel(value); setTemplateId(String(templates.find((t) => t.activo !== false && t.oferta_disponible !== false && t.tipo === 'lxc' && t.modelo_servicio === value)?.id || ''));
+    key.current = crypto.randomUUID();
   };
-
-  return (
-    <Dialog open={open} onClose={onClose} title={`Modificar y Reenviar Pedido #${pedido.id}`}>
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-        {error && (
-          <div className="callout bad">
-            <span>{error}</span>
-          </div>
-        )}
-
-        {pedido.observaciones_ajuste && (
-          <div className="callout warn">
-            <AlertCircle size={16} />
-            <div>
-              <strong>Observaciones del Administrador:</strong>
-              <div style={{ marginTop: 4 }}>{pedido.observaciones_ajuste}</div>
-            </div>
-          </div>
-        )}
-
-        {templates.length > 0 && (
-          <div>
-            <label className="label" style={{ fontWeight: 600 }}>Plantilla de Recursos</label>
-            <select
-              className="input select"
-              value={templateId}
-              onChange={(e) => setTemplateId(e.target.value)}
-            >
-              <option value="">Sin plantilla fija (Servicio a medida)</option>
-              {templates.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.nombre} ({t.default_vcpus} vCPU · {t.default_ram_mb} MB RAM · {t.default_disk_gb} GB Disco)
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        <div className="field">
-          <label className="label" style={{ fontWeight: 600 }}>Descripción / Nuevos Requerimientos</label>
-          <textarea
-            className="input textarea"
-            rows={4}
-            value={descripcion}
-            onChange={(e) => setDescripcion(e.target.value)}
-            placeholder="Ajuste de requerimientos solicitados..."
-          />
-        </div>
-
-        <div>
-          <label className="label" style={{ fontWeight: 600 }}>
-            <Calendar size={14} style={{ display: 'inline', marginRight: 4 }} />
-            Vigencia Temporal
-          </label>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--space-2)' }}>
-            {VIGENCIAS.map((v) => (
-              <button
-                type="button"
-                key={v.key}
-                onClick={() => setVigenciaTipo(v.key)}
-                className={`btn btn-sm ${vigenciaTipo === v.key ? 'btn-primary' : 'btn-ghost'}`}
-              >
-                {v.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)' }}>
-          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={enviando}>
-            Cancelar
-          </button>
-          <button type="submit" className="btn btn-primary" disabled={enviando}>
-            <Send size={15} style={{ marginRight: 6 }} />
-            {enviando ? 'Reenviando...' : 'Reenviar Pedido'}
-          </button>
-        </div>
-      </form>
-    </Dialog>
-  );
+  const submit = async (event) => {
+    event.preventDefault();
+    if (submitting.current || !templateId || !validDates) return;
+    submitting.current = true; setBusy(true); setError('');
+    try {
+      const { data } = await reenviarPedido(pedido.id, { template_id: Number(templateId), modelo_servicio: model,
+        descripcion_requerimientos: description.trim(), vigencia: dates }, key.current);
+      onReenviado?.(data); onClose();
+    } catch (err) { setError(err); }
+    finally { submitting.current = false; setBusy(false); }
+  };
+  return <Dialog title={`Corregir y reenviar pedido #${pedido.id}`} onClose={onClose} closeDisabled={busy}>
+    <form onSubmit={submit} className="col gap-3">
+      <ErrorFormulario error={error} />
+      <p>Observaciones registradas: {pedido.observaciones_ajuste || 'Sin observaciones adicionales'}</p>
+      <label htmlFor="resend-model">Modelo</label>
+      <select id="resend-model" value={model} onChange={(e) => changeModel(e.target.value)} disabled={busy || renewal}>
+        <option value="iaas">IaaS</option><option value="paas">PaaS</option><option value="saas">SaaS</option>
+      </select>
+      <label htmlFor="resend-template">Plantilla</label>
+      <select id="resend-template" value={templateId} onChange={(e) => edit(setTemplateId, e.target.value)} required disabled={busy || renewal}>
+        <option value="">Seleccioná una plantilla compatible</option>
+        {available.map((t) => <option key={t.id} value={String(t.id)}>{t.nombre}</option>)}
+        {renewal && !available.length && <option value={String(pedido.template_id)}>{pedido.asignacion_snapshot?.nombre || 'Asignación histórica'}</option>}
+      </select>
+      <label htmlFor="resend-description">Requerimientos o propósito</label>
+      <textarea id="resend-description" value={description} maxLength={5000} onChange={(e) => edit(setDescription, e.target.value)} disabled={busy} />
+      {!pedido.vigencia && <p>Revisá una vigencia explícita: la solicitud anterior no conserva este dato completo.</p>}
+      <fieldset disabled={busy}><VigenciaFields value={dates} onChange={(value) => edit(setDates, value)} onValid={setValidDates} /></fieldset>
+      <div className="row gap-2"><button type="button" onClick={onClose} disabled={busy}>Cerrar</button>
+        <button className="btn btn-primary" type="submit" disabled={busy || !templateId || !validDates}>{busy ? 'Guardando…' : 'Reenviar corrección'}</button></div>
+    </form>
+  </Dialog>;
 }
-

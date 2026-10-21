@@ -1,7 +1,6 @@
 """US1/US2/US3 (spec 003) — apagar, encender, reiniciar y consola sobre servicios propios."""
 
 from app.models.servicio import EstadoServicio
-from app.utils.security import create_access_token
 from tests import factories
 from tests.fakes import ocupar
 
@@ -14,10 +13,6 @@ async def _crear_servicio_de_otra_catedra(db, estado=EstadoServicio.RUNNING):
         db, catedra_id=otra_catedra.id, template_id=template.id, estado=estado
     )
 
-
-async def _headers_de(usuario) -> dict:
-    token = create_access_token({"sub": usuario.username, "rol": usuario.rol.value})
-    return {"Authorization": f"Bearer {token}"}
 
 
 # --- Apagar / encender: éxito para la cátedra dueña ---
@@ -276,200 +271,13 @@ async def test_fallo_al_reiniciar_da_502_sin_mutar_estado(
 # el portal sigue verificando la pertenencia antes de ofrecerla.
 
 
-async def test_la_catedra_puede_obtener_la_base_de_consola(client, auth_catedra):
-    """Antes era 403. La consola es la excepción del Principio I (v3.0.0).
-
-    Sin esto la cátedra no tendría ninguna forma de entrar al contenedor que
-    pidió, que es la razón por la que existe el servicio.
-    """
-    r = await client.get("/servicios/consola/proxmox-base", headers=auth_catedra)
-    assert r.status_code == 200, r.text
-    assert r.json()["base_url"].startswith("https://")
+async def test_consola_general_retirada_para_catedra(client, auth_catedra):
+    r = await client.get('/servicios/consola/proxmox-base', headers=auth_catedra)
+    assert r.status_code == 405, r.text
+    assert 'url' not in r.json()
 
 
-async def test_el_admin_tambien_la_obtiene(client, auth_admin):
-    r = await client.get("/servicios/consola/proxmox-base", headers=auth_admin)
-    assert r.status_code == 200, r.text
-    assert r.json()["base_url"].startswith("https://")
-
-
-async def test_la_derivacion_no_alcanza_a_servicios_ajenos(
-    client, db, usuario_multicatedra
-):
-    """La excepción cubre la consola, no el aislamiento.
-
-    Devolver la URL base no concede acceso a nada por sí sola: el portal sigue
-    siendo quien decide qué servicios ve cada cátedra. Un servicio ajeno no
-    aparece en su listado y no se resuelve por id, así que nunca se le llega a
-    ofrecer el enlace.
-    """
-    from sqlalchemy import select
-    from app.models.servicio import Servicio
-
-    ajeno = (
-        await db.execute(
-            select(Servicio).where(Servicio.catedra_id == usuario_multicatedra.ajena.id)
-        )
-    ).scalars().first()
-    assert ajeno is not None, "la fixture debería haber poblado la cátedra ajena"
-
-    listado = await client.get("/servicios/", headers=usuario_multicatedra.headers)
-    assert ajeno.id not in [s["id"] for s in listado.json()]
-
-    r = await client.get(f"/servicios/{ajeno.id}", headers=usuario_multicatedra.headers)
-    assert r.status_code == 403, r.text
-
-
-async def test_el_endpoint_de_ticket_ya_no_existe(client, auth_admin, db, catedra, template):
-    """Regresión: la consola embebida se retiró entera, sin dejar restos.
-
-    Un endpoint que emite tickets para un WebSocket que ya no existe sería una
-    superficie muerta y engañosa.
-    """
-    servicio = await factories.crear_servicio(
-        db, catedra_id=catedra.id, template_id=template.id, estado=EstadoServicio.RUNNING
-    )
-    r = await client.post(f"/servicios/{servicio.id}/console-ticket", headers=auth_admin)
-    assert r.status_code == 404, r.text
-
-
-# --- Paridad de administrador (FR-006) ---
-
-
-async def test_admin_apaga_servicio_de_cualquier_catedra(client, db, proxmox, auth_admin):
-    servicio_ajeno = await _crear_servicio_de_otra_catedra(db, estado=EstadoServicio.RUNNING)
-
-    r = await client.post(f"/servicios/{servicio_ajeno.id}/stop", headers=auth_admin)
-
-    assert r.status_code == 200, r.text
-
-
-async def test_admin_reinicia_servicio_de_cualquier_catedra(client, db, proxmox, auth_admin):
-    servicio_ajeno = await _crear_servicio_de_otra_catedra(db, estado=EstadoServicio.RUNNING)
-
-    r = await client.post(f"/servicios/{servicio_ajeno.id}/restart", headers=auth_admin)
-
-    assert r.status_code == 200, r.text
-
-
-# --- Reconciliación con el estado real del clúster ---
-#
-# El registro del portal se desfasa cuando Proxmox se apaga y vuelve, o cuando
-# alguien toca el contenedor por fuera. Proxmox es la fuente de verdad.
-
-
-async def test_el_listado_corrige_el_estado_desfasado(
-    client, db, proxmox, catedra, template, auth_catedra
-):
-    servicio = await factories.crear_servicio(
-        db, catedra_id=catedra.id, template_id=template.id, estado=EstadoServicio.RUNNING
-    )
-    # En el clúster el contenedor está apagado: el registro quedó viejo.
-    proxmox.recursos.append(ocupar(int(servicio.proxmox_vmid), servicio.hostname, status="stopped"))
-
-    r = await client.get("/servicios/", headers=auth_catedra)
-
-    assert r.status_code == 200, r.text
-    fila = next(s for s in r.json() if s["id"] == servicio.id)
-    assert fila["estado"] == "stopped"
-    assert fila["estado_sincronizado"] is True
-    await db.refresh(servicio)
-    assert servicio.estado == EstadoServicio.STOPPED
-
-
-async def test_listado_conserva_el_ultimo_estado_si_proxmox_no_responde(
-    client, db, proxmox, catedra, template, auth_catedra
-):
-    proxmox.fallar_recursos = Exception("clúster inalcanzable")
-    servicio = await factories.crear_servicio(
-        db, catedra_id=catedra.id, template_id=template.id, estado=EstadoServicio.RUNNING
-    )
-
-    r = await client.get("/servicios/", headers=auth_catedra)
-
-    assert r.status_code == 200, r.text
-    fila = next(s for s in r.json() if s["id"] == servicio.id)
-    assert fila["estado"] == "running"
-    assert fila["estado_sincronizado"] is False
-
-
-async def test_encender_servicio_que_proxmox_reporta_apagado(
-    client, db, proxmox, catedra, template, auth_catedra
-):
-    """El caso que motivó el botón: el portal decía RUNNING y el contenedor estaba caído."""
-    servicio = await factories.crear_servicio(
-        db, catedra_id=catedra.id, template_id=template.id, estado=EstadoServicio.RUNNING
-    )
-    proxmox.recursos.append(ocupar(int(servicio.proxmox_vmid), servicio.hostname, status="stopped"))
-
-    r = await client.post(f"/servicios/{servicio.id}/start", headers=auth_catedra)
-
-    assert r.status_code == 200, r.text
-    assert r.json()["estado"] == "running"
-    assert (servicio.proxmox_node, int(servicio.proxmox_vmid)) in proxmox.iniciados
-
-
-async def test_apagar_servicio_que_proxmox_reporta_apagado_da_409(
-    client, db, proxmox, catedra, template, auth_catedra
-):
-    servicio = await factories.crear_servicio(
-        db, catedra_id=catedra.id, template_id=template.id, estado=EstadoServicio.RUNNING
-    )
-    proxmox.recursos.append(ocupar(int(servicio.proxmox_vmid), servicio.hostname, status="stopped"))
-
-    r = await client.post(f"/servicios/{servicio.id}/stop", headers=auth_catedra)
-
-    assert r.status_code == 409, r.text
-    assert proxmox.detenidos == []
-    await db.refresh(servicio)
-    assert servicio.estado == EstadoServicio.STOPPED
-
-
-async def test_contenedor_inexistente_se_marca_como_tal_en_el_listado(
-    client, db, proxmox, catedra, template, auth_catedra
-):
-    """Borrado desde Proxmox: el registro sobrevive, pero avisa que quedó huérfano."""
-    servicio = await factories.crear_servicio(
-        db, catedra_id=catedra.id, template_id=template.id, estado=EstadoServicio.RUNNING
-    )  # el clúster responde y no lo tiene
-
-    fila = next(
-        s for s in (await client.get("/servicios/", headers=auth_catedra)).json()
-        if s["id"] == servicio.id
-    )
-
-    assert fila["existe_en_proxmox"] is False
-    assert fila["estado_sincronizado"] is False
-    await db.refresh(servicio)
-    assert servicio.estado == EstadoServicio.RUNNING, "no se inventa un estado nuevo"
-
-
-async def test_sin_respuesta_del_cluster_la_existencia_queda_indefinida(
-    client, db, proxmox, catedra, template, auth_catedra
-):
-    """"No pudimos verificar" no es lo mismo que "no existe"."""
-    proxmox.fallar_recursos = Exception("clúster inalcanzable")
-    servicio = await factories.crear_servicio(
-        db, catedra_id=catedra.id, template_id=template.id, estado=EstadoServicio.RUNNING
-    )
-
-    fila = next(
-        s for s in (await client.get("/servicios/", headers=auth_catedra)).json()
-        if s["id"] == servicio.id
-    )
-
-    assert fila["existe_en_proxmox"] is None
-
-
-async def test_encender_servicio_en_error_lo_arranca(
-    client, db, proxmox, catedra, template, auth_catedra
-):
-    """Encender es la salida natural también desde ERROR, no solo desde STOPPED."""
-    servicio = await factories.crear_servicio(
-        db, catedra_id=catedra.id, template_id=template.id, estado=EstadoServicio.ERROR
-    )
-
-    r = await client.post(f"/servicios/{servicio.id}/start", headers=auth_catedra)
-
-    assert r.status_code == 200, r.text
-    assert r.json()["estado"] == "running"
+async def test_consola_general_retirada_para_admin(client, auth_admin):
+    r = await client.get('/servicios/consola/proxmox-base', headers=auth_admin)
+    assert r.status_code == 405, r.text
+    assert 'url' not in r.json()

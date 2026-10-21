@@ -1,4 +1,30 @@
 <!--
+Sync Impact Report — 2026-10-18
+=================================
+Version change: 3.1.0 → 4.0.0
+Bump rationale: MAJOR. Por corrección explícita del usuario durante la aclaración
+de la feature 009, se elimina la obligatoriedad general del segundo factor.
+La autenticación sigue siendo propia del portal; el 2FA es voluntario para ambos
+roles y obligatorio en cada ingreso de las cuentas que lo hayan activado.
+
+Secciones modificadas:
+  Principio I y Restricciones Técnicas y de Seguridad: 2FA voluntario,
+  activación confirmada, recuperación mediante códigos de un solo uso y
+  desactivación con comprobación reforzada. El cambio inicial de contraseña
+  provisoria continúa siendo obligatorio.
+
+Artefactos revisados:
+  specs/009-remediar-hallazgos-cierre/spec.md — requisitos, escenarios,
+  entidades, criterios y supuestos sincronizados con la decisión.
+  .specify/templates/*.md — no fijan obligatoriedad del 2FA; sin cambios.
+  specs/004-unificar-usuario-catedra/spec.md — referencia histórica al 2FA,
+  sin redefinir su política; prevalece la presente enmienda.
+  specs/001–008 restantes — sin reglas específicas de obligatoriedad del 2FA.
+  El informe de auditoría conserva el estado y documentos revisados a su fecha;
+  la decisión nueva queda explícita en la feature 009.
+-->
+
+<!--
 Sync Impact Report — 2026-08-30
 =================================
 Version change: 2.0.0 → 3.0.0
@@ -60,8 +86,9 @@ El portal es el **único** punto de contacto entre las personas usuarias y la ge
 infraestructura (Proxmox VE, TrueNAS, MikroTik). Ninguna persona usuaria final administra recursos
 desde la interfaz de Proxmox, ni depende de su modelo de permisos para operar el portal.
 
-- El sistema MUST mantener autenticación propia (usuario + contraseña + 2FA); MUST NOT delegar
-  el login del portal en Proxmox.
+- El sistema MUST mantener autenticación propia con usuario y contraseña; MUST NOT delegar
+  el login del portal en Proxmox. El 2FA MUST ser voluntario para ambos roles y MUST exigirse
+  al ingresar a las cuentas que lo tengan activado. No haberlo activado MUST NOT impedir operar.
 - Toda operación contra la infraestructura MUST pasar por la capa de servicios del portal
   (`app/services/`); los routers MUST NOT invocar `proxmoxer` directamente.
 - Los identificadores de recurso de Proxmox (VMID, nodo) son detalle interno: el portal los
@@ -248,8 +275,16 @@ lo hace en silencio, la cátedra no tiene forma de distinguirlo de una falla.
 
 **Seguridad**:
 
-- La autenticación MUST ser propia del portal: usuario + contraseña + 2FA (TOTP). El login de
-  Proxmox MUST NOT usarse.
+- La autenticación MUST ser propia del portal: usuario y contraseña, con 2FA (TOTP) voluntario.
+  Si está activo, el segundo factor MUST verificarse antes de conceder acceso operativo.
+  El login de Proxmox MUST NOT usarse. Iniciar la configuración de 2FA MUST NOT activarlo
+  hasta comprobar un código válido.
+- Las cuentas que activen 2FA MUST disponer de códigos de recuperación de un solo uso.
+  La recuperación MUST comprobar identidad y MUST NOT convertirse en una entrada operativa
+  permanente sin segundo factor mientras siga activo. La desactivación MUST ser deliberada,
+  con contraseña y comprobación del factor o de un código de recuperación válido.
+- El cambio inicial de una contraseña provisoria MUST completarse antes de operar,
+  independientemente de la elección de 2FA.
 - Toda operación mutante sobre usuarios, cátedras, templates y el ciclo de vida de los pedidos MUST
   exigir rol administrador. Las únicas excepciones son las que el rol cátedra ejerce sobre lo
   propio: crear un pedido, solicitar la renovación de un servicio, y operar los servicios de sus
@@ -317,4 +352,4 @@ violación aceptada MUST registrarse en la tabla de Complexity Tracking con su j
 alternativa más simple que se descartó; una violación sin justificación registrada bloquea la
 implementación.
 
-**Version**: 3.1.0 | **Ratified**: 2026-08-07 | **Last Amended**: 2026-10-12
+**Version**: 4.0.0 | **Ratified**: 2026-08-07 | **Last Amended**: 2026-10-18

@@ -151,3 +151,35 @@ async def test_el_trabajo_no_es_ejecutable_por_una_catedra(client, auth_catedra)
     r = await client.post("/admin/jobs/expirar_reservas", headers=auth_catedra)
 
     assert r.status_code == 403, r.text
+from tests.capacity_helpers import perfil_capacidad, seleccion, preparar_pedido
+
+
+async def test_009_future_approval_reserves_now_and_expires_after_start(client, db, perfil_capacidad, catedra, usuario_catedra, template, auth_admin):
+    from datetime import timedelta
+    from zoneinfo import ZoneInfo
+    from app.utils.clock import clock, db_utc
+    from app.services.vigencia_service import resolver_fechas
+    now = clock.now()
+    start = now.astimezone(ZoneInfo('America/Argentina/Tucuman')).date() + timedelta(days=10)
+    pedido = await preparar_pedido(db, catedra, usuario_catedra, template)
+    payload = seleccion(template, desde=start, hasta=start + timedelta(days=5))
+    evaluation = await client.post(f'/pedidos/{pedido.id}/evaluacion', headers=auth_admin, json=payload)
+    assert evaluation.status_code == 200, evaluation.text
+    response = await client.post(f'/pedidos/{pedido.id}/aprobar', headers=auth_admin | {'Idempotency-Key': 'future-approval'},
+        json={**payload, 'capacidad_token': evaluation.json()['capacidad_token']})
+    assert response.status_code == 200, response.text
+    await db.refresh(pedido)
+    period = resolver_fechas(start, start + timedelta(days=5), 'America/Argentina/Tucuman')
+    assert db_utc(pedido.reserva_expira_at) == period.inicio_at + timedelta(hours=24)
+    denied = await client.post(f'/servicios/desplegar/{pedido.id}', headers=auth_admin | {'Idempotency-Key': 'future-denied'}, json={})
+    assert denied.status_code == 409
+    assert denied.json()['detail']['codigo'] == 'inicio_futuro'
+
+
+def test_009_expiration_is_bounded_by_authorized_end():
+    from datetime import date, datetime, timezone
+    from app.services.vigencia_service import resolver_fechas
+    from app.services.admision_service import expiracion_reserva
+    period = resolver_fechas(date(2027, 3, 1), date(2027, 3, 1), 'America/Argentina/Tucuman')
+    approval = datetime(2027, 3, 1, 20, tzinfo=timezone.utc)
+    assert expiracion_reserva(period, approval) == period.fin_exclusivo_at

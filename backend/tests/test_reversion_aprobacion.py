@@ -323,7 +323,7 @@ async def test_patch_estado_sigue_rechazando_aprobado_a_rechazado(
         headers=auth_admin,
     )
 
-    assert r.status_code == 409, r.text
+    assert r.status_code == 405, r.text
     await db.refresh(pedido)
     assert pedido.estado == EstadoPedido.APROBADO
     assert pedido.reserva_vcpus == template.default_vcpus, "la reserva sigue intacta"

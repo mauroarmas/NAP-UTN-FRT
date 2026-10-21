@@ -71,23 +71,21 @@ async def test_el_pedido_nace_como_alta_y_sin_reserva(
 
 async def test_una_persona_sin_catedras_no_puede_pedir(client, db, auth_admin, template):
     """Se lo dice en lenguaje claro, en vez de fallar en el formulario."""
-    from app.utils.security import create_access_token
+    from tests.auth_helpers import headers_para
 
     huerfano = await factories.crear_usuario(
         db, "huerfano", rol=RolUsuario.CATEDRA_ADMIN
     )
-    token = create_access_token(
-        {"sub": huerfano.username, "rol": huerfano.rol.value}
-    )
+    headers = await headers_para(db, huerfano)
 
     r = await client.post(
         "/pedidos/",
         json={"template_id": template.id},
-        headers={"Authorization": f"Bearer {token}"},
+        headers=headers,
     )
 
     assert r.status_code == 400, r.text
-    assert "cátedra" in r.json()["detail"].lower()
+    assert "cátedra" in r.json()["detail"]["mensaje"].lower()
 
 
 async def test_un_template_grande_se_puede_pedir_sin_bloqueo(

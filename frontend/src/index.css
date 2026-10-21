@@ -1387,3 +1387,11 @@ select.form-input { appearance: none; -webkit-appearance: none; background-image
 .spacer { flex: 1; }
 .nowrap { white-space: nowrap; }
 .right { text-align: right; }
+
+/* El fondo de un modal queda fuera de puntero/teclado y selección. */
+[inert] { pointer-events: none; user-select: none; }
+.dialog-title { margin: 0; }
+.dialog[aria-busy="true"] { cursor: progress; }
+@media (prefers-reduced-motion: reduce) {
+  .dialog-backdrop { animation: none; }
+}

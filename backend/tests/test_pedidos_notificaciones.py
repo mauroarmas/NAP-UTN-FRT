@@ -59,12 +59,12 @@ async def test_crear_y_reenviar_pedido_notifica_a_administradores(
     assert "Ajuste" in mail_ajuste["asunto"]
     assert "Reducir memoria RAM a 2GB" in mail_ajuste["texto_plano"]
 
-    # Docente reenvía pedido
+    # Administración incorpora las correcciones y reenvía
     mock_email.clear()
     res_reenviar = await client.post(
         f"/pedidos/{pedido_id}/reenviar",
         json={"descripcion_requerimientos": "Ajustado a 2GB de RAM"},
-        headers=auth_catedra,
+        headers=auth_admin,
     )
     assert res_reenviar.status_code == 200, res_reenviar.text
 

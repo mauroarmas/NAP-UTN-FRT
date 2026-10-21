@@ -1,40 +1,62 @@
-import { useState, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { Component, lazy, Suspense } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Login from './pages/Login';
-import Dashboard from './pages/Dashboard';
-import Pedidos from './pages/Pedidos';
-import Catalogo from './pages/Catalogo';
-import Servicios from './pages/Servicios';
-import Catedras from './pages/Catedras';
-import Templates from './pages/Templates';
-import Usuarios from './pages/Usuarios';
-import Metricas from './pages/Metricas';
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const Pedidos = lazy(() => import('./pages/Pedidos'));
+const Catalogo = lazy(() => import('./pages/Catalogo'));
+const Servicios = lazy(() => import('./pages/Servicios'));
+const Catedras = lazy(() => import('./pages/Catedras'));
+const Templates = lazy(() => import('./pages/Templates'));
+const Usuarios = lazy(() => import('./pages/Usuarios'));
+const CambiosConsola = lazy(() => import('./pages/CambiosConsola'));
+const Calendario = lazy(() => import('./pages/Calendario'));
+const Definiciones = lazy(() => import('./pages/Definiciones'));
+const Metricas = lazy(() => import('./pages/Metricas'));
 import TopNav from './components/TopNav';
 import CambiarPasswordInicialModal from './components/CambiarPasswordInicialModal';
+import useSession from './hooks/useSession';
+import Seguridad, { CodigosRecuperacion, DesafioIngreso } from './pages/Seguridad';
 import './index.css';
 
-function ProtectedLayout({ user }) {
+class RouteErrorBoundary extends Component {
+  state = { failed: false };
+  static getDerivedStateFromError() { return { failed: true }; }
+  render() {
+    if (this.state.failed) return <div role="alert" className="callout bad">
+      <p>No se pudo cargar esta vista. Podés volver a cargarla o elegir otra sección.</p>
+      <button className="btn btn-secondary" onClick={() => window.location.reload()}>Volver a cargar la vista</button>
+    </div>;
+    return this.props.children;
+  }
+}
+
+function ProtectedLayout({ user, onRefresh, onLogout }) {
+  const location = useLocation();
   return (
     <div className="app-shell">
-      <TopNav user={user} />
+      <TopNav user={user} onLogout={onLogout} />
       <main className="app-main">
         <div className="app-main-inner">
-          <Routes>
+          <RouteErrorBoundary key={location.pathname}><Suspense fallback={<p role="status">Cargando vista…</p>}><Routes>
             <Route path="/" element={<Dashboard user={user} />} />
             <Route path="/pedidos" element={<Pedidos user={user} />} />
+            <Route path="/catalogo" element={<Catalogo user={user} />} />
+            <Route path="/servicios" element={<Servicios user={user} />} />
+            <Route path="/metricas" element={<Metricas user={user} />} />
+            <Route path="/seguridad" element={<Seguridad key={String(user?.totp_habilitado)} user={user} onRefresh={onRefresh} />} />
             {user?.rol === 'admin' && (
               <>
-                <Route path="/catalogo" element={<Catalogo user={user} />} />
-                <Route path="/servicios" element={<Servicios user={user} />} />
-                <Route path="/metricas" element={<Metricas user={user} />} />
+                <Route path="/definiciones" element={<Definiciones />} />
                 <Route path="/catedras" element={<Catedras />} />
+                <Route path="/calendario" element={<Calendario />} />
                 <Route path="/templates" element={<Templates />} />
                 <Route path="/admin/templates" element={<Templates />} />
                 <Route path="/usuarios" element={<Usuarios user={user} />} />
+                <Route path="/admin/cambios-consola" element={<CambiosConsola user={user} />} />
               </>
             )}
             <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
+          </Routes></Suspense></RouteErrorBoundary>
         </div>
       </main>
     </div>
@@ -42,44 +64,17 @@ function ProtectedLayout({ user }) {
 }
 
 export default function App() {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const storedUser = localStorage.getItem('user');
-    const token = localStorage.getItem('token');
-    if (storedUser && token) {
-      setUser(JSON.parse(storedUser));
-    }
-    setLoading(false);
-  }, []);
-
-  const handlePasswordCambiada = (usuarioActualizado) => {
-    const updated = { ...user, ...usuarioActualizado, debe_cambiar_password: false };
-    localStorage.setItem('user', JSON.stringify(updated));
-    setUser(updated);
-  };
-
-  if (loading) return null;
-
-  return (
-    <BrowserRouter>
-      {user && user.debe_cambiar_password && (
-        <CambiarPasswordInicialModal
-          user={user}
-          onPasswordCambiada={handlePasswordCambiada}
-        />
-      )}
-      <Routes>
-        <Route
-          path="/login"
-          element={user ? <Navigate to="/" replace /> : <Login onLogin={setUser} />}
-        />
-        <Route
-          path="/*"
-          element={user ? <ProtectedLayout user={user} /> : <Navigate to="/login" replace />}
-        />
-      </Routes>
-    </BrowserRouter>
-  );
+  const { session, user, loading, error, refresh, logout, codes, clearCodes } = useSession();
+  if (loading) return <p role="status">Consultando sesión…</p>;
+  let content;
+  if (codes) content = <CodigosRecuperacion codes={codes} onClose={clearCodes} />;
+  else if (session?.estado === 'onboarding') content = <CambiarPasswordInicialModal user={user} onPasswordCambiada={refresh} />;
+  else if (session?.estado === 'mfa_pending') content = <DesafioIngreso session={session} onRefresh={refresh} />;
+  else if (session?.estado === 'recovery') content = <Seguridad user={user} recovery onRefresh={refresh} />;
+  else if (session?.estado === 'operativo') content = <Routes><Route path="/*" element={<ProtectedLayout user={user} onRefresh={refresh} onLogout={logout} />} /></Routes>;
+  else content = <Login onLogin={refresh} />;
+  return <BrowserRouter>
+    {error && <p role="alert">{error}</p>}
+    {session?.estado === 'operativo' && !codes ? content : <div className="login fade-in"><div className="login__center">{content}</div>{session && <button className="btn btn-secondary" onClick={logout}>Cerrar sesión</button>}</div>}
+  </BrowserRouter>;
 }

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import String, Boolean, DateTime, ForeignKey, Enum as SAEnum
+from sqlalchemy import String, Boolean, DateTime, Text, BigInteger, ForeignKey, JSON, Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 import enum
 
@@ -20,7 +20,6 @@ class Usuario(Base):
     email: Mapped[str | None] = mapped_column(String(100), unique=True, nullable=True)
     nombre: Mapped[str] = mapped_column(String(100), nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
-    totp_secret: Mapped[str | None] = mapped_column(String(32), nullable=True)
     totp_habilitado: Mapped[bool] = mapped_column(Boolean, default=False)
     rol: Mapped[RolUsuario] = mapped_column(
         SAEnum(RolUsuario), default=RolUsuario.CATEDRA_ADMIN
@@ -29,6 +28,17 @@ class Usuario(Base):
     debe_cambiar_password: Mapped[bool] = mapped_column(Boolean, default=False)
     recibir_notificaciones_email: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    revision_admin: Mapped[int] = mapped_column(default=1, server_default='1')
+    identidad_consola: Mapped[str | None] = mapped_column(String(200), unique=True)
+    inventario_consola: Mapped[str] = mapped_column(String(20), default='desconocido', server_default='desconocido')
+    inventario_consola_ref: Mapped[str | None] = mapped_column(String(200))
+    inventario_consola_actor: Mapped[str | None] = mapped_column(String(200))
+    inventario_consola_historial: Mapped[list | None] = mapped_column(JSON)
+    auth_version: Mapped[int] = mapped_column(default=1, server_default='1')
+    totp_secret_encrypted: Mapped[str | None] = mapped_column(Text)
+    totp_last_step: Mapped[int | None] = mapped_column(BigInteger)
+    recovery_generation: Mapped[int] = mapped_column(default=0, server_default='0')
+    habilitacion_inconsistente: Mapped[bool] = mapped_column(default=False, server_default='false')
 
     # Relaciones
     # Una persona puede tener varias cátedras a su cargo; cada cátedra tiene un

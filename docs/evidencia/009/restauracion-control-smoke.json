@@ -1,0 +1,25 @@
+{
+  "fecha": "2026-10-21",
+  "entorno": "simulado",
+  "imagen_api": "sha256:69d9ea4b8f741aadc825dc699cbfeac95564bcfa124a0513b7ab97450b6d0f42",
+  "revision": "009_14_restauracion",
+  "https_preparacion": {
+    "entorno": "simulado",
+    "tls_verificado": true,
+    "spa_y_cabeceras": true,
+    "assets_inmutables": true,
+    "cookie_segura": true,
+    "login_cambio_inicial_2fa_opcional": true,
+    "api_misma_origin": true,
+    "csrf_exigido": true,
+    "logout_revoque_sesion": true,
+    "redireccion_https": true
+  },
+  "migracion_y_rol_limitado": true,
+  "cli_preparacion_sobre_base_fixture": true,
+  "api_en_ejecucion_bloquea_login_restaurado_503": true,
+  "arranque_limitado_rechaza_corte_pendiente": true,
+  "worker_no_iniciado": true,
+  "pve_y_smtp_reales_no_probados": true,
+  "no_es_ensayo_de_dump_y_restauracion": true
+}

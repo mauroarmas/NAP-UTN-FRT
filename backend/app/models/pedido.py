@@ -1,3 +1,5 @@
+from uuid import UUID
+from sqlalchemy import Uuid, UniqueConstraint
 from datetime import datetime
 
 from sqlalchemy import (
@@ -9,6 +11,7 @@ from sqlalchemy import (
     Text,
     JSON,
     Enum as SAEnum,
+    CheckConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import text
@@ -60,6 +63,8 @@ class TipoPedido(str, enum.Enum):
 class Pedido(Base):
     __tablename__ = "pedidos"
     __table_args__ = (
+        CheckConstraint('revision >= 1 AND revision_decision >= 0',name='ck_pedido_revisiones'),
+        CheckConstraint("tipo = 'ALTA' OR (tipo = 'RENOVACION' AND servicio_id IS NOT NULL)",name='ck_pedido_tipo_servicio'),
         # Índice parcial: los listados solo consultan filas vigentes.
         Index(
             "ix_pedidos_vigentes",
@@ -87,6 +92,11 @@ class Pedido(Base):
         nullable=False,
     )
     descripcion_requerimientos: Mapped[str | None] = mapped_column(Text, nullable=True)
+    vigencia_solicitada: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+    @property
+    def vigencia(self):
+        return self.vigencia_solicitada
     vigencia_tipo: Mapped[VigenciaTipo] = mapped_column(
         SAEnum(
             VigenciaTipo,
@@ -126,18 +136,19 @@ class Pedido(Base):
     # Se persiste para que un reintento pueda reutilizarlo tras un fallo.
     vmid_reservado: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
-    # --- Reserva de capacidad ---
-    # Aprobar no es opinar: compromete capacidad en el acto. Los valores se
-    # copian del template al aprobar en lugar de referenciarlo, porque el
-    # template puede editarse entre la aprobación y el despliegue y la reserva
-    # tiene que ser un compromiso sobre números concretos.
-    reserva_vcpus: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    reserva_ram_mb: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    reserva_disk_gb: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    # Una reserva que nunca se materializa retendría capacidad para siempre.
-    reserva_expira_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Cantidades autorizadas: asignacion_snapshot; saldo y caducidad:
+    # compromiso_capacidad. No mantener un segundo contador en el pedido.
     # Obligatoria cuando se aprueba por encima de la capacidad libre.
     justificacion_capacidad: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    revision: Mapped[int] = mapped_column(Integer, default=1, server_default='1')
+    revision_decision: Mapped[int] = mapped_column(Integer, default=0, server_default='0')
+    anio_lectivo: Mapped[int | None] = mapped_column(Integer)
+    definicion_version_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey('definiciones_servicio.id'))
+    asignacion_snapshot: Mapped[dict | None] = mapped_column(JSON)
+    destino_snapshot: Mapped[dict | None] = mapped_column(JSON)
+    decision_snapshot: Mapped[dict | None] = mapped_column(JSON)
+    sustituye_vigencia_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey('vigencias_autorizadas.id'))
 
     # Relaciones
     catedra: Mapped["Catedra"] = relationship(back_populates="pedidos")
@@ -160,6 +171,7 @@ class Pedido(Base):
 
 class PedidoHistorial(Base):
     __tablename__ = "pedidos_historial"
+    __table_args__ = (UniqueConstraint('pedido_id', 'evento_clave', name='uq_historial_pedido_evento'),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     pedido_id: Mapped[int] = mapped_column(ForeignKey("pedidos.id"), nullable=False)
@@ -173,6 +185,11 @@ class PedidoHistorial(Base):
         ForeignKey("usuarios.id"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    operacion_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey('operaciones_infraestructura.id'))
+    evento_clave: Mapped[str | None] = mapped_column(String(200))
+    actor_tipo: Mapped[str | None] = mapped_column(String(10))
+    decision_metadata: Mapped[dict | None] = mapped_column(JSON)
 
     # Relaciones
     pedido: Mapped["Pedido"] = relationship(back_populates="historial")

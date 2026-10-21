@@ -1,4 +1,5 @@
-import { useEffect } from 'react';
+import { useId, useLayoutEffect, useRef } from 'react';
+import { activateModal } from '../utils/modalFocus';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
@@ -10,7 +11,7 @@ export function PageHead({ kicker, title, subtitle, children }) {
     <div className="page-head">
       <div>
         {kicker && <div className="page-head__kicker">{kicker}</div>}
-        <h1 className="page-title">{title}</h1>
+        <h1 className="page-title" tabIndex={-1}>{title}</h1>
         {subtitle && <p className="page-subtitle">{subtitle}</p>}
       </div>
       {children && <div className="row wrap">{children}</div>}
@@ -68,33 +69,35 @@ export function Empty({ icon, children, hint }) {
   );
 }
 
-// Modal sobre backdrop. Cierra con Escape y con click fuera del panel.
-// Se monta con portal en <body> para escapar de cualquier bloque contenedor
-// (un ancestro con transform/filter rompería el position:fixed del backdrop).
-export function Dialog({ title, onClose, children, actions, wide = false }) {
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose?.(); };
-    document.addEventListener('keydown', onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.body.style.overflow = prev;
-    };
-  }, [onClose]);
-
+// Modal compartido: semántica, foco, fondo inerte y cierre deliberado.
+export function Dialog({ title, onClose, children, actions, wide = false, closeDisabled = false, dismissible = true }) {
+  const titleId = useId();
+  const panel = useRef(null);
+  const layer = useRef(null);
+  const previous = useRef(document.activeElement);
+  const callbacks = useRef({ onClose, closeDisabled, dismissible });
+  useLayoutEffect(() => { callbacks.current = { onClose, closeDisabled, dismissible }; });
+  const dismiss = () => {
+    const current = callbacks.current;
+    if (current.dismissible && !current.closeDisabled) current.onClose?.();
+  };
+  useLayoutEffect(() => activateModal({ panel: panel.current, layer: layer.current, previous: previous.current,
+    dismiss: () => {
+      const current = callbacks.current;
+      if (current.dismissible && !current.closeDisabled) current.onClose?.();
+    } }), []);
   return createPortal(
-    <div className="dialog-backdrop" onMouseDown={onClose}>
-      <div className={`dialog ${wide ? 'wide' : ''}`} onMouseDown={(e) => e.stopPropagation()}>
+    <div ref={layer} className="dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) dismiss(); }}>
+      <div ref={panel} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-busy={closeDisabled || undefined}
+        tabIndex={-1} className={`dialog ${wide ? 'wide' : ''}`}>
         <div className="dialog-head">
-          <div className="dialog-title">{title}</div>
-          <button className="btn-icon" onClick={onClose} aria-label="Cerrar"><X size={16} /></button>
+          <h2 id={titleId} className="dialog-title">{title}</h2>
+          {dismissible && onClose && <button className="btn-icon" onClick={dismiss} disabled={closeDisabled} aria-label="Cerrar"><X size={16} /></button>}
         </div>
         <div className="dialog-body">{children}</div>
         {actions && <div className="dialog-actions">{actions}</div>}
       </div>
-    </div>,
-    document.body,
+    </div>, document.body,
   );
 }
 

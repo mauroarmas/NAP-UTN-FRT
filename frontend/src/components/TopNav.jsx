@@ -2,25 +2,30 @@ import { useEffect, useRef, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   Activity, Building2, ChevronDown, ClipboardCheck, Home, LogOut,
-  Moon, Package, Server, Settings, Sun, Users,
+  Moon, Package, Server, Settings, Sun, Users, CalendarDays,
 } from 'lucide-react';
 import useTheme from '../hooks/useTheme';
 import { iniciales } from './ui';
 import utnLogo from '../assets/utn-logo.jpeg';
 
 const LINKS = [
+  { to: '/catalogo', label: 'Catálogo', icon: Package },
   { to: '/pedidos', label: 'Pedidos', icon: ClipboardCheck },
   { to: '/servicios', label: 'Servicios', icon: Server },
   { to: '/metricas', label: 'Métricas', icon: Activity },
+  { to: '/seguridad', label: 'Seguridad', icon: Settings },
 ];
 
 const ADMIN_LINKS = [
+  { to: '/definiciones', label: 'Definiciones', icon: Package },
+  { to: '/calendario', label: 'Calendario', icon: CalendarDays },
   { to: '/catedras', label: 'Cátedras', icon: Building2 },
-  { to: '/templates', label: 'Templates', icon: Package },
+  { to: '/templates', label: 'Perfiles', icon: Package },
   { to: '/usuarios', label: 'Usuarios', icon: Users },
+  { to: '/admin/cambios-consola', label: 'Accesos a consola', icon: Settings },
 ];
 
-export default function TopNav({ user }) {
+export default function TopNav({ user, onLogout }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { theme, toggle: toggleTheme } = useTheme();
@@ -61,11 +66,8 @@ export default function TopNav({ user }) {
     return () => document.removeEventListener('mousedown', onClick);
   }, []);
 
-  const logout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    navigate('/login');
-    window.location.reload();
+  const logout = async () => {
+    if (await onLogout()) navigate('/login');
   };
 
   const misCatedras = user?.catedras || [];
@@ -89,6 +91,8 @@ export default function TopNav({ user }) {
         </button>
 
         {isAdmin && <div className="topnav-divider" />}
+
+        {!isAdmin && <NavLink to="/catalogo" className="topnav-link"><Package size={16} />Catálogo</NavLink>}
 
         {isAdmin && (
           <nav className="topnav-links">

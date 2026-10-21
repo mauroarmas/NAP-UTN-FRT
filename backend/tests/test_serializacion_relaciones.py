@@ -77,7 +77,7 @@ async def test_auth_me_con_sesion_fria(
     r = await client.get("/auth/me", headers=auth_catedra)
 
     assert r.status_code == 200, r.text
-    assert [c["nombre"] for c in r.json()["catedras"]] == [catedra.nombre]
+    assert [c["nombre"] for c in r.json()["usuario"]["catedras"]] == [catedra.nombre]
 
 
 async def test_listado_de_usuarios_con_sesion_fria(client, db, catedra, admin, auth_admin):

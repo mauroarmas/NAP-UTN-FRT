@@ -1,114 +1,66 @@
-import pytest
-from app.models.pedido import EstadoPedido, ModeloServicio, VigenciaTipo, Pedido
-from app.models.servicio import EstadoServicio, Servicio
+"""Aprobación efectiva y admisión durable; el HTTP no espera a Proxmox."""
+from sqlalchemy import select, func
+from uuid import UUID
+
+from app.models.pedido import EstadoPedido, Pedido
+from app.models.servicio import Servicio
+from app.models.compromiso_capacidad import CompromisoCapacidad
+from app.models.operacion_infraestructura import OperacionInfraestructura
 from tests import factories
-
-NODO = [
-    {
-        "node": "pve1",
-        "status": "online",
-        "cpu": 0.1,
-        "maxcpu": 8,
-        "maxmem": 16 * 1024**3,
-        "maxdisk": 100 * 1024**3,
-    }
-]
+from tests.capacity_helpers import perfil_capacidad, seleccion  # noqa:F401
 
 
-@pytest.fixture(autouse=True)
-def cluster(proxmox):
-    proxmox.nodos = NODO
-    return proxmox
+async def evaluate(client, pedido, template, headers):
+    payload = seleccion(template)
+    response = await client.post(f'/pedidos/{pedido.id}/evaluacion', headers=headers, json=payload)
+    assert response.status_code == 200, response.text
+    return payload | {'capacidad_token':response.json()['capacidad_token']}
 
 
 async def test_aprobar_asigna_template_a_pedido_sin_template(
-    client, db, catedra, usuario_catedra, template, auth_admin
+    client, db, catedra, usuario_catedra, template, auth_admin, perfil_capacidad,
 ):
-    """Un pedido SaaS/PaaS que nació sin template recibe su template definitivo al aprobar."""
-    pedido = await factories.crear_pedido(
-        db,
-        catedra_id=catedra.id,
-        solicitante_id=usuario_catedra.id,
-        template_id=None,
-        estado=EstadoPedido.SOLICITADO,
-        modelo_servicio=ModeloServicio.SAAS,
-        descripcion_requerimientos="Moodle institucional para el cuatrimestre",
-        vigencia_tipo=VigenciaTipo.PRIMER_CUATRIMESTRE,
-    )
-
-    r = await client.post(
-        f"/pedidos/{pedido.id}/aprobar",
-        json={"template_id": template.id},
-        headers=auth_admin,
-    )
-    assert r.status_code == 200, r.text
-    data = r.json()
-    assert data["estado"] == "aprobado"
-    assert data["template_id"] == template.id
-    assert data["reserva_vcpus"] == template.default_vcpus
+    pedido = await factories.crear_pedido(db, catedra.id, usuario_catedra.id, None, estado=EstadoPedido.SOLICITADO)
+    payload = await evaluate(client, pedido, template, auth_admin)
+    response = await client.post(f'/pedidos/{pedido.id}/aprobar', json=payload,
+        headers=auth_admin | {'Idempotency-Key':'approve-profile'})
+    assert response.status_code == 200, response.text
+    await db.refresh(pedido)
+    assert pedido.estado == EstadoPedido.APROBADO and pedido.template_id == template.id
+    assert response.json()['asignacion_snapshot']['vcpus'] == template.default_vcpus
+    ledger = await db.scalar(select(CompromisoCapacidad).where(CompromisoCapacidad.pedido_id == pedido.id))
+    assert ledger.vcpus_retenidos == template.default_vcpus and ledger.estado == 'reservado'
 
 
-async def test_aprobar_con_opciones_avanzadas_y_overrides(
-    client, db, catedra, usuario_catedra, template, auth_admin
+async def test_opciones_avanzadas_arbitrarias_no_eluden_seleccion_efectiva(
+    client, db, catedra, usuario_catedra, template, auth_admin, perfil_capacidad, proxmox,
 ):
-    """Las opciones avanzadas permiten overrides de computo y red."""
-    pedido = await factories.crear_pedido(
-        db,
-        catedra_id=catedra.id,
-        solicitante_id=usuario_catedra.id,
-        template_id=template.id,
-        estado=EstadoPedido.SOLICITADO,
-    )
-
-    opciones = {
-        "nodo_destino": "pve1",
-        "storage_pool": "local-zfs",
-        "vlan_tag": 100,
-        "override_vcpus": 4,
-        "override_ram_mb": 4096,
-        "override_disk_gb": 6,
-    }
-
-    r = await client.post(
-        f"/pedidos/{pedido.id}/aprobar",
-        json={"opciones_avanzadas": opciones},
-        headers=auth_admin,
-    )
-    assert r.status_code == 200, r.text
-    data = r.json()
-    assert data["estado"] == "aprobado"
-    assert data["reserva_vcpus"] == 4
-    assert data["reserva_ram_mb"] == 4096
-    assert data["reserva_disk_gb"] == 6
-    assert data["opciones_avanzadas"]["vlan_tag"] == 100
+    pedido = await factories.crear_pedido(db, catedra.id, usuario_catedra.id, template.id, estado=EstadoPedido.SOLICITADO)
+    payload = await evaluate(client, pedido, template, auth_admin)
+    payload['opciones_avanzadas'] = {'nodo_destino':'otro', 'vlan_tag':100, 'override_vcpus':4}
+    response = await client.post(f'/pedidos/{pedido.id}/aprobar', json=payload,
+        headers=auth_admin | {'Idempotency-Key':'deny-free-options'})
+    assert response.status_code == 422
+    assert 'opciones_avanzadas' in response.json()['detail']['campos']
+    await db.refresh(pedido)
+    assert pedido.estado == EstadoPedido.SOLICITADO
+    assert await db.scalar(select(func.count()).select_from(CompromisoCapacidad)) == 0
+    assert proxmox.creados == []
 
 
-async def test_aprobar_con_despliegue_inmediato(
-    client, db, catedra, usuario_catedra, template, auth_admin
+async def test_aprobar_con_despliegue_inmediato_encola_sin_io(
+    client, db, catedra, usuario_catedra, template, auth_admin, perfil_capacidad, proxmox,
 ):
-    """Aprobar con desplegar_inmediatamente=True orquesta y crea el servicio de inmediato."""
-    pedido = await factories.crear_pedido(
-        db,
-        catedra_id=catedra.id,
-        solicitante_id=usuario_catedra.id,
-        template_id=template.id,
-        estado=EstadoPedido.SOLICITADO,
-    )
-
-    r = await client.post(
-        f"/pedidos/{pedido.id}/aprobar",
-        json={"desplegar_inmediatamente": True},
-        headers=auth_admin,
-    )
-    assert r.status_code == 200, r.text
-    data = r.json()
-    assert data["estado"] == "activo"
-    assert data["servicio_id"] is not None
-
-    servicio = await db.get(Servicio, data["servicio_id"])
-    assert servicio is not None
-    assert servicio.estado == EstadoServicio.RUNNING
-    assert servicio.url_acceso is not None
-    assert "http://" in servicio.url_acceso
-    assert servicio.credenciales_acceso is not None
-
+    pedido = await factories.crear_pedido(db, catedra.id, usuario_catedra.id, template.id, estado=EstadoPedido.SOLICITADO)
+    payload = await evaluate(client, pedido, template, auth_admin)
+    response = await client.post(f'/pedidos/{pedido.id}/aprobar',
+        json=payload | {'desplegar_inmediatamente':True}, headers=auth_admin | {'Idempotency-Key':'approve-queue'})
+    assert response.status_code == 202, response.text
+    data = response.json()
+    operation = await db.get(OperacionInfraestructura, UUID(data['operation_id']))
+    assert operation.estado == 'pendiente' and operation.tipo == 'desplegar'
+    await db.refresh(pedido)
+    assert pedido.estado == EstadoPedido.EN_DESPLIEGUE
+    assert await db.scalar(select(func.count()).select_from(Servicio)) == 0
+    assert proxmox.creados == []
+    assert not {'url_acceso', 'credenciales_acceso'} & data.keys()

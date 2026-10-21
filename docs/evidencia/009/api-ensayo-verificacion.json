@@ -1,0 +1,151 @@
+{
+  "observado_at": "2026-10-21T17:25:34.375316+00:00",
+  "entorno": "laboratorio_local_real",
+  "estado": "https_y_permisos_efectivos_verificados",
+  "token_id": "nap009lab@pve!ensayos",
+  "tls_ca": "certificado público recibido por SSH con hostkey fijada",
+  "verify_ssl": true,
+  "version": {
+    "release": "9.2",
+    "repoid": "b9984c6d90a4bd80",
+    "version": "9.2.2"
+  },
+  "expire": 1795194615,
+  "recuperacion": {
+    "estado": "configurado_pendiente_verificacion_api",
+    "usuario": "nap009lab@pve",
+    "token_id": "nap009lab@pve!ensayos",
+    "pool": "nap009-staging",
+    "expire": 1795194615,
+    "recuperacion_snapshot_sha256": "6895e238aa8b33d77c4279c27399c8aaf7ecf8f9f7926d4c87c9b1656143a629",
+    "token_orfano_reemitido": true,
+    "respaldo_root": "/root/nap009-api-respaldo-hjkffjz4",
+    "consolas_y_ensayos_no_acreditados": true,
+    "tls": {
+      "renovado": false
+    }
+  },
+  "permisos": {
+    "/": {
+      "/": {
+        "Sys.Audit": 1,
+        "Datastore.Audit": 1,
+        "VM.Audit": 1
+      }
+    },
+    "/pool/nap009-staging": {
+      "/pool/nap009-staging": {
+        "Pool.Audit": 1,
+        "VM.Config.Memory": 1,
+        "VM.PowerMgmt": 1,
+        "VM.Config.Disk": 1,
+        "VM.Allocate": 1,
+        "VM.Config.Options": 1,
+        "VM.Config.Network": 1,
+        "VM.Audit": 1,
+        "VM.Config.CPU": 1
+      }
+    },
+    "/pool/catedra-999999999": {
+      "/pool/catedra-999999999": {
+        "VM.Audit": 1,
+        "Datastore.Audit": 1,
+        "Sys.Audit": 1
+      }
+    },
+    "/vms/101": {
+      "/vms/101": {
+        "Sys.Audit": 1,
+        "Datastore.Audit": 1,
+        "VM.Audit": 1
+      }
+    },
+    "/vms/103": {
+      "/vms/103": {
+        "Sys.Audit": 1,
+        "VM.Audit": 1,
+        "Datastore.Audit": 1
+      }
+    },
+    "/vms/999999999": {
+      "/vms/999999999": {
+        "Sys.Audit": 1,
+        "VM.Audit": 1,
+        "Datastore.Audit": 1
+      }
+    },
+    "/nodes/proxmox": {
+      "/nodes/proxmox": {
+        "Sys.Audit": 1,
+        "VM.Audit": 1,
+        "Datastore.Audit": 1
+      }
+    },
+    "/storage/local": {
+      "/storage/local": {
+        "VM.Audit": 1,
+        "Datastore.Audit": 1,
+        "Sys.Audit": 1
+      }
+    },
+    "/storage/local-lvm": {
+      "/storage/local-lvm": {
+        "Datastore.AllocateSpace": 1
+      }
+    },
+    "/sdn/zones/localnetwork/vmbr0": {
+      "/sdn/zones/localnetwork/vmbr0": {
+        "SDN.Use": 1
+      }
+    },
+    "/access": {
+      "/access": {
+        "VM.Audit": 1,
+        "Datastore.Audit": 1,
+        "Sys.Audit": 1
+      }
+    }
+  },
+  "pool_vacio": true,
+  "invitados": [
+    {
+      "vmid": 101,
+      "type": "lxc",
+      "status": "stopped",
+      "node": "proxmox"
+    },
+    {
+      "vmid": 103,
+      "type": "lxc",
+      "status": "stopped",
+      "node": "proxmox"
+    }
+  ],
+  "imagenes_nap009": [
+    {
+      "volid": "local:vztmpl/nap009-bookstack-1.0.0.tar.gz",
+      "size": 171276813,
+      "content": "vztmpl"
+    },
+    {
+      "volid": "local:vztmpl/nap009-linux-1.0.0.tar.gz",
+      "size": 58906401,
+      "content": "vztmpl"
+    },
+    {
+      "volid": "local:vztmpl/nap009-postgresql-1.0.0.tar.gz",
+      "size": 149334940,
+      "content": "vztmpl"
+    }
+  ],
+  "lecturas_nodo_y_storage": true,
+  "mutaciones": false,
+  "comprobaciones": {
+    "alcances_positivos_exactos": true,
+    "sin_escritura_en_101_103_u_otro_pool": true,
+    "sin_Sys_Modify_ni_Permissions_Modify_ni_VM_Console": true,
+    "pool_vacio": true,
+    "sin_mutaciones_en_esta_verificacion": true,
+    "denegacion_mutante_real_no_ejecutada": "Se contrastaron permisos efectivos; no se intentó modificar invitados ajenos"
+  }
+}

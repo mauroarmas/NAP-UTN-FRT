@@ -1,6 +1,7 @@
 import pytest
 from app.models.pedido import EstadoPedido, ModeloServicio, VigenciaTipo
 from tests import factories
+from tests.capacity_helpers import seleccion, perfil_capacidad  # noqa:F401
 
 
 async def test_admin_solicitar_ajuste_exitoso(
@@ -19,7 +20,7 @@ async def test_admin_solicitar_ajuste_exitoso(
     r = await client.post(
         f"/pedidos/{pedido.id}/solicitar-ajuste",
         json={"observaciones": "Por favor reducir la memoria solicitada o justificar el uso."},
-        headers=auth_admin,
+        headers=auth_admin | {'Idempotency-Key':'legacy-admin-decision'},
     )
     assert r.status_code == 200, r.text
     data = r.json()
@@ -30,7 +31,7 @@ async def test_admin_solicitar_ajuste_exitoso(
 async def test_admin_solicitar_ajuste_sin_observaciones_falla(
     client, db, catedra, usuario_catedra, template, auth_admin
 ):
-    """Solicitar un ajuste sin observaciones es rechazado con 400."""
+    """Solicitar un ajuste sin observaciones es rechazado con 422."""
     pedido = await factories.crear_pedido(
         db,
         catedra_id=catedra.id,
@@ -42,15 +43,15 @@ async def test_admin_solicitar_ajuste_sin_observaciones_falla(
     r = await client.post(
         f"/pedidos/{pedido.id}/solicitar-ajuste",
         json={"observaciones": "   "},
-        headers=auth_admin,
+        headers=auth_admin | {'Idempotency-Key':'legacy-admin-decision'},
     )
-    assert r.status_code == 400
+    assert r.status_code == 422
 
 
-async def test_catedra_reenviar_pedido_tras_ajustes(
-    client, db, catedra, usuario_catedra, template, auth_catedra
+async def test_admin_reenviar_pedido_tras_ajustes(
+    client, db, catedra, usuario_catedra, template, auth_admin, perfil_capacidad
 ):
-    """La cátedra actualiza y reenvía un pedido en REQUIERE_AJUSTE volviendo a SOLICITADO."""
+    """El administrador actualiza y reenvía un pedido en REQUIERE_AJUSTE volviendo a SOLICITADO."""
     pedido = await factories.crear_pedido(
         db,
         catedra_id=catedra.id,
@@ -64,21 +65,21 @@ async def test_catedra_reenviar_pedido_tras_ajustes(
         f"/pedidos/{pedido.id}/reenviar",
         json={
             "descripcion_requerimientos": "Versión corregida con memoria reducida",
-            "vigencia_tipo": "segundo_cuatrimestre",
+            "vigencia": seleccion(template)['vigencia'],
         },
-        headers=auth_catedra,
+        headers=auth_admin | {'Idempotency-Key':'legacy-admin-decision'},
     )
     assert r.status_code == 200, r.text
     data = r.json()
     assert data["estado"] == "solicitado"
     assert data["descripcion_requerimientos"] == "Versión corregida con memoria reducida"
-    assert data["vigencia_tipo"] == "segundo_cuatrimestre"
+    assert data["vigencia_tipo"] == "personalizado"
 
 
-async def test_catedra_cancelar_pedido_en_ajuste(
-    client, db, catedra, usuario_catedra, template, auth_catedra
+async def test_admin_cancelar_pedido_en_ajuste(
+    client, db, catedra, usuario_catedra, template, auth_admin
 ):
-    """La cátedra puede cancelar voluntariamente un pedido que requiere ajuste."""
+    """El administrador puede cancelar un pedido que requiere ajuste."""
     pedido = await factories.crear_pedido(
         db,
         catedra_id=catedra.id,
@@ -90,7 +91,7 @@ async def test_catedra_cancelar_pedido_en_ajuste(
     r = await client.post(
         f"/pedidos/{pedido.id}/cancelar",
         json={"motivo": "Ya no requerimos este entorno para este ciclo."},
-        headers=auth_catedra,
+        headers=auth_admin | {'Idempotency-Key':'legacy-admin-decision'},
     )
     assert r.status_code == 200, r.text
     data = r.json()
@@ -112,7 +113,7 @@ async def test_rechazo_con_motivo_vacio_falla(
     r = await client.post(
         f"/pedidos/{pedido.id}/rechazar",
         json={"motivo": "   "},
-        headers=auth_admin,
+        headers=auth_admin | {'Idempotency-Key':'legacy-admin-decision'},
     )
-    assert r.status_code == 400
+    assert r.status_code == 422
 

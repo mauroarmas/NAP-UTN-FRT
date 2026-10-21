@@ -1,4 +1,5 @@
 import time
+from functools import partial
 
 from proxmoxer import ProxmoxAPI
 from app.config import get_settings
@@ -17,17 +18,24 @@ TASK_POLL_SEGUNDOS = 1.0
 class ProxmoxClient:
     """Wrapper sobre proxmoxer para interactuar con la API de Proxmox VE."""
 
-    def __init__(self):
-        settings = get_settings()
+    def __init__(self, settings=None):
+        settings = settings or get_settings()
         self.api = ProxmoxAPI(
             settings.proxmox_host,
             port=settings.proxmox_port,
             user=settings.proxmox_user,
             token_name=settings.proxmox_token_name,
             token_value=settings.proxmox_token_value,
-            verify_ssl=settings.proxmox_verify_ssl,
+            verify_ssl=(settings.proxmox_ca_file if settings.proxmox_verify_ssl and settings.proxmox_ca_file
+                else settings.proxmox_verify_ssl),
             service="PVE",
+            timeout=10,
         )
+
+    def close(self):
+        # proxmoxer 2.2 conserva aquí la sesión efectiva. get_session() del
+        # backend crearía otra sesión y dejaría abierta la que hizo el request.
+        self.api._store['session'].close()
 
     # --- Nodos ---
 
@@ -162,6 +170,27 @@ class ProxmoxClient:
         """Obtiene información de almacenamiento de un nodo."""
         return self.api.nodes(node).storage.get()
 
+    def get_node_storage(self, node: str) -> list[dict]:
+        return self.api.nodes(node).storage.get()
+
+    def get_storage_status(self, node: str, storage: str) -> dict:
+        return self.api.nodes(node).storage(storage).status.get()
+
+    def get_storage_content(self, node: str, storage: str) -> list[dict]:
+        return self.api.nodes(node).storage(storage).content.get()
+
+    def get_lxc_config(self, node: str, vmid: int) -> dict:
+        return self.api.nodes(node).lxc(vmid).config.get()
+
+    def get_task_status(self, node: str, upid: str) -> dict:
+        return self.api.nodes(node).tasks(upid).status.get()
+
+    def get_node_tasks(self, node: str, *, vmid: int, since: int, tipo: str) -> list[dict]:
+        return self.api.nodes(node).tasks.get(vmid=vmid, since=since, typefilter=tipo, source='all', limit=100)
+
+    def get_qemu_config(self, node: str, vmid: int) -> dict:
+        return self.api.nodes(node).qemu(vmid).config.get()
+
     # --- Templates disponibles ---
 
     def get_available_templates(self, node: str, storage: str = "local") -> list[dict]:
@@ -174,9 +203,18 @@ class ProxmoxClient:
         """Obtiene el próximo VMID disponible en el clúster."""
         return self.api.cluster.nextid.get()
 
+    def check_vmid_available(self, vmid: int) -> int:
+        """Consulta global explícita; un VMID ocupado produce error, no otro ID."""
+        return self.api.cluster.nextid.get(vmid=vmid)
+
 
 # Singleton
 _proxmox_client: ProxmoxClient | None = None
+
+
+def get_proxmox_factory():
+    """Configuración capturada; cada llamada construye y cierra su cliente."""
+    return partial(ProxmoxClient, get_settings().model_copy(deep=True))
 
 
 def get_proxmox_client() -> ProxmoxClient:

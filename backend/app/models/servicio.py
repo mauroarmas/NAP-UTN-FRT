@@ -1,3 +1,5 @@
+from uuid import UUID
+from sqlalchemy import Uuid, UniqueConstraint
 from datetime import datetime
 
 from sqlalchemy import (
@@ -10,6 +12,7 @@ from sqlalchemy import (
     JSON,
     Text,
     Enum as SAEnum,
+    CheckConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import text
@@ -28,6 +31,9 @@ class EstadoServicio(str, enum.Enum):
 class Servicio(Base):
     __tablename__ = "servicios"
     __table_args__ = (
+        CheckConstraint('vcpus_asignados > 0 AND ram_asignada_mb > 0 AND disk_asignado_gb > 0',name='ck_servicio_recursos_positivos'),
+        CheckConstraint("modelo_servicio IS NULL OR modelo_servicio IN ('iaas','paas','saas')",name='ck_servicio_modelo'),
+        CheckConstraint("disponibilidad_aplicacion IN ('no_verificada','preparando','utilizable','degradada','error')",name='ck_servicio_disponibilidad'),
         # Índice parcial: los listados solo consultan filas vigentes.
         Index(
             "ix_servicios_vigentes",
@@ -56,7 +62,6 @@ class Servicio(Base):
     disk_asignado_gb: Mapped[int] = mapped_column(Integer, default=2)
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
     url_acceso: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    credenciales_acceso: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     deployed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
@@ -87,6 +92,19 @@ class Servicio(Base):
     # actual. Lo setea `sincronizar_estados` y viaja en ServicioResponse.
     estado_sincronizado = False
     existe_en_proxmox = None
+
+    modelo_servicio: Mapped[str | None] = mapped_column(String(10))
+    nombre_snapshot: Mapped[str | None] = mapped_column(String(150))
+    definicion_version_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey('definiciones_servicio.id'))
+    asignacion_snapshot: Mapped[dict | None] = mapped_column(JSON)
+    identidad_infraestructura_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey('identidades_infraestructura.id'), unique=True)
+    disponibilidad_aplicacion: Mapped[str] = mapped_column(String(20), default='no_verificada', server_default='no_verificada')
+    acceso_metadata: Mapped[dict | None] = mapped_column(JSON)
+    credenciales_encrypted: Mapped[str | None] = mapped_column(Text)
+    verificado_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    observado_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    evidencia_acceso_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey('evidencias.id'))
+    acceso_red_verificado_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # Relaciones
     catedra: Mapped["Catedra"] = relationship(back_populates="servicios")

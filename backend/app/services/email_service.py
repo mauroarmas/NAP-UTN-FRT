@@ -79,7 +79,7 @@ def _generar_plantilla_html(titulo: str, subtitulo: str, cuerpo_html: str, boton
 </html>"""
 
 
-def despachar_email(destinatarios: list[str], asunto: str, texto_plano: str, html_contenido: str) -> None:
+def despachar_email(destinatarios: list[str], asunto: str, texto_plano: str, html_contenido: str, *, message_id: str | None = None) -> None:
     """Envía un correo electrónico de forma síncrona (destinado a ejecutarse en BackgroundTasks)."""
     if not destinatarios:
         logger.warning("No se proporcionaron destinatarios para el correo con asunto: %s", asunto)
@@ -92,20 +92,14 @@ def despachar_email(destinatarios: list[str], asunto: str, texto_plano: str, htm
     msg["Subject"] = asunto
     msg["From"] = remitente
     msg["To"] = ", ".join(destinatarios)
+    if message_id:
+        msg["Message-ID"] = message_id
     msg.set_content(texto_plano)
     msg.add_alternative(html_contenido, subtype="html")
 
     if not settings.smtp_host:
-        logger.info(
-            "[DEV / MOCK EMAIL] Servidor SMTP no configurado. Detalle del envío simulado:\n"
-            "Destinatarios: %s\n"
-            "Asunto: %s\n"
-            "Texto:\n%s",
-            destinatarios,
-            asunto,
-            texto_plano,
-        )
-        return
+        logger.info('Entrega pendiente: SMTP no configurado; no se registra el cuerpo')
+        raise RuntimeError('SMTP no configurado')
 
     try:
         if settings.smtp_ssl:
@@ -122,7 +116,8 @@ def despachar_email(destinatarios: list[str], asunto: str, texto_plano: str, htm
 
         logger.info("Correo enviado exitosamente a %s con asunto: %s", destinatarios, asunto)
     except Exception as exc:
-        logger.error("Error al enviar correo electrónico a %s: %s", destinatarios, exc, exc_info=True)
+        logger.error("Entrega SMTP no confirmada")
+        raise RuntimeError("Entrega SMTP no confirmada") from None
 
 
 async def obtener_emails_administradores(db: AsyncSession) -> list[str]:
@@ -141,8 +136,8 @@ async def obtener_emails_administradores(db: AsyncSession) -> list[str]:
     return emails
 
 
-def enviar_email_bienvenida(email: str, nombre: str, username: str, password_provisoria: str) -> None:
-    """Envía el correo de bienvenida con la contraseña provisoria al nuevo usuario."""
+def construir_bienvenida(nombre: str, username: str, password_provisoria: str):
+    """Construye en memoria el mensaje; el secreto nunca va a logs ni al payload."""
     settings = get_settings()
     url_acceso = settings.app_frontend_url
     asunto = "Bienvenido a la Nube Académica Personal (UTN FRT) - Datos de acceso"
@@ -164,6 +159,8 @@ Saludos cordiales,
 Departamento Sistemas / Centro de Cómputos — UTN FRT
 """
 
+    from html import escape
+    nombre, username, password_provisoria = map(escape, [nombre, username, password_provisoria])
     cuerpo_html = f"""
     <p>Estimado/a <strong>{nombre}</strong>,</p>
     <p>Te damos la bienvenida al <strong>Portal de Gestión de la Nube Académica Personal (NAP)</strong> de la Facultad Regional Tucumán.</p>
@@ -186,7 +183,12 @@ Departamento Sistemas / Centro de Cómputos — UTN FRT
         boton_url=url_acceso,
     )
 
-    despachar_email([email], asunto, texto_plano, html)
+    return asunto, texto_plano, html
+
+
+def enviar_email_bienvenida(email: str, nombre: str, username: str, password_provisoria: str):
+    asunto, texto, html = construir_bienvenida(nombre, username, password_provisoria)
+    despachar_email([email], asunto, texto, html)
 
 
 def enviar_email_nuevo_pedido(

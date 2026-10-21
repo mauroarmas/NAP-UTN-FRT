@@ -1,277 +1,191 @@
-"""Capacidad del clúster, reserva al aprobar y expiración de reservas.
-
-Fuente única de la contabilidad de capacidad. Reemplaza a la vieja cuota por
-cátedra: lo que se eliminó es el *techo declarado por adelantado*, no la
-contabilidad — esa se conserva y pasa a ejercerse contra la capacidad real del
-clúster en el momento de la aprobación.
-
-Dos mecanismos que suelen confundirse y que resuelven problemas distintos:
-
-- El **bloqueo** serializa la sección crítica, para que dos transacciones
-  concurrentes no lean el mismo saldo libre y ambas reserven. Es integridad.
-- El **token** detecta que quien confirma está mirando números viejos (la
-  pantalla abierta hace media hora, otro admin que aprobó en el medio). Es
-  calidad de la decisión.
-
-Con el bloqueo solo, una aprobación sobre datos viejos pasaría — correctamente
-serializada, pero mal informada. Con el token solo, quedaría una ventana real
-entre el recálculo y el INSERT.
-"""
-
+"""Capacidad por nodo/pool: unión conservadora de inventario y ledger durable."""
 import hashlib
-import logging
 from datetime import datetime, timedelta
+import logging
 
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.pedido import EstadoPedido, Pedido, TipoPedido
-from app.models.servicio import EstadoServicio, Servicio
-from app.services import historial_service, scheduler
+from app.models.pedido import Pedido, EstadoPedido, TipoPedido
+from app.models.servicio import Servicio, EstadoServicio
+from app.models.compromiso_capacidad import CompromisoCapacidad
+from app.models.identidad_infraestructura import IdentidadInfraestructura
+from app.services import scheduler, historial_service
+from app.services import inventario_service
 from app.services.proxmox_client import get_proxmox_client
+from app.utils.clock import clock, db_utc
+from app.utils.errors import error
+from app.utils.secretos import configured_keyring, SecretError
 
 logger = logging.getLogger(__name__)
-
-# Plazo entre aprobar y desplegar. Vencido, la reserva se libera sola: una
-# capacidad comprometida que nunca se materializa es una fuga tan silenciosa
-# como un contenedor huérfano.
 RESERVA_VIGENCIA = timedelta(hours=24)
-
-CLAVE_BLOQUEO = 4001  # arbitraria pero fija: identifica esta sección crítica
+CLAVE_BLOQUEO = 4001
+GIB = 1024 ** 3
 
 
 class BloqueoCapacidad:
-    """Serializa verificación y reserva.
-
-    En PostgreSQL toma un advisory lock de transacción, que se libera solo al
-    terminar la transacción. En SQLite no hace nada: el motor ya serializa las
-    escrituras, así que las pruebas ejercitan la misma ruta de código sin
-    necesitar un mecanismo que no existe.
-    """
-
-    def __init__(self, db: AsyncSession):
+    """PostgreSQL serializa procesos; SQLite solo permite pruebas de contrato."""
+    def __init__(self, db):
         self.db = db
-
     async def __aenter__(self):
-        if self.db.bind and self.db.bind.dialect.name == "postgresql":
-            await self.db.execute(
-                select(func.pg_advisory_xact_lock(CLAVE_BLOQUEO))
-            )
+        if self.db.bind.dialect.name == 'postgresql':
+            await self.db.execute(select(func.pg_advisory_xact_lock(CLAVE_BLOQUEO)))
         return self
-
     async def __aexit__(self, *exc):
         return False
 
 
-def bloqueo_capacidad(db: AsyncSession) -> BloqueoCapacidad:
+def bloqueo_capacidad(db):
     return BloqueoCapacidad(db)
 
 
-def _capacidad_fisica(pve) -> dict:
-    """Capacidad de los nodos online del clúster."""
-    online = [n for n in pve.get_nodes() if n.get("status") == "online"]
-    return {
-        "vcpus": sum(n.get("maxcpu", 0) for n in online),
-        "ram_mb": sum(n.get("maxmem", 0) for n in online) // (1024 * 1024),
-        "storage_gb": sum(n.get("maxdisk", 0) for n in online) // (1024**3),
-    }
+def _owned(resource, identity, cluster_id):
+    if not identity or identity.ausencia_confirmada_at or not identity.ownership_verificada_at:
+        return False
+    mark = resource['marca']
+    if not mark or identity.cluster_id != cluster_id or identity.nodo != resource['nodo'] or identity.vmid != resource['vmid']:
+        return False
+    try:
+        nonce = configured_keyring().decrypt(identity.nonce_cifrado, context=f'infra:{identity.resource_uuid}:nonce')
+        return (mark['resource_uuid'] == str(identity.resource_uuid) and mark['pool'] == identity.pool_catedra
+                and resource['pool'] == identity.pool_catedra
+                and mark['nonce_sha256'] == hashlib.sha256(nonce.encode()).hexdigest())
+    except (SecretError, ValueError, TypeError):
+        return False
 
 
-def reservas_vigentes_where():
-    """Condición que define una reserva viva.
-
-    Un pedido aprobado de tipo alta cuyo servicio todavía no existe. La reserva
-    no es una tabla: es ese estado. Así no hay dos fuentes de verdad que puedan
-    divergir, y convertir la reserva en consumo real no es una operación que
-    pueda fallar a medias.
-    """
-    ahora = datetime.utcnow()
-    return (
-        Pedido.estado == EstadoPedido.APROBADO,
-        Pedido.deleted_at.is_(None),
-        Pedido.tipo == TipoPedido.ALTA,
-        ~Pedido.servicio.has(),
-        or_(Pedido.reserva_expira_at.is_(None), Pedido.reserva_expira_at > ahora),
-    )
+def _vector(vcpus=0, ram_mb=0, disk_bytes=0):
+    return {'vcpus': vcpus, 'ram_mb': ram_mb, 'disk_gb': disk_bytes // GIB, 'storage_gb': disk_bytes // GIB, 'disk_bytes': disk_bytes}
 
 
-async def _desplegado(db: AsyncSession) -> dict:
-    """Consumo de los servicios vigentes.
-
-    vCPU y RAM solo cuentan si el servicio está corriendo: un servicio pausado
-    liberó de verdad su cómputo. El disco cuenta siempre, incluso pausado,
-    porque pausar no libera almacenamiento.
-    """
-    corriendo = Servicio.estado == EstadoServicio.RUNNING
-    result = await db.execute(
-        select(
-            func.coalesce(
-                func.sum(case((corriendo, Servicio.vcpus_asignados), else_=0)), 0
-            ),
-            func.coalesce(
-                func.sum(case((corriendo, Servicio.ram_asignada_mb), else_=0)), 0
-            ),
-            func.coalesce(func.sum(Servicio.disk_asignado_gb), 0),
-        ).where(Servicio.deleted_at.is_(None))
-    )
-    vcpus, ram, disk = result.one()
-    return {"vcpus": int(vcpus), "ram_mb": int(ram), "storage_gb": int(disk)}
-
-
-async def _reservado(db: AsyncSession) -> dict:
-    result = await db.execute(
-        select(
-            func.coalesce(func.sum(Pedido.reserva_vcpus), 0),
-            func.coalesce(func.sum(Pedido.reserva_ram_mb), 0),
-            func.coalesce(func.sum(Pedido.reserva_disk_gb), 0),
-        ).where(*reservas_vigentes_where())
-    )
-    vcpus, ram, disk = result.one()
-    return {"vcpus": int(vcpus), "ram_mb": int(ram), "storage_gb": int(disk)}
-
-
-async def _ram_en_riesgo(db: AsyncSession) -> int:
-    """Memoria que haría falta si todos los pausados se reactivaran a la vez.
-
-    Sirve para anticipar qué reactivaciones van a fallar, antes de que le fallen
-    a una cátedra.
-    """
-    result = await db.execute(
-        select(func.coalesce(func.sum(Servicio.ram_asignada_mb), 0)).where(
-            Servicio.estado == EstadoServicio.PAUSED,
-            Servicio.deleted_at.is_(None),
-        )
-    )
-    return int(result.scalar_one())
-
-
-def _token(comprometido: dict) -> str:
-    """Huella corta del estado de capacidad comprometida."""
-    crudo = f"{comprometido['vcpus']}|{comprometido['ram_mb']}|{comprometido['storage_gb']}"
-    return hashlib.sha256(crudo.encode()).hexdigest()[:12]
-
-
-async def panorama(db: AsyncSession, pve=None) -> dict:
-    """Foto completa de capacidad, recalculada en el momento.
-
-    Nunca se cachea: un número de capacidad viejo es exactamente el problema que
-    esta feature existe para evitar.
-    """
-    pve = pve or get_proxmox_client()
-    fisica = _capacidad_fisica(pve)
-    desplegado = await _desplegado(db)
-    reservado = await _reservado(db)
-
-    comprometido = {k: desplegado[k] + reservado[k] for k in fisica}
-    libre = {k: fisica[k] - comprometido[k] for k in fisica}
-
-    return {
-        "fisica": fisica,
-        "desplegado": desplegado,
-        "reservado": reservado,
-        "comprometido": comprometido,
-        "libre": libre,
-        "ram_en_riesgo_mb": await _ram_en_riesgo(db),
-        "capacidad_token": _token(comprometido),
-    }
-
-
-def costo_de(template) -> dict:
-    if not template:
-        return {"vcpus": 0, "ram_mb": 0, "storage_gb": 0}
-    return {
-        "vcpus": getattr(template, "default_vcpus", 0),
-        "ram_mb": getattr(template, "default_ram_mb", 0),
-        "storage_gb": getattr(template, "default_disk_gb", 0),
-    }
-
-
-def excede(libre: dict, costo: dict) -> bool:
-    return any(costo[k] > libre[k] for k in costo)
+async def panorama(db, pve=None, *, destino=None, inventario=None):
+    inventory = inventario or await inventario_service.leer(pve)
+    commitments = list((await db.scalars(select(CompromisoCapacidad).where(CompromisoCapacidad.liberado_at.is_(None)))).all())
+    identities = {entry.id: entry for entry in (await db.scalars(select(IdentidadInfraestructura))).all()}
+    held_identity_ids = [entry.identidad_infraestructura_id for entry in commitments if entry.identidad_infraestructura_id]
+    if len(held_identity_ids) != len(set(held_identity_ids)):
+        raise error(502, 'compromisos_inconsistentes', 'Reconciliar compromisos de infraestructura antes de admitir cambios')
+    resource_owner = {}
+    for entry in commitments:
+        identity = identities.get(entry.identidad_infraestructura_id)
+        resource = inventory['recursos'].get(identity.vmid) if identity else None
+        if resource and _owned(resource, identity, inventory['cluster_id']):
+            resource_owner[identity.vmid] = entry
+    observed = {node: {'vcpus': 0, 'ram_mb': 0} for node in inventory['nodos']}
+    external = {node: {'vcpus': 0, 'ram_mb': 0} for node in inventory['nodos']}
+    extra = {node: {'vcpus': 0, 'ram_mb': 0} for node in inventory['nodos']}
+    pending_disk = {scope: 0 for scope in inventory['storages']}
+    own_volumes = set()
+    for resource in inventory['recursos'].values():
+        node = resource['nodo']
+        if node in observed:
+            for field in ['vcpus', 'ram_mb']:
+                observed[node][field] += resource[field]
+                if resource['vmid'] not in resource_owner:
+                    external[node][field] += resource[field]
+        if resource['vmid'] in resource_owner:
+            own_volumes.update(resource['volumenes'])
+    for entry in commitments:
+        identity = identities.get(entry.identidad_infraestructura_id)
+        resource = inventory['recursos'].get(identity.vmid) if identity and identity.vmid in resource_owner else None
+        current_scope = inventory['destinos'].get((entry.nodo, entry.storage_id))
+        if current_scope is not None and current_scope != entry.storage_scope:
+            raise error(502, 'scope_comprometido_cambiado', 'Reconciliar el perfil de almacenamiento con los compromisos existentes')
+        if entry.nodo in extra:
+            for field, quantity in [('vcpus', entry.vcpus_retenidos), ('ram_mb', entry.ram_mb_retenida)]:
+                extra[entry.nodo][field] += max(0, quantity - (resource[field] if resource else 0))
+        represented = sum(size for (scope, _), size in resource['volumenes'].items() if scope == entry.storage_scope) if resource else 0
+        if entry.storage_scope in pending_disk:
+            pending_disk[entry.storage_scope] += max(0, entry.disk_bytes_retenidos - represented)
+    destinations = []
+    for (node, storage_id), scope in sorted(inventory['destinos'].items()):
+        hardware, storage = inventory['nodos'][node], inventory['storages'][scope]
+        logical_free = storage['capacidad_logica_bytes'] - storage['margen_logico_bytes'] - storage['asignado_bytes'] - pending_disk[scope]
+        physical_free = storage['fisico_libre_bytes'] - storage['margen_fisico_bytes'] - pending_disk[scope]
+        cpu = observed[node]['vcpus'] + extra[node]['vcpus']
+        ram = observed[node]['ram_mb'] + extra[node]['ram_mb']
+        external_disk = storage['asignado_bytes'] - sum(size for key, size in inventory['volumenes'].items() if key in own_volumes and key[0] == scope)
+        destinations.append({'destino': {'nodo': node, 'storage': storage_id}, 'storage_scope': scope,
+            'fisica': _vector(hardware['vcpus'], hardware['ram_mb'], storage['total_bytes']),
+            'margen': _vector(hardware['margen_vcpus'], hardware['margen_ram_mb'], storage['margen_fisico_bytes']),
+            'ram_fisica_libre_mb': hardware['ram_fisica_libre_mb'],
+            'desplegado': _vector(observed[node]['vcpus'], observed[node]['ram_mb'], storage['asignado_bytes']),
+            'externo': _vector(external[node]['vcpus'], external[node]['ram_mb'], external_disk),
+            'reservado': _vector(extra[node]['vcpus'], extra[node]['ram_mb'], pending_disk[scope]),
+            'comprometido': _vector(cpu, ram, storage['asignado_bytes'] + pending_disk[scope]),
+            'libre': _vector(hardware['vcpus'] - hardware['margen_vcpus'] - cpu,
+                hardware['ram_mb'] - hardware['margen_ram_mb'] - ram, min(logical_free, physical_free)),
+            'storage_logico_libre_bytes': logical_free, 'storage_fisico_libre_bytes': physical_free})
+    ledger_snapshot = [{key: str(getattr(row, key)) for key in ['id', 'pedido_id', 'servicio_id', 'identidad_infraestructura_id',
+        'nodo', 'storage_scope', 'vcpus_retenidos', 'ram_mb_retenida', 'disk_bytes_retenidos', 'estado', 'revision', 'expira_at']}
+        for row in sorted(commitments, key=lambda row: str(row.id))]
+    fingerprint = inventario_service.fingerprint({'inventario': inventory, 'compromisos': ledger_snapshot})
+    if destino is not None:
+        if hasattr(destino, 'model_dump'):
+            destino = destino.model_dump(mode='json')
+        value = next((row for row in destinations if row['destino'] == destino), None)
+        if value is None:
+            raise error(422, 'destino_no_permitido', 'Elegí un nodo y almacenamiento LXC elegibles')
+        return {**value, 'capacidad_token': fingerprint}
+    # Totales solo informativos: la admisión consulta siempre el destino concreto.
+    physical_disk = sum(value['total_bytes'] for value in inventory['storages'].values())
+    deployed_disk = sum(value['asignado_bytes'] for value in inventory['storages'].values())
+    reserved_disk = sum(pending_disk.values())
+    cpus = sum(value['vcpus'] for value in inventory['nodos'].values())
+    ram = sum(value['ram_mb'] for value in inventory['nodos'].values())
+    used_cpu = sum(value['vcpus'] for value in observed.values())
+    used_ram = sum(value['ram_mb'] for value in observed.values())
+    reserved_cpu = sum(value['vcpus'] for value in extra.values())
+    reserved_ram = sum(value['ram_mb'] for value in extra.values())
+    risk_ram = int(await db.scalar(select(func.coalesce(func.sum(Servicio.ram_asignada_mb), 0))
+        .where(Servicio.estado == EstadoServicio.PAUSED, Servicio.deleted_at.is_(None))))
+    return {'destinos': destinations, 'fisica': _vector(cpus, ram, physical_disk),
+        'desplegado': _vector(used_cpu, used_ram, deployed_disk),
+        'reservado': _vector(reserved_cpu, reserved_ram, reserved_disk),
+        'comprometido': _vector(used_cpu + reserved_cpu, used_ram + reserved_ram, deployed_disk + reserved_disk),
+        'libre': _vector(cpus - used_cpu - reserved_cpu - sum(value['margen_vcpus'] for value in inventory['nodos'].values()),
+            ram - used_ram - reserved_ram - sum(value['margen_ram_mb'] for value in inventory['nodos'].values()),
+            sum(min(value['capacidad_logica_bytes'] - value['margen_logico_bytes'] - value['asignado_bytes'] - pending_disk[scope],
+                    value['fisico_libre_bytes'] - value['margen_fisico_bytes'] - pending_disk[scope]) for scope, value in inventory['storages'].items())),
+        'ram_en_riesgo_mb': risk_ram, 'capacidad_token': fingerprint}
 
 
-async def consumo_de_catedra(db: AsyncSession, catedra_id: int) -> dict:
-    result = await db.execute(
-        select(
-            func.coalesce(func.sum(Servicio.vcpus_asignados), 0),
-            func.coalesce(func.sum(Servicio.ram_asignada_mb), 0),
-            func.coalesce(func.sum(Servicio.disk_asignado_gb), 0),
-        ).where(Servicio.catedra_id == catedra_id, Servicio.deleted_at.is_(None))
-    )
-    vcpus, ram, disk = result.one()
-    return {"vcpus": int(vcpus), "ram_mb": int(ram), "storage_gb": int(disk)}
+def costo_de(template):
+    return {'vcpus': template.default_vcpus, 'ram_mb': template.default_ram_mb, 'storage_gb': template.default_disk_gb} if template else {'vcpus': 0, 'ram_mb': 0, 'storage_gb': 0}
 
 
-def liberar_reserva(pedido: Pedido) -> dict:
-    """Deja de comprometer la capacidad de un pedido. Devuelve lo que liberó.
-
-    Definición **única** de qué significa liberar, compartida por los dos
-    caminos que lo hacen: el vencimiento automático y la reversión que ejecuta
-    un administrador. Dos copias de esta lógica podrían divergir, y divergir acá
-    es capacidad fantasma — comprometida en la contabilidad, sin nada detrás.
-
-    Es idempotente: sobre una reserva ya en cero no hace nada y devuelve ceros.
-    Eso cubre sin caso especial a las renovaciones, que reservan cero porque su
-    servicio ya cuenta como consumo desplegado.
-
-    No hace commit. Quien la llama decide en qué transacción cae, que es lo que
-    permite que la liberación y el cambio de estado sean indivisibles.
-    """
-    liberado = {
-        "vcpus": pedido.reserva_vcpus or 0,
-        "ram_mb": pedido.reserva_ram_mb or 0,
-        "storage_gb": pedido.reserva_disk_gb or 0,
-    }
-    pedido.reserva_vcpus = 0
-    pedido.reserva_ram_mb = 0
-    pedido.reserva_disk_gb = 0
-    # Sin esto la reserva liberada seguiría teniendo un vencimiento pendiente y
-    # el trabajo periódico la volvería a "vencer", registrando en el historial
-    # una expiración que ya no corresponde a nada.
-    pedido.reserva_expira_at = None
-    return liberado
+def excede(libre, costo):
+    return any(costo[key] > libre[key] for key in costo)
 
 
-# --- Trabajo periódico: expiración de reservas -----------------------------
+async def consumo_de_catedra(db, catedra_id):
+    result = await db.execute(select(func.coalesce(func.sum(Servicio.vcpus_asignados), 0),
+        func.coalesce(func.sum(Servicio.ram_asignada_mb), 0), func.coalesce(func.sum(Servicio.disk_asignado_gb), 0))
+        .where(Servicio.catedra_id == catedra_id, Servicio.deleted_at.is_(None)))
+    cpus, ram, disk = result.one()
+    return {'vcpus': int(cpus), 'ram_mb': int(ram), 'storage_gb': int(disk)}
 
 
-async def expirar_reservas(db: AsyncSession) -> dict:
-    """Libera las reservas cuyo despliegue nunca ocurrió.
-
-    Deja el pedido en RECHAZADO con el motivo registrado y el sistema como
-    autor. Es la transición APROBADO → RECHAZADO, que hasta esta feature no
-    existía en la tabla de transiciones.
-    """
-    from app.services.pedido_service import transicion_del_sistema
-
-    ahora = datetime.utcnow()
-    result = await db.execute(
-        select(Pedido).where(
-            Pedido.estado == EstadoPedido.APROBADO,
-            Pedido.deleted_at.is_(None),
-            Pedido.tipo == TipoPedido.ALTA,
-            ~Pedido.servicio.has(),
-            Pedido.reserva_expira_at.is_not(None),
-            Pedido.reserva_expira_at <= ahora,
-        )
-    )
-    vencidos = result.scalars().all()
-
-    for pedido in vencidos:
-        await transicion_del_sistema(
-            db,
-            pedido,
-            EstadoPedido.RECHAZADO,
-            comentario=(
-                f"Reserva vencida el {pedido.reserva_expira_at:%Y-%m-%d %H:%M}: "
-                "el despliegue nunca se concretó y la capacidad se liberó"
-            ),
-        )
-        pedido.motivo_rechazo = "Reserva de capacidad vencida sin despliegue"
-        liberar_reserva(pedido)
-
+async def expirar_reservas(db):
+    """Cada liberación se revalida bajo el mismo lock que aprobar/desplegar."""
+    from fastapi import HTTPException
+    from app.services.admision_service import liberar
+    ids = list((await db.scalars(select(CompromisoCapacidad.pedido_id).where(
+        CompromisoCapacidad.estado == 'reservado', CompromisoCapacidad.liberado_at.is_(None),
+        CompromisoCapacidad.expira_at <= clock.now()).order_by(CompromisoCapacidad.pedido_id))).all())
     await db.commit()
-    return {"afectados": len(vencidos), "detalle": [p.id for p in vencidos]}
+    affected = []
+    for identity in ids:
+        try:
+            result = await liberar(db, identity, actor=None, motivo='Reserva de capacidad vencida antes de dispatch', expirar=True)
+            await db.commit()
+            if not result.replayed:
+                affected.append(identity)
+        except HTTPException as exc:
+            await db.rollback()
+            if exc.status_code != 409:
+                raise
+    return {'afectados': len(affected), 'detalle': affected}
 
 
-scheduler.registrar("expirar_reservas", expirar_reservas, cada_minutos=30)
+scheduler.registrar('expirar_reservas', expirar_reservas, cada_minutos=1)

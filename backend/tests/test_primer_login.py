@@ -5,7 +5,8 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.usuario import Usuario, RolUsuario
-from app.utils.security import get_password_hash, create_access_token
+from app.utils.security import get_password_hash
+from tests.test_auth_contrato_009 import ingresar, csrf
 
 
 @pytest.mark.asyncio
@@ -29,8 +30,8 @@ async def test_cambiar_password_inicial_exitoso(
     await db.refresh(usuario)
 
     # Token para el usuario con clave provisoria
-    token = create_access_token({"sub": usuario.username, "rol": usuario.rol.value})
-    headers = {"Authorization": f"Bearer {token}"}
+    assert (await ingresar(client, usuario, 'Provisoria123!')).json()['estado'] == 'onboarding'
+    headers = await csrf(client)
 
     # Intentar cambiar la contraseña por una válida
     nueva_clave = "MiNuevaPasswordSegura2026!"
@@ -41,7 +42,8 @@ async def test_cambiar_password_inicial_exitoso(
     )
     assert res.status_code == 200, res.text
     data = res.json()
-    assert data["debe_cambiar_password"] is False
+    assert data["usuario"]["debe_cambiar_password"] is False
+    assert data["estado"] == "operativo"
 
     # Verificar que la clave vieja ya no funciona
     login_vieja = await client.post(
@@ -56,7 +58,8 @@ async def test_cambiar_password_inicial_exitoso(
         data={"username": "prof_inicial", "password": nueva_clave},
     )
     assert login_nueva.status_code == 200
-    assert "access_token" in login_nueva.json()
+    assert login_nueva.json()["estado"] == "operativo"
+    assert "access_token" not in login_nueva.json()
 
 
 @pytest.mark.asyncio
@@ -78,16 +81,16 @@ async def test_cambiar_password_inicial_longitud_corta_falla(
     await db.commit()
     await db.refresh(usuario)
 
-    token = create_access_token({"sub": usuario.username, "rol": usuario.rol.value})
-    headers = {"Authorization": f"Bearer {token}"}
+    assert (await ingresar(client, usuario, 'Provisoria123!')).json()['estado'] == 'onboarding'
+    headers = await csrf(client)
 
     res = await client.post(
         "/auth/cambiar-password-inicial",
         json={"nueva_password": "corta"},
         headers=headers,
     )
-    assert res.status_code == 400
-    assert "8 caracteres" in res.json()["detail"]
+    assert res.status_code == 422
+    assert "8 caracteres" in res.json()["detail"]["mensaje"]
 
 
 @pytest.mark.asyncio

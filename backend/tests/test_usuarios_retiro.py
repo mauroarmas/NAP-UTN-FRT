@@ -74,15 +74,16 @@ async def test_con_historial_queda_desactivado_y_la_fila_permanece(
     assert usuario_catedra.activo is False
 
 
-async def test_sin_historial_la_fila_se_elimina(client, auth_admin, db):
+async def test_sin_historial_conserva_identidad_de_auditoria(client, auth_admin, db):
     from app.models.usuario import Usuario
 
     virgen = await factories.crear_usuario(db, username="tipeo_mal")
 
     r = await client.delete(f"/usuarios/{virgen.id}", headers=auth_admin)
 
-    assert r.json()["resultado"] == "eliminado"
-    assert await db.get(Usuario, virgen.id) is None
+    assert r.json()["resultado"] == "desactivado"
+    await db.refresh(virgen)
+    assert (await db.get(Usuario, virgen.id)).activo is False
 
 
 async def test_la_respuesta_dice_cual_de_las_dos_cosas_paso(client, auth_admin, db):
@@ -209,10 +210,3 @@ async def test_el_detalle_por_id_sigue_resolviendo(
     r = await client.get(f"/usuarios/{usuario_catedra.id}", headers=auth_admin)
     assert r.status_code == 200
     assert r.json()["username"] == usuario_catedra.username
-
-
-def _headers_de(usuario):
-    from app.utils.security import create_access_token
-
-    token = create_access_token({"sub": usuario.username, "rol": usuario.rol.value})
-    return {"Authorization": f"Bearer {token}"}

@@ -1,885 +1,464 @@
-"""Servicio de orquestación: despliega y gestiona recursos reales en Proxmox VE."""
+"""Admisión local y ejecución durable; ningún endpoint espera una tarea PVE."""
+from contextlib import asynccontextmanager
+from datetime import timedelta
+import re
+import time
 
-import asyncio
-import logging
-import secrets
-from datetime import datetime, timedelta
-
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from fastapi import HTTPException
 
-from app.models.pedido import Pedido, PedidoHistorial, EstadoPedido, TipoPedido
+from app.models.compromiso_capacidad import CompromisoCapacidad
+from app.models.identidad_infraestructura import IdentidadInfraestructura
+from app.models.operacion_infraestructura import OperacionInfraestructura
+from app.models.pedido import Pedido, EstadoPedido
 from app.models.servicio import Servicio, EstadoServicio
-from app.models.recurso_template import RecursoTemplate, TipoRecurso
-from app.models.catedra import Catedra
-from app.models.usuario import Usuario, RolUsuario
-from app.services.proxmox_client import (
-    TASK_TIMEOUT_ACCION_SEGUNDOS,
-    get_proxmox_client,
-)
-from app.services import historial_service
-from app.services.acceso_service import es_visible
-from app.services.email_service import (
-    enviar_email_servicio_activo,
-    enviar_email_error_despliegue,
-    obtener_emails_administradores,
-)
-from app.services.vencimiento_service import vencimiento_por_defecto
-from app.services.pedido_service import cambiar_estado
-
-logger = logging.getLogger(__name__)
+from app.models.usuario import Usuario
+from app.models.vigencia import VigenciaAutorizada
+from app.services import operacion_service as operations, identidad_infra_service as identities
+from app.services import capacidad_service, bootstrap_service, historial_service
+from app.services.infraestructura_io import consultar, con_cliente, InfraNoVerificable
+from app.services.inventario_service import integer, disk_size, marker
+from app.services.acceso_service import requiere_acceso_catedra
+from app.utils.clock import clock, db_utc
+from app.utils.errors import error
 
 
-# Traducción del `status` que reporta Proxmox al estado que persiste el portal.
-# Lo que Proxmox no sepa clasificar no se mapea: preferimos no tocar el registro
-# antes que inventar un estado (ver `sincronizar_estados`).
-_ESTADO_POR_STATUS_PROXMOX = {
-    "running": EstadoServicio.RUNNING,
-    "stopped": EstadoServicio.STOPPED,
-    "paused": EstadoServicio.PAUSED,
-    "suspended": EstadoServicio.PAUSED,
-}
+class LeasePerdido(Exception):
+    pass
 
 
-
-async def requiere_propio_o_admin(
-    db: AsyncSession, servicio: Servicio, usuario: Usuario
-) -> None:
-    """
-    Autorización de servicios: admin pasa siempre; cátedra solo sobre lo suyo.
-
-    Centraliza el chequeo que antes estaba duplicado en cada endpoint de
-    lectura (``obtener_servicio``, ``estado_en_proxmox``) y que las acciones
-    de apagar/encender/reiniciar/consola multiplicarían si se siguiera
-    duplicando.
-
-    "Lo suyo" pasó de ser una cátedra a ser un conjunto: una persona puede
-    tener varias. La pertenencia se resuelve en ``acceso_service``, que es la
-    única fuente de esa respuesta.
-    """
-    if usuario.rol == RolUsuario.ADMIN:
-        return
-    if not await es_visible(db, usuario, servicio.catedra_id):
-        raise HTTPException(status_code=403, detail="Sin permisos")
+@asynccontextmanager
+async def _locked(sessions, lease):
+    async with sessions() as db, db.begin():
+        async with capacidad_service.bloqueo_capacidad(db):
+            operation = await db.scalar(select(OperacionInfraestructura).where(*operations.condicion_lease(lease)).with_for_update())
+            if operation is None:
+                raise LeasePerdido()
+            identity = await db.get(IdentidadInfraestructura, operation.identidad_infraestructura_id) if operation.identidad_infraestructura_id else None
+            service = await db.get(Servicio, operation.servicio_id) if operation.servicio_id else None
+            request = await db.get(Pedido, operation.pedido_id) if operation.pedido_id else None
+            ledger = await db.scalar(select(CompromisoCapacidad).where(
+                CompromisoCapacidad.servicio_id == service.id if service else CompromisoCapacidad.pedido_id == operation.pedido_id,
+                CompromisoCapacidad.liberado_at.is_(None)).with_for_update())
+            yield db, operation, identity, service, request, ledger
 
 
-def _estados_reales_del_cluster() -> dict[int, EstadoServicio] | None:
-    """
-    Estado real de cada LXC del clúster, indexado por VMID.
+async def _cas(db, lease, **values):
+    if not await operations.actualizar(db, lease, **values):
+        raise LeasePerdido()
 
-    Una sola llamada a `cluster/resources` cubre todos los nodos, así que
-    reconciliar N servicios no cuesta N requests contra Proxmox.
 
-    Devuelve ``None`` si Proxmox no responde (clúster apagado, red caída): en
-    ese caso no se sabe nada del estado real y el portal conserva lo último
-    conocido en lugar de marcar todo como caído.
-    """
+async def _view(sessions, lease):
+    async with _locked(sessions, lease) as rows:
+        return rows[1:]
+
+
+async def _defer(sessions, lease, *, uncertain=False, code=None):
+    async with _locked(sessions, lease) as (db, op, identity, service, request, ledger):
+        if uncertain and ledger:
+            ledger.estado = 'incierto'
+        if uncertain and identity:
+            identity.estado = 'incierta'
+        if not await operations.ceder(db, lease, incierta=uncertain,
+            segundos=min(30, 2 ** min(op.intento, 4)), error_codigo=code,
+            error_detalle_seguro='Resultado pendiente de comprobación; se conserva el compromiso' if uncertain else None):
+            raise LeasePerdido()
+
+
+async def _finish_failure(sessions, lease, code, *, absence=None, release_unsent=False):
+    from app.services.pedido_service import transicionar
+    async with _locked(sessions, lease) as (db, op, identity, service, request, ledger):
+        if absence is not None and identity:
+            identities.retirar(identity, absence)
+        if ledger:
+            if absence is not None or (release_unsent and op.dispatch_started_at is None and identity is None):
+                ledger.vcpus_retenidos = ledger.ram_mb_retenida = ledger.disk_bytes_retenidos = 0
+                ledger.estado, ledger.liberado_at = 'liberado', clock.now()
+            else:
+                ledger.estado = 'incierto'
+        if identity and absence is None:
+            identity.estado = 'incierta'
+        if request and request.estado == EstadoPedido.EN_DESPLIEGUE:
+            await transicionar(db, request.id, EstadoPedido.ERROR, motivo='La operación requiere revisión: ' + code,
+                operacion_id=op.id, evento_clave=f'operacion:{op.id}:fallida')
+        if not await operations.terminar(db, lease, estado='fallida', error_codigo=code,
+            error_detalle_seguro='La operación no se completó. Revisá el diagnóstico antes de reintentar'):
+            raise LeasePerdido()
+
+
+def _matches(config, assignment, destination):
     try:
-        recursos = get_proxmox_client().listar_lxc_del_cluster()
-    except Exception as exc:
-        logger.warning(f"No se pudo consultar el estado real de los contenedores: {exc}")
-        return None
-
-    estados: dict[int, EstadoServicio] = {}
-    for recurso in recursos:
-        vmid = recurso.get("vmid")
-        estado = _ESTADO_POR_STATUS_PROXMOX.get(recurso.get("status"))
-        if vmid is not None and estado is not None:
-            estados[int(vmid)] = estado
-    return estados
-
-
-def _estado_confirmado(vmid: int, node: str) -> EstadoServicio | None:
-    """Estado autoritativo de un contenedor, preguntado al nodo que lo hospeda.
-
-    `cluster/resources` no es un espejo instantáneo: es un resumen que pvestatd
-    refresca cada ~10 s, así que un contenedor recién encendido sigue figurando
-    ahí como detenido durante varios segundos. Reconciliar contra ese resumen
-    deshacía la acción que el portal acababa de confirmar —la fila volvía a
-    "Detenido" un segundo después de encender, y el botón parecía no haber hecho
-    nada— así que cualquier desacuerdo se contrasta con el estado del propio
-    nodo, que sí responde el estado del momento.
-
-    Solo se consulta cuando hay desacuerdo: en régimen normal el resumen alcanza
-    y esto no cuesta ninguna llamada extra.
-
-    Devuelve ``None`` si no se pudo confirmar; en ese caso no se toca el
-    registro, porque un resumen atrasado no es motivo para contradecirlo.
-    """
-    try:
-        status = get_proxmox_client().get_lxc_status(node, vmid).get("status")
-    except Exception as exc:
-        logger.warning(f"No se pudo confirmar el estado del VMID {vmid}: {exc}")
-        return None
-    return _ESTADO_POR_STATUS_PROXMOX.get(status)
-
-
-def _existe_en_el_cluster(pve, vmid: int) -> bool | None:
-    """
-    ¿El contenedor sigue existiendo en el clúster? ``None`` si no se pudo saber.
-
-    La distinción importa: "no existe" habilita cerrar el registro, mientras
-    que "no se pudo verificar" obliga a ser conservador y no marcar nada.
-    """
-    try:
-        return any(
-            int(r.get("vmid", -1)) == vmid for r in pve.listar_lxc_del_cluster()
-        )
-    except Exception as exc:
-        logger.warning(f"No se pudo verificar si el VMID {vmid} sigue en el clúster: {exc}")
-        return None
-
-
-async def esperar_accion(pve, node: str, task_id: str) -> None:
-    """Espera a que una acción de ciclo de vida termine realmente en Proxmox.
-
-    `start`/`stop`/`reboot` devuelven un identificador de tarea y vuelven al
-    instante, mucho antes de que el contenedor haya cambiado de estado. Sin esta
-    espera el portal respondía "running" sobre un contenedor que todavía estaba
-    arrancando, y el refresco siguiente —que sí consulta el clúster— lo mostraba
-    de nuevo detenido: el botón parecía no haber hecho nada. Esperar acá hace
-    que la respuesta describa el estado real (Principio II) y que un fallo
-    dentro de la tarea llegue como error en vez de perderse.
-
-    Corre en un hilo aparte: `esperar_task` hace polling bloqueante y en el
-    event loop congelaría al resto de las peticiones mientras dura.
-    """
-    await asyncio.to_thread(
-        pve.esperar_task, node, task_id, TASK_TIMEOUT_ACCION_SEGUNDOS
-    )
-
-
-async def sincronizar_estados(
-    db: AsyncSession,
-    servicios: list[Servicio],
-) -> list[Servicio]:
-    """
-    Reconcilia el estado guardado de cada servicio con el real en Proxmox.
-
-    Proxmox es la fuente de verdad: el registro del portal se desfasa cuando el
-    clúster se apaga y vuelve, cuando alguien toca el contenedor desde Proxmox,
-    o cuando una acción falla a mitad de camino. Sin esta reconciliación la
-    vista ofrecía "Detener" sobre un contenedor ya apagado y rechazaba
-    "Iniciar" con un 409 porque el registro seguía diciendo RUNNING.
-
-    Marca cada servicio con dos atributos de instancia (no persistidos) para
-    que el frontend pueda decir la verdad en cada caso:
-
-      - `estado_sincronizado`: el estado se confirmó contra Proxmox.
-      - `existe_en_proxmox`: True/False, o None si no se pudo averiguar.
-
-    Un contenedor que ya no figura en el clúster no cambia de estado — el
-    registro conserva el último conocido y queda marcado como inexistente. Dar
-    de baja el registro es una decisión del administrador, no un efecto
-    colateral de listar.
-    """
-    reales = _estados_reales_del_cluster()
-    cambios = 0
-
-    for servicio in servicios:
-        real = None
-        if reales is not None and servicio.proxmox_vmid:
-            real = reales.get(int(servicio.proxmox_vmid))
-
-        servicio.estado_sincronizado = real is not None
-        # Sin VMID nunca hubo contenedor, y sin respuesta del clúster no hay
-        # nada que afirmar: en ambos casos "no se sabe", que no es lo mismo
-        # que "no existe".
-        desconocido = reales is None or not servicio.proxmox_vmid
-        servicio.existe_en_proxmox = None if desconocido else real is not None
-
-        if real is None or servicio.estado == real:
-            continue
-
-        # El resumen del clúster contradice al registro: antes de darle la
-        # razón hay que preguntarle al nodo, porque el desfase más frecuente no
-        # es el del portal sino el del propio resumen (ver `_estado_confirmado`).
-        real = _estado_confirmado(int(servicio.proxmox_vmid), servicio.proxmox_node)
-        servicio.estado_sincronizado = real is not None
-        if real is None or servicio.estado == real:
-            continue
-
-        # Una pausa del portal se ejecuta deteniendo el contenedor, así que
-        # Proxmox lo reporta como "stopped" — igual que si lo hubiera apagado la
-        # cátedra. Sin esta excepción, la sincronización borraría la marca de
-        # pausa en la primera consulta y se perdería la distinción entre "lo
-        # apagué yo" y "me lo pausó el sistema", que es justamente lo que la
-        # cátedra necesita saber. La distinción vive en el portal porque en
-        # Proxmox no existe.
-        if servicio.pausado_auto_at is not None and real == EstadoServicio.STOPPED:
-            continue
-
-        # Si en cambio el contenedor volvió a arrancar (alguien lo encendió
-        # desde Proxmox), la pausa dejó de ser cierta y la marca se limpia.
-        if servicio.pausado_auto_at is not None and real == EstadoServicio.RUNNING:
-            servicio.pausado_auto_at = None
-            servicio.pausa_programada_at = None
-            servicio.aviso_pausa_at = None
-
-        logger.info(
-            f"Servicio {servicio.id} (VMID={servicio.proxmox_vmid}): estado "
-            f"registrado {servicio.estado.value} → real {real.value}"
-        )
-        servicio.estado = real
-        cambios += 1
-
-    if cambios:
-        await db.commit()
-
-    return servicios
-
-
-async def sincronizar_estado(db: AsyncSession, servicio: Servicio) -> Servicio:
-    """Reconcilia un único servicio contra Proxmox. Ver `sincronizar_estados`."""
-    await sincronizar_estados(db, [servicio])
-    return servicio
-
-
-def _generar_hostname(catedra_id: int, pedido_id: int) -> str:
-    """Genera un hostname único para el contenedor."""
-    return f"cat{catedra_id}-svc{pedido_id}"
-
-
-def _construir_config_lxc(
-    vmid: int,
-    hostname: str,
-    template: RecursoTemplate,
-    pedido: Pedido,
-    node: str,
-    storage: str = "local-lvm",
-) -> dict:
-    """
-    Construye los parámetros de creación del LXC para la API de Proxmox.
-
-    Los recursos (cores, memoria, disco) salen de lo que el pedido **reservó al
-    aprobarse**, no de los valores actuales del template. La plantilla aporta el
-    resto: la imagen del sistema operativo y los overrides de `config_extra`.
-
-    El motivo es la correspondencia entre lo aprobado y lo entregado (FR-018):
-    aprobar compromete capacidad y guarda esos tres números en el pedido. Si acá
-    se leyera el template, editarlo entre la aprobación y el despliegue haría que
-    el contenedor naciera con recursos que nadie aprobó, sobrecomprometiendo el
-    clúster sin dejar rastro. La reserva es el contrato; el template solo define
-    el punto de partida en el momento de pedir.
-    """
-    opciones = pedido.opciones_avanzadas or {}
-    bridge = opciones.get("bridge", "vmbr0")
-    ip_cfg = opciones.get("ip", "dhcp")
-    net0 = f"name=eth0,bridge={bridge},ip={ip_cfg}"
-    vlan = opciones.get("vlan_tag") or opciones.get("vlan")
-    if vlan:
-        net0 += f",tag={vlan}"
-
-    config = {
-        "vmid": vmid,
-        "hostname": hostname,
-        "cores": pedido.reserva_vcpus,
-        "memory": pedido.reserva_ram_mb,
-        "rootfs": f"{storage}:{pedido.reserva_disk_gb}",
-        "net0": net0,
-        "start": 1,          # arranca automáticamente al crear
-        "unprivileged": 1,   # contenedor sin privilegios (más seguro)
-    }
-
-    # Si el template tiene un OS template configurado, usarlo
-    if template.os_template:
-        config["ostemplate"] = template.os_template
-
-    # Mergear config_extra del template si existe (permite overrides avanzados)
-    if template.config_extra:
-        config.update(template.config_extra)
-
-    return config
-
-
-def _resolver_vmid(pve, pedido: Pedido, hostname: str) -> tuple[int, dict | None]:
-    """
-    Decide qué VMID usar para (re)desplegar un pedido.
-
-    Devuelve `(vmid, contenedor_existente)`. Cuando `contenedor_existente` no es
-    None se trata de un huérfano de un fallo parcial propio: el contenedor ya
-    está creado en el clúster y debe adoptarse en lugar de crear otro.
-
-    Matriz (ver contracts/api.md y research R2):
-      sin reserva                        -> VMID nuevo
-      reserva libre                      -> reutilizar
-      reserva ocupada, hostname propio   -> adoptar
-      reserva ocupada, hostname ajeno    -> VMID nuevo
-    """
-    if not pedido.vmid_reservado:
-        return pve.get_next_vmid(), None
-
-    reservado = int(pedido.vmid_reservado)
-    ocupante = next(
-        (
-            r
-            for r in pve.listar_lxc_del_cluster()
-            if int(r.get("vmid", -1)) == reservado
-        ),
-        None,
-    )
-
-    if ocupante is None:
-        # La reserva sigue libre: se reutiliza.
-        return reservado, None
-
-    if ocupante.get("name") == hostname:
-        # Es nuestro: quedó creado por un fallo parcial anterior.
-        logger.warning(
-            f"VMID {reservado} ya existe con hostname propio '{hostname}'. "
-            f"Se adopta el contenedor en lugar de crear uno nuevo."
-        )
-        return reservado, ocupante
-
-    # Lo tomó un tercero: se descarta la reserva.
-    logger.warning(
-        f"VMID reservado {reservado} fue tomado por '{ocupante.get('name')}'. "
-        f"Se solicita uno nuevo."
-    )
-    return pve.get_next_vmid(), None
-
-
-async def _notificar_servicio_activo_seguro(
-    db: AsyncSession,
-    pedido: Pedido,
-    servicio: Servicio,
-    template_nombre: str | None = None,
-) -> None:
-    try:
-        solicitante = await db.get(Usuario, pedido.solicitante_id)
-        if not solicitante or not solicitante.email:
-            return
-        catedra = await db.get(Catedra, pedido.catedra_id)
-        catedra_nom = catedra.nombre if catedra else f"Cátedra #{pedido.catedra_id}"
-        nom_serv = servicio.hostname or template_nombre or f"Servicio #{servicio.id}"
-        enviar_email_servicio_activo(
-            email=solicitante.email,
-            nombre_docente=solicitante.nombre,
-            pedido_id=pedido.id,
-            servicio_id=servicio.id,
-            servicio_nombre=nom_serv,
-            catedra_nombre=catedra_nom,
-            url_acceso=servicio.url_acceso,
-        )
-    except Exception as exc:
-        logger.error(f"Error al notificar servicio activo para pedido {pedido.id}: {exc}")
-
-
-async def _notificar_error_despliegue_seguro(
-    db: AsyncSession,
-    pedido: Pedido,
-    detalle_error: str,
-) -> None:
-    try:
-        solicitante = await db.get(Usuario, pedido.solicitante_id)
-        catedra = await db.get(Catedra, pedido.catedra_id)
-        catedra_nom = catedra.nombre if catedra else f"Cátedra #{pedido.catedra_id}"
-        solic_nom = solicitante.nombre if solicitante else "Docente"
-        admin_emails = await obtener_emails_administradores(db)
-        destinatarios = list(set(admin_emails + ([solicitante.email] if solicitante and solicitante.email else [])))
-        if destinatarios:
-            enviar_email_error_despliegue(
-                destinatarios=destinatarios,
-                pedido_id=pedido.id,
-                catedra_nombre=catedra_nom,
-                solicitante_nombre=solic_nom,
-                detalle_error=detalle_error,
-            )
-    except Exception as exc:
-        logger.error(f"Error al notificar fallo de despliegue para pedido {pedido.id}: {exc}")
-
-
-async def _ejecutar_despliegue(
-    db: AsyncSession,
-    pedido: Pedido,
-    admin: Usuario,
-    node: str | None = None,
-    storage: str = "local-lvm",
-) -> Servicio:
-    """
-    Aprovisiona el recurso en Proxmox para un pedido que ya está en EN_DESPLIEGUE.
-
-    Punto de entrada compartido por el despliegue inicial y el reintento: ambos
-    caminos difieren solo en la validación del estado previo, de modo que no
-    puedan divergir (research R5).
-
-    En caso de falla transiciona el pedido a ERROR y levanta 502.
-    """
-    template = await db.get(RecursoTemplate, pedido.template_id)
-    if not template:
-        raise HTTPException(status_code=404, detail="Template del pedido no encontrado")
-
-    # Solo LXC por ahora (QEMU se agrega en iteración futura)
-    if template.tipo != TipoRecurso.LXC:
-        raise HTTPException(
-            status_code=400,
-            detail="Solo se soporta despliegue de contenedores LXC en esta versión",
-        )
-
-    pve = get_proxmox_client()
-    hostname = _generar_hostname(pedido.catedra_id, pedido.id)
-
-    try:
-        vmid, adoptado = _resolver_vmid(pve, pedido, hostname)
-
-        # Persistir la reserva ANTES de tocar Proxmox: si la creación falla, el
-        # VMID queda registrado y un reintento puede reutilizarlo (research R1).
-        if pedido.vmid_reservado != str(vmid):
-            pedido.vmid_reservado = str(vmid)
-            await db.commit()
-
-        if adoptado is not None:
-            node = adoptado.get("node") or node
-            logger.info(f"Adoptando contenedor existente VMID={vmid} en nodo {node}")
-        else:
-            opciones = pedido.opciones_avanzadas or {}
-            if not node:
-                node = opciones.get("nodo_destino") or opciones.get("node")
-            if storage == "local-lvm" and (opciones.get("storage_pool") or opciones.get("storage")):
-                storage = opciones.get("storage_pool") or opciones.get("storage")
-
-            # Elegir nodo automáticamente si no se especificó
-            if not node:
-                nodes = pve.get_nodes()
-                online = [n for n in nodes if n.get("status") == "online"]
-                if not online:
-                    raise RuntimeError("No hay nodos Proxmox disponibles (online)")
-                # Elegir el nodo con menos carga de CPU
-                node = min(online, key=lambda n: n.get("cpu", 1))["node"]
-
-            config = _construir_config_lxc(
-                vmid, hostname, template, pedido, node, storage
-            )
-
-            logger.info(
-                f"Desplegando LXC: VMID={vmid}, hostname={hostname}, node={node}, "
-                f"template={template.nombre}"
-            )
-
-            # Proxmox devuelve un identificador de tarea y vuelve enseguida: la
-            # creación real ocurre después. Hay que esperarla, o un fallo dentro
-            # de la tarea (plantilla inexistente, disco lleno, VMID en conflicto)
-            # pasaría inadvertido y el portal registraría como desplegado un
-            # contenedor que nunca existió.
-            task_id = pve.create_lxc(node, **config)
-            pve.esperar_task(node, task_id)
-
-            logger.info(f"LXC creado en Proxmox. Task: {task_id}, VMID: {vmid}")
-
-    except Exception as exc:
-        error_msg = str(exc)
-        logger.error(f"Error al desplegar pedido {pedido.id}: {error_msg}")
-
-        # Transicionar a ERROR con descripción
-        await cambiar_estado(
-            db=db,
-            pedido_id=pedido.id,
-            nuevo_estado_str=EstadoPedido.ERROR.value,
-            usuario=admin,
-            comentario=f"Error Proxmox: {error_msg[:200]}",
-            origen_sistema=True,
-        )
-        await _notificar_error_despliegue_seguro(db, pedido, error_msg[:200])
-
-        raise HTTPException(
-            status_code=502,
-            detail=f"Error al crear recurso en Proxmox: {error_msg}",
-        )
-
-    vence_at = (
-        pedido.vigencia_hasta
-        if pedido.vigencia_hasta
-        else vencimiento_por_defecto()
-    )
-    url_acceso = f"http://{hostname}.utn.local"
-    credenciales_acceso = f"Usuario: catedra{pedido.catedra_id} / Acceso vía red institucional"
-
-    # --- Registrar Servicio en la DB ---
-    servicio = Servicio(
-        catedra_id=pedido.catedra_id,
-        pedido_id=pedido.id,
-        template_id=pedido.template_id,
-        proxmox_vmid=str(vmid),
-        proxmox_node=node,
-        tipo=template.tipo.value,
-        estado=EstadoServicio.RUNNING,
-        hostname=hostname,
-        # Lo reservado, lo desplegado y lo registrado tienen que coincidir
-        # siempre (FR-018): si acá se guardara el template, el consumo que el
-        # portal contabiliza dejaría de ser el que el clúster tiene de verdad.
-        vcpus_asignados=pedido.reserva_vcpus,
-        ram_asignada_mb=pedido.reserva_ram_mb,
-        disk_asignado_gb=pedido.reserva_disk_gb,
-        url_acceso=url_acceso,
-        credenciales_acceso=credenciales_acceso,
-        deployed_at=datetime.utcnow(),
-        # Todo servicio nace con fecha de fin conocida. Es la vía determinista
-        # de recuperación de capacidad: no depende de medir nada, y la cátedra
-        # sabe desde el primer día hasta cuándo lo tiene.
-        vence_at=vence_at,
-    )
-    db.add(servicio)
-    await db.flush()
-    pedido.servicio_id = servicio.id
-
-    # --- Transicionar pedido a ACTIVO ---
-    detalle = "adoptado" if adoptado is not None else "desplegado"
-    await cambiar_estado(
-        db=db,
-        pedido_id=pedido.id,
-        nuevo_estado_str=EstadoPedido.ACTIVO.value,
-        usuario=admin,
-        comentario=(
-            f"Contenedor {detalle}: VMID={vmid}, nodo={node}, hostname={hostname}"
-        ),
-        origen_sistema=True,
-    )
-
-    await db.commit()
-    await db.refresh(servicio)
-
-    await _notificar_servicio_activo_seguro(
-        db, pedido, servicio, template.nombre if template else None
-    )
-
-    logger.info(f"Pedido {pedido.id} desplegado exitosamente → Servicio ID={servicio.id}")
-    return servicio
-
-
-async def desplegar_pedido(
-    db: AsyncSession,
-    pedido_id: int,
-    admin: Usuario,
-    node: str | None = None,
-    storage: str = "local-lvm",
-) -> Servicio:
-    """
-    Orquesta el despliegue completo de un pedido APROBADO:
-    1. Valida que el pedido esté en estado APROBADO
-    2. Transiciona a EN_DESPLIEGUE
-    3. Delega el aprovisionamiento en `_ejecutar_despliegue`
-
-    En caso de falla, el pedido queda en ERROR con el mensaje.
-    """
-    pedido = await db.get(Pedido, pedido_id)
-    if not pedido or pedido.deleted_at is not None:
-        raise HTTPException(status_code=404, detail="Pedido no encontrado")
-
-    if pedido.estado != EstadoPedido.APROBADO:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Solo se pueden desplegar pedidos APROBADOS. Estado actual: {pedido.estado.value}",
-        )
-
-    # Un alta y una renovación atraviesan la misma máquina de estados, pero la
-    # transición a ACTIVO la concreta un ejecutor distinto: una crea un
-    # contenedor, la otra solo corre la fecha de fin de uno que ya existe.
-    # Reutilizar el circuito es lo que hace que "renovar es pedirlo de nuevo"
-    # sea literal y no una copia parecida.
-    es_renovacion = pedido.tipo == TipoPedido.RENOVACION
-    comentario = (
-        "Aplicando renovación" if es_renovacion else "Iniciando despliegue en Proxmox VE"
-    )
-
-    await cambiar_estado(
-        db=db,
-        pedido_id=pedido_id,
-        nuevo_estado_str=EstadoPedido.EN_DESPLIEGUE.value,
-        usuario=admin,
-        comentario=comentario,
-        origen_sistema=True,
-    )
-
-    if es_renovacion:
-        return await _ejecutar_renovacion(db, pedido, admin)
-
-    return await _ejecutar_despliegue(db, pedido, admin, node, storage)
-
-
-async def _ejecutar_renovacion(
-    db: AsyncSession, pedido: Pedido, admin: Usuario
-) -> Servicio:
-    """Corre la fecha de vencimiento del servicio. No toca Proxmox.
-
-    El servicio conserva su id, sus datos y su contenedor: renovar no recrea
-    nada. Si lo recreara, la cátedra perdería todo lo que tenía adentro cada vez
-    que le extienden el plazo.
-    """
-    servicio = await db.get(Servicio, pedido.servicio_id) if pedido.servicio_id else None
-    if servicio is None or servicio.deleted_at is not None:
-        await cambiar_estado(
-            db=db,
-            pedido_id=pedido.id,
-            nuevo_estado_str=EstadoPedido.ERROR.value,
-            usuario=admin,
-            comentario="El servicio a renovar ya no existe",
-            origen_sistema=True,
-        )
-        raise HTTPException(
-            status_code=409, detail="El servicio a renovar ya no existe"
-        )
-
-    anterior = servicio.vence_at
-    # Se extiende desde hoy, no desde el vencimiento viejo: una renovación
-    # aprobada tarde no debería valer menos que una aprobada a tiempo.
-    servicio.vence_at = vencimiento_por_defecto()
-    servicio.aviso_vencimiento_at = None
-
-    db.add(
-        historial_service.registrar_servicio(
-            servicio.id,
-            servicio.estado.value,
-            servicio.estado.value,
-            comentario=(
-                f"Renovado: vencía el {anterior:%Y-%m-%d}, "
-                f"ahora vence el {servicio.vence_at:%Y-%m-%d}"
-                if anterior
-                else f"Renovado: vence el {servicio.vence_at:%Y-%m-%d}"
-            ),
-            usuario=admin,
-        )
-    )
-    await db.commit()
-
-    await cambiar_estado(
-        db=db,
-        pedido_id=pedido.id,
-        nuevo_estado_str=EstadoPedido.ACTIVO.value,
-        usuario=admin,
-        comentario=f"Renovación aplicada hasta el {servicio.vence_at:%Y-%m-%d}",
-        origen_sistema=True,
-    )
-
-    await db.refresh(servicio)
-    await _notificar_servicio_activo_seguro(db, pedido, servicio, "Renovación de Servicio")
-    return servicio
-
-
-async def reintentar_despliegue(
-    db: AsyncSession,
-    pedido_id: int,
-    admin: Usuario,
-    node: str | None = None,
-    storage: str = "local-lvm",
-) -> Servicio:
-    """
-    Reintenta el despliegue de un pedido que quedó en ERROR.
-
-    Es el ejecutor real de la transición ERROR → EN_DESPLIEGUE, que la máquina de
-    estados declaraba válida pero que ningún código concretaba: el pedido quedaba
-    atascado sin posibilidad de recuperación (research R5).
-
-    Es pseudo-idempotente: reutiliza el VMID reservado o adopta el contenedor si
-    quedó creado por un fallo parcial, de modo que repetirlo no duplica recursos.
-    """
-    pedido = await db.get(Pedido, pedido_id)
-    if not pedido or pedido.deleted_at is not None:
-        raise HTTPException(status_code=404, detail="Pedido no encontrado")
-
-    if pedido.estado != EstadoPedido.ERROR:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "Solo se pueden reintentar pedidos en estado ERROR. "
-                f"Estado actual: {pedido.estado.value}"
-            ),
-        )
-
-    await cambiar_estado(
-        db=db,
-        pedido_id=pedido_id,
-        nuevo_estado_str=EstadoPedido.EN_DESPLIEGUE.value,
-        usuario=admin,
-        comentario="Reintentando despliegue en Proxmox VE",
-        origen_sistema=True,
-    )
-
-    return await _ejecutar_despliegue(db, pedido, admin, node, storage)
-
-
-async def detener_servicio(
-    db: AsyncSession,
-    servicio_id: int,
-    usuario: Usuario,
-) -> Servicio:
-    """Detiene un servicio activo en Proxmox. La cátedra puede detener los propios."""
-    servicio = await db.get(Servicio, servicio_id)
-    if not servicio or servicio.deleted_at is not None:
-        raise HTTPException(status_code=404, detail="Servicio no encontrado")
-
-    await requiere_propio_o_admin(db, servicio, usuario)
-
-    # Contra el estado real, no contra el que quedó guardado: si el contenedor
-    # ya está apagado en Proxmox, el 409 dice la verdad.
-    await sincronizar_estado(db, servicio)
-
-    if servicio.estado != EstadoServicio.RUNNING:
-        raise HTTPException(
-            status_code=409,
-            detail=f"El servicio no está en ejecución (estado: {servicio.estado.value})",
-        )
-
-    pve = get_proxmox_client()
-    try:
-        vmid = int(servicio.proxmox_vmid)
-        await esperar_accion(pve, servicio.proxmox_node, pve.stop_lxc(servicio.proxmox_node, vmid))
-        servicio.estado = EstadoServicio.STOPPED
-        servicio.estado_sincronizado = True
-        await db.commit()
-        await db.refresh(servicio)
-        logger.info(f"Servicio {servicio_id} detenido (VMID={vmid})")
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Error al detener: {str(exc)}")
-
-    return servicio
-
-
-async def iniciar_servicio(
-    db: AsyncSession,
-    servicio_id: int,
-    usuario: Usuario,
-) -> Servicio:
-    """
-    Inicia un servicio que no está corriendo. La cátedra puede iniciar los propios.
-
-    Acepta cualquier estado que no sea RUNNING (detenido, pausado o en error):
-    encender es la salida natural de todos ellos, y ese es justo el caso en que
-    el portal quedó desfasado y hay que poder recuperar el contenedor. El
-    estado se reconcilia antes contra Proxmox para no rechazar un arranque
-    válido por un registro viejo.
-    """
-    servicio = await db.get(Servicio, servicio_id)
-    if not servicio or servicio.deleted_at is not None:
-        raise HTTPException(status_code=404, detail="Servicio no encontrado")
-
-    await requiere_propio_o_admin(db, servicio, usuario)
-
-    await sincronizar_estado(db, servicio)
-
-    if servicio.estado == EstadoServicio.RUNNING:
-        raise HTTPException(
-            status_code=409,
-            detail="El servicio ya está en ejecución",
-        )
-
-    pve = get_proxmox_client()
-    try:
-        vmid = int(servicio.proxmox_vmid)
-        await esperar_accion(pve, servicio.proxmox_node, pve.start_lxc(servicio.proxmox_node, vmid))
-        servicio.estado = EstadoServicio.RUNNING
-        servicio.estado_sincronizado = True
-        await db.commit()
-        await db.refresh(servicio)
-        logger.info(f"Servicio {servicio_id} iniciado (VMID={vmid})")
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Error al iniciar: {str(exc)}")
-
-    return servicio
-
-
-async def reiniciar_servicio(
-    db: AsyncSession,
-    servicio_id: int,
-    usuario: Usuario,
-) -> Servicio:
-    """Reinicia un servicio en ejecución en Proxmox. La cátedra puede reiniciar los propios."""
-    servicio = await db.get(Servicio, servicio_id)
-    if not servicio or servicio.deleted_at is not None:
-        raise HTTPException(status_code=404, detail="Servicio no encontrado")
-
-    await requiere_propio_o_admin(db, servicio, usuario)
-
-    await sincronizar_estado(db, servicio)
-
-    if servicio.estado != EstadoServicio.RUNNING:
-        raise HTTPException(
-            status_code=409,
-            detail=f"El servicio no está en ejecución (estado: {servicio.estado.value})",
-        )
-
-    pve = get_proxmox_client()
-    try:
-        vmid = int(servicio.proxmox_vmid)
-        await esperar_accion(pve, servicio.proxmox_node, pve.reboot_lxc(servicio.proxmox_node, vmid))
-        # El servicio sigue RUNNING antes y después: el reinicio lo gestiona
-        # Proxmox internamente, no hay estado intermedio que persistir.
-        logger.info(f"Servicio {servicio_id} reiniciado (VMID={vmid})")
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Error al reiniciar: {str(exc)}")
-
-    return servicio
-
-
-
-
-async def eliminar_servicio(
-    db: AsyncSession,
-    servicio_id: int,
-    admin: Usuario,
-) -> dict:
-    """
-    Da de baja un servicio: libera el contenedor en Proxmox y marca el registro.
-
-    La baja es lógica: la fila permanece para poder reconstruir el consumo
-    histórico de la cátedra aunque el contenedor ya no exista (FR-007).
-
-    El orden importa: si no se pudo liberar el recurso real, el registro NO se
-    marca como dado de baja (FR-010). Lo contrario dejaría un contenedor vivo
-    consumiendo cuota del clúster sin figurar en ningún listado.
-    """
-    servicio = await db.get(Servicio, servicio_id)
-    if not servicio:
-        raise HTTPException(status_code=404, detail="Servicio no encontrado")
-
-    if servicio.deleted_at is not None:
-        return {
-            "message": f"El servicio {servicio_id} ya estaba dado de baja",
-            "vmid": servicio.proxmox_vmid,
-            "deleted_at": servicio.deleted_at,
-        }
-
-    # Un servicio que nunca llegó a desplegarse no tiene recurso real que liberar
-    if servicio.proxmox_vmid and servicio.proxmox_node:
-        pve = get_proxmox_client()
-        vmid = int(servicio.proxmox_vmid)
-        node = servicio.proxmox_node
+        parts = config['rootfs'].split(',')
+        size = next(part.split('=', 1)[1] for part in parts[1:] if part.startswith('size='))
+        return (integer(config['cores'], minimum=1) == assignment['vcpus']
+            and integer(config['memory'], minimum=1) == assignment['ram_mb']
+            and parts[0].split(':')[0] == destination['storage']
+            and disk_size(size) == assignment['disk_gb'] * 1024**3
+            and integer(config.get('unprivileged', 0)) == 1
+            and not any(re.fullmatch(r'mp\d+', field) for field in config))
+    except (ValueError, KeyError, TypeError, StopIteration, AttributeError):
+        return False
+
+
+async def _coverage(db, op, request, service):
+    if service:
+        from app.services.vigencia_service import exigir_cobertura
         try:
-            # Detener primero si está corriendo: Proxmox se niega a destruir un
-            # contenedor vivo. Hay que **esperar la tarea** de apagado, no dormir
-            # un rato y confiar: el apagado es asíncrono como todo en Proxmox, y
-            # una pausa fija falla en cuanto el clúster está cargado (visto en la
-            # validación T041 del 2026-08-30: "unable to destroy CT - container
-            # is running", con el stop ya enviado).
-            status = pve.get_lxc_status(node, vmid)
-            if status.get("status") == "running":
-                pve.esperar_task(node, pve.stop_lxc(node, vmid))
-
-            pve.esperar_task(node, pve.delete_lxc(node, vmid))
-            logger.info(f"Servicio {servicio_id} eliminado de Proxmox (VMID={vmid})")
-
+            await exigir_cobertura(db, service.id, clock.now())
+            return True
         except Exception as exc:
-            # Que falle no siempre significa que el recurso siga ocupado: si el
-            # contenedor ya no existe (lo borraron desde Proxmox), el objetivo
-            # de FR-010 está cumplido igual y el registro debe poder cerrarse;
-            # de lo contrario quedaría trabado para siempre. Solo se aborta si
-            # el contenedor sigue vivo, o si no se puede verificar.
-            if _existe_en_el_cluster(pve, vmid) is not False:
-                raise HTTPException(
-                    status_code=502,
-                    detail=f"Error al eliminar en Proxmox: {str(exc)}",
-                )
-            logger.warning(
-                f"El contenedor VMID={vmid} ya no existe en Proxmox ({exc}). "
-                f"Se da de baja el registro del servicio {servicio_id} igualmente."
-            )
+            if getattr(exc, 'status_code', None) == 409:
+                return False
+            raise
+    periods = list((await db.scalars(select(VigenciaAutorizada).where(
+        VigenciaAutorizada.pedido_id == op.pedido_id,
+        VigenciaAutorizada.revision_decision == op.contexto_seguro.get('revision_decision'),
+        VigenciaAutorizada.revocada_at.is_(None)))).all())
+    return any(db_utc(p.inicio_at) <= clock.now() < db_utc(p.fin_exclusivo_at) for p in periods)
 
-    # Recién ahora, con el recurso real liberado, se marca la baja
-    servicio.deleted_at = datetime.utcnow()
-    await db.commit()
 
-    return {
-        "message": f"Servicio {servicio_id} dado de baja correctamente",
-        "vmid": servicio.proxmox_vmid,
-        "deleted_at": servicio.deleted_at,
-    }
+async def _prepare(sessions, lease, *, pve, runner):
+    op, identity, service, request, ledger = await _view(sessions, lease)
+    if op.tipo == 'desplegar':
+        assignment = op.contexto_seguro['asignacion']
+        if assignment.get('tipo') != 'lxc':
+            await _finish_failure(sessions, lease, 'tipo_no_soportado', release_unsent=True)
+            return False
+        validated = await bootstrap_service.validar_preparacion(
+            sessions=sessions, asignacion=assignment, destino=op.contexto_seguro['destino'], runner=runner, pve=pve)
+        net0 = validated.get('net0') if isinstance(validated, dict) else None
+        if not isinstance(net0, str) or not re.fullmatch(r'name=eth0,bridge=[A-Za-z][A-Za-z0-9_-]{0,14},ip=dhcp(?:,tag=\d{1,4})?', net0):
+            raise error(409, 'red_no_preparada', 'Falta una red institucional validada')
+        async with _locked(sessions, lease) as (db, op, identity, service, request, ledger):
+            if not ledger or not request or request.estado != EstadoPedido.EN_DESPLIEGUE:
+                raise error(409, 'decision_no_vigente', 'La decisión de despliegue ya no está vigente')
+            if not await _coverage(db, op, request, service) or (ledger.expira_at and db_utc(ledger.expira_at) <= clock.now()):
+                raise error(409, 'vigencia_no_habilitada', 'La reserva o vigencia no habilita la creación')
+            identity = await identities.reclamar(db, op, pve=pve)
+            ledger.identidad_infraestructura_id = identity.id
+            await _cas(db, lease, identidad_infraestructura_id=identity.id, fase='lista',
+                contexto_seguro={**op.contexto_seguro, 'red_preparada': net0,
+                    'preparacion_validada': validated})
+    else:
+        if service is not None and getattr(service.tipo, 'value', service.tipo) != 'lxc':
+            await _finish_failure(sessions, lease, 'tipo_no_soportado')
+            return False
+        if not identity or identity.ausencia_confirmada_at or not ledger:
+            await _finish_failure(sessions, lease, 'asignacion_sin_regularizar')
+            return False
+        if op.tipo == 'reparar' and service is None:
+            observation = await identities.observar(identity, pve=pve)
+            await _materialize(sessions, lease, observation)
+            return True
+        async with _locked(sessions, lease) as (db, op, identity, service, request, ledger):
+            await _cas(db, lease, fase='lista')
+    return True
+
+
+async def _dispatch(sessions, lease, action, *, pve, after_dispatch):
+    op, identity, service, request, ledger = await _view(sessions, lease)
+    if not identity or identity.ausencia_confirmada_at:
+        raise InfraNoVerificable()
+    expected = identities.marca(identity)
+    vmid, node = identity.vmid, identity.nodo
+    assignment, destination = op.contexto_seguro['asignacion'], op.contexto_seguro['destino']
+    config = None
+    if action == 'crear':
+        if assignment.get('tipo') != 'lxc' or not op.contexto_seguro.get('red_preparada'):
+            raise error(422, 'configuracion_incompatible', 'La creación requiere LXC preparado')
+        config = {'vmid': vmid, 'hostname': 'nap-' + str(identity.resource_uuid)[:12],
+            'cores': assignment['vcpus'], 'memory': assignment['ram_mb'],
+            'rootfs': f"{destination['storage']}:{assignment['disk_gb']}",
+            'ostemplate': assignment['image']['volume_id'], 'net0': op.contexto_seguro['red_preparada'],
+            'pool': identity.pool_catedra, 'description': identities.descripcion(identity),
+            'unprivileged': 1, 'start': 1, 'force': 0, 'restore': 0}
+    async with _locked(sessions, lease) as (db, op, current, service, request, ledger):
+        if current.id != identity.id or op.fase not in {'lista', 'detencion_necesaria', 'eliminacion_necesaria'}:
+            raise LeasePerdido()
+        if action in {'crear', 'iniciar', 'reiniciar'} and not await _coverage(db, op, request, service):
+            if action == 'crear':
+                raise error(409, 'sin_cobertura_actual', 'La creación ya no tiene cobertura')
+            action = 'detener'
+        if action == 'crear' and (ledger is None or (ledger.expira_at and db_utc(ledger.expira_at) <= clock.now())):
+            raise error(409, 'reserva_caducada', 'La reserva caducó antes del envío')
+        deadline = time.monotonic() + max(0, (db_utc(op.lease_until) - clock.now()).total_seconds())
+        await _cas(db, lease, fase='dispatch_started', dispatch_started_at=clock.now(), upid=None,
+            deadline_at=clock.now() + timedelta(seconds=180 if action == 'crear' else 60),
+            contexto_seguro={**op.contexto_seguro, 'accion_externa': action,
+                'detencion_fuera_cobertura': action == 'detener' and op.tipo in {'desplegar', 'iniciar', 'reiniciar'}})
+    # La marca previa al POST está confirmada. Si el proceso cae desde aquí,
+    # el sucesor consulta tarea/recurso; nunca regresa a 'lista' ni reenvía.
+    def send(client):
+        if time.monotonic() >= deadline:
+            raise LeasePerdido()
+        if action != 'crear':
+            actual = client.get_lxc_config(node, vmid)
+            resources = client.get_cluster_resources('vm')
+            matches = [r for r in resources if integer(r['vmid'], minimum=1) == vmid]
+            if (marker(actual) != expected or len(matches) != 1 or matches[0].get('pool') != expected['pool']
+                or matches[0].get('node') != node or matches[0].get('type') != 'lxc'):
+                raise InfraNoVerificable()
+            if action in {'iniciar', 'reiniciar'} and not _matches(actual, assignment, destination):
+                raise InfraNoVerificable()
+        if time.monotonic() >= deadline:
+            raise LeasePerdido()
+        if action == 'crear':
+            return client.create_lxc(node, **config)
+        method = {'iniciar': 'start_lxc', 'detener': 'stop_lxc', 'reiniciar': 'reboot_lxc', 'eliminar': 'delete_lxc'}[action]
+        return getattr(client, method)(node, vmid)
+    upid = await con_cliente(send, pve=pve, timeout=10, incierto=True)
+    if after_dispatch:
+        await after_dispatch(lease, upid)
+    if not isinstance(upid, str) or not upid.startswith('UPID:') or len(upid) > 300:
+        raise InfraNoVerificable(incierto=True)
+    async with _locked(sessions, lease) as (db, op, identity, service, request, ledger):
+        await _cas(db, lease, fase='tarea', upid=upid)
+
+
+async def _materialize(sessions, lease, observation):
+    async with _locked(sessions, lease) as (db, op, identity, service, request, ledger):
+        if observation.estado != 'propia' or not _matches(observation.config, op.contexto_seguro['asignacion'], op.contexto_seguro['destino']):
+            raise InfraNoVerificable()
+        assignment = op.contexto_seguro['asignacion']
+        if service is None:
+            service = Servicio(catedra_id=request.catedra_id, pedido_id=request.id,
+                template_id=assignment['template_id'], tipo='lxc', proxmox_vmid=str(identity.vmid), proxmox_node=identity.nodo,
+                estado=EstadoServicio.RUNNING if observation.status == 'running' else EstadoServicio.STOPPED,
+                hostname=observation.config.get('hostname'), modelo_servicio=assignment.get('modelo_servicio'),
+                nombre_snapshot=assignment.get('nombre'), definicion_version_id=request.definicion_version_id,
+                vcpus_asignados=assignment['vcpus'], ram_asignada_mb=assignment['ram_mb'], disk_asignado_gb=assignment['disk_gb'],
+                asignacion_snapshot=assignment, identidad_infraestructura_id=identity.id,
+                disponibilidad_aplicacion='no_verificada', deployed_at=clock.now().replace(tzinfo=None))
+            db.add(service)
+            await db.flush()
+            request.servicio_id, identity.servicio_id, ledger.servicio_id = service.id, service.id, service.id
+            periods = list((await db.scalars(select(VigenciaAutorizada).where(VigenciaAutorizada.pedido_id == request.id,
+                VigenciaAutorizada.revision_decision == op.contexto_seguro['revision_decision']))).all())
+            for period in periods:
+                period.servicio_id = service.id
+            service.vence_at = max(db_utc(p.fin_exclusivo_at) for p in periods).replace(tzinfo=None)
+            db.add(historial_service.registrar_servicio(service.id, 'nuevo', service.estado.value,
+                comentario='Infraestructura materializada; acceso pendiente de verificación', operacion_id=op.id,
+                evento_clave=f'operacion:{op.id}:materializada', metadata=historial_service.asignacion_historica(service)))
+        identity.estado, identity.ownership_verificada_at = 'materializada', clock.now()
+        ledger.estado, ledger.expira_at = 'materializado', None
+        await _cas(db, lease, servicio_id=service.id, fase='bootstrap')
+
+
+async def _cancel_obsolete_pause(sessions, lease, observation):
+    async with _locked(sessions, lease) as (db, op, identity, service, request, ledger):
+        if not (op.tipo == 'pausar' and op.actor_tipo == 'sistema' and op.actor_id_normalizado == 'vencimiento'
+            and await _coverage(db, op, request, service)):
+            return False
+        if (observation.estado != 'propia' or observation.status != 'running'
+            or not _matches(observation.config, op.contexto_seguro['asignacion'], op.contexto_seguro['destino'])):
+            return False
+        ledger.vcpus_retenidos = max(ledger.vcpus_retenidos, service.vcpus_asignados)
+        ledger.ram_mb_retenida = max(ledger.ram_mb_retenida, service.ram_asignada_mb)
+        db.add(historial_service.registrar_servicio(service.id, service.estado.value, service.estado.value,
+            comentario='Pausa omitida: una aprobación posterior otorgó cobertura continua', operacion_id=op.id,
+            evento_clave=f'operacion:{op.id}:sin_cambios', metadata=historial_service.asignacion_historica(service)))
+        if not await operations.terminar(db, lease, estado='confirmada', fase='verificacion',
+            contexto_seguro={**op.contexto_seguro, 'sin_cambios': True}):
+            raise LeasePerdido()
+        return True
+
+
+async def _confirmed(sessions, lease, observation, *, preparation=None):
+    async with _locked(sessions, lease) as (db, op, identity, service, request, ledger):
+        if op.tipo == 'eliminar' and observation.estado == 'ausente':
+            identities.retirar(identity, observation)
+            service.deleted_at = clock.now().replace(tzinfo=None)
+            new_state = EstadoServicio.STOPPED
+            ledger.vcpus_retenidos = ledger.ram_mb_retenida = ledger.disk_bytes_retenidos = 0
+            ledger.estado, ledger.liberado_at = 'liberado', clock.now()
+        else:
+            if observation.estado != 'propia' or service is None:
+                raise InfraNoVerificable()
+            action = op.contexto_seguro.get('accion_externa', 'bootstrap')
+            stopped = action == 'detener'
+            if observation.status != ('stopped' if stopped else 'running'):
+                raise InfraNoVerificable()
+            if not stopped and not _matches(observation.config, op.contexto_seguro['asignacion'], op.contexto_seguro['destino']):
+                raise InfraNoVerificable()
+            new_state = EstadoServicio.PAUSED if stopped and (op.tipo == 'pausar' or op.contexto_seguro.get('detencion_fuera_cobertura')) else (EstadoServicio.STOPPED if stopped else EstadoServicio.RUNNING)
+            ledger.vcpus_retenidos = 0 if stopped else op.contexto_seguro['asignacion']['vcpus']
+            ledger.ram_mb_retenida = 0 if stopped else op.contexto_seguro['asignacion']['ram_mb']
+            ledger.estado, ledger.expira_at = 'materializado', None
+            identity.estado, identity.ownership_verificada_at = 'materializada', clock.now()
+            if preparation:
+                service.acceso_metadata = preparation.get('acceso_metadata')
+            service.disponibilidad_aplicacion = 'no_verificada'
+            if new_state == EstadoServicio.PAUSED:
+                service.pausado_auto_at = clock.now().replace(tzinfo=None)
+            elif new_state == EstadoServicio.RUNNING:
+                service.pausado_auto_at = service.pausa_programada_at = service.aviso_pausa_at = None
+        before = service.estado.value
+        service.estado, service.observado_at = new_state, clock.now()
+        db.add(historial_service.registrar_servicio(service.id, before, new_state.value,
+            comentario='Efecto de infraestructura confirmado: ' + op.tipo, operacion_id=op.id,
+            evento_clave=f'operacion:{op.id}:confirmada', metadata=historial_service.asignacion_historica(service)))
+        if not await operations.terminar(db, lease, estado='confirmada', fase='verificacion'):
+            raise LeasePerdido()
+
+
+async def procesar_lease(sessions, lease, *, pve=None, runner=None, after_dispatch=None):
+    """Un tick acotado: las tareas largas ceden el lease para próximo polling."""
+    from app.services.reconciliacion_service import recuperar_upid
+    try:
+        for _ in range(8):
+            op, identity, service, request, ledger = await _view(sessions, lease)
+            if op.fase == 'preparacion':
+                if not await _prepare(sessions, lease, pve=pve, runner=runner):
+                    return
+                continue
+            if op.fase in {'lista', 'detencion_necesaria', 'eliminacion_necesaria'}:
+                if op.fase == 'lista' and op.tipo == 'pausar' and op.actor_tipo == 'sistema' and op.actor_id_normalizado == 'vencimiento':
+                    observation = await identities.observar(identity, pve=pve)
+                    if await _cancel_obsolete_pause(sessions, lease, observation):
+                        return
+                if op.fase == 'detencion_necesaria':
+                    action = 'detener'
+                elif op.fase == 'eliminacion_necesaria':
+                    action = 'eliminar'
+                else:
+                    action = {'desplegar': 'crear', 'iniciar': 'iniciar', 'reiniciar': 'reiniciar',
+                        'detener': 'detener', 'pausar': 'detener', 'eliminar': 'eliminar', 'reparar': 'bootstrap'}[op.tipo]
+                    if action == 'bootstrap':
+                        async with _locked(sessions, lease) as (db, current, *rest):
+                            await _cas(db, lease, fase='bootstrap')
+                        continue
+                    if op.tipo == 'eliminar':
+                        observation = await identities.observar(identity, pve=pve)
+                        if observation.estado == 'ausente':
+                            await _confirmed(sessions, lease, observation)
+                            return
+                        if observation.estado != 'propia':
+                            raise InfraNoVerificable()
+                        if observation.status == 'running':
+                            action = 'detener'
+                await _dispatch(sessions, lease, action, pve=pve, after_dispatch=after_dispatch)
+                continue
+            if op.fase in {'dispatch_started', 'tarea'}:
+                if not op.upid:
+                    recovered = await recuperar_upid(op, identity, pve=pve)
+                    if recovered is None:
+                        await _defer(sessions, lease, uncertain=True, code='dispatch_no_confirmado')
+                        return
+                    async with _locked(sessions, lease) as (db, current, *rest):
+                        await _cas(db, lease, fase='tarea', upid=recovered)
+                    continue
+                task = await consultar('get_task_status', identity.nodo, op.upid, pve=pve)
+                if task.estado != 'presente' or not isinstance(task.valor, dict):
+                    raise InfraNoVerificable()
+                if task.valor.get('status') != 'stopped':
+                    expired = op.deadline_at is None or clock.now() >= db_utc(op.deadline_at)
+                    await _defer(sessions, lease, uncertain=expired, code='tarea_sin_resultado' if expired else None)
+                    return
+                observation = await identities.observar(identity, pve=pve)
+                exitstatus = task.valor.get('exitstatus', '')
+                if exitstatus != 'OK' and not (isinstance(exitstatus, str) and exitstatus.startswith('WARNINGS:')):
+                    if op.tipo == 'eliminar' and op.contexto_seguro['accion_externa'] == 'eliminar' and observation.estado == 'ausente':
+                        await _confirmed(sessions, lease, observation)
+                        return
+                    await _finish_failure(sessions, lease, 'tarea_fallida', absence=observation if observation.estado == 'ausente' else None)
+                    return
+                action = op.contexto_seguro['accion_externa']
+                if op.tipo == 'eliminar' and action == 'detener':
+                    if observation.estado != 'propia' or observation.status != 'stopped':
+                        raise InfraNoVerificable()
+                    async with _locked(sessions, lease) as (db, current, *rest):
+                        await _cas(db, lease, fase='eliminacion_necesaria')
+                    continue
+                if action == 'crear':
+                    await _materialize(sessions, lease, observation)
+                    continue
+                if action in {'iniciar', 'reiniciar'}:
+                    async with _locked(sessions, lease) as (db, current, current_identity, current_service, current_request, current_ledger):
+                        if not await _coverage(db, current, current_request, current_service):
+                            await _cas(db, lease, fase='detencion_necesaria')
+                            continue
+                await _confirmed(sessions, lease, observation)
+                return
+            if op.fase == 'bootstrap':
+                observation = await identities.observar(identity, pve=pve)
+                if observation.estado != 'propia' or not _matches(observation.config, op.contexto_seguro['asignacion'], op.contexto_seguro['destino']):
+                    raise InfraNoVerificable()
+                async with _locked(sessions, lease) as (db, current, current_identity, current_service, current_request, current_ledger):
+                    covered = await _coverage(db, current, current_request, current_service)
+                    if not covered:
+                        await _cas(db, lease, fase='detencion_necesaria')
+                if not covered:
+                    continue
+                preparation = await bootstrap_service.preparar(sessions=sessions, servicio_id=service.id,
+                    operacion_id=op.id, identidad_id=identity.id, runner=runner, lease=lease)
+                if not isinstance(preparation, dict) or preparation.get('identity_verified') is not True or preparation.get('local_health') is not True:
+                    await _finish_failure(sessions, lease, 'preparacion_no_confirmada')
+                    return
+                observation = await identities.observar(identity, pve=pve)
+                # La preparación tampoco habilita una entrega fuera de cobertura.
+                async with _locked(sessions, lease) as (db, current, current_identity, current_service, current_request, current_ledger):
+                    covered = await _coverage(db, current, current_request, current_service)
+                    if not covered:
+                        await _cas(db, lease, fase='detencion_necesaria')
+                if not covered:
+                    continue
+                await _confirmed(sessions, lease, observation, preparation=preparation)
+                return
+            raise InfraNoVerificable()
+        await _defer(sessions, lease)
+    except LeasePerdido:
+        return
+    except InfraNoVerificable:
+        await _defer(sessions, lease, uncertain=True, code='resultado_no_confirmado')
+    except Exception as exc:
+        if getattr(exc, 'status_code', None) in {409, 422}:
+            op, *rest = await _view(sessions, lease)
+            code = exc.detail.get('codigo', 'preparacion_no_disponible') if isinstance(exc.detail, dict) else 'preparacion_no_disponible'
+            if op.dispatch_started_at is None:
+                await _finish_failure(sessions, lease, code, release_unsent=True)
+            else:
+                await _finish_failure(sessions, lease, code)
+            return
+        raise
+
+
+async def requiere_propio_o_admin(db, servicio, usuario):
+    await requiere_acceso_catedra(db, usuario, servicio.catedra_id)
+
+
+async def sincronizar_estados(db, servicios, *, usuario=None):
+    # Lecturas ordinarias no consultan infraestructura ni modifican el negocio.
+    from app.services.vigencia_service import anexar_cobertura
+    await operations.anexar_operaciones(db, servicios)
+    return await anexar_cobertura(db, servicios, usuario=usuario)
+
+
+async def sincronizar_estado(db, servicio, *, usuario=None):
+    return (await sincronizar_estados(db, [servicio], usuario=usuario))[0]
+
+
+async def desplegar_pedido(db, pedido_id, admin, *, clave):
+    from app.services.admision_service import desplegar
+    return await desplegar(db, pedido_id, actor=admin, clave=clave)
+
+
+async def iniciar_servicio(db, servicio_id, usuario, *, clave, motivo=None):
+    from app.services.admision_service import iniciar
+    return await iniciar(db, servicio_id, actor=usuario, clave=clave, motivo=motivo)
+
+
+async def detener_servicio(db, servicio_id, usuario, *, clave):
+    return await operations.admitir_orden(db, servicio_id, tipo='detener', usuario=usuario, clave=clave)
+
+
+async def reiniciar_servicio(db, servicio_id, usuario, *, clave):
+    return await operations.admitir_orden(db, servicio_id, tipo='reiniciar', usuario=usuario, clave=clave)
+
+
+async def eliminar_servicio(db, servicio_id, admin, *, clave):
+    return await operations.admitir_orden(db, servicio_id, tipo='eliminar', usuario=admin, clave=clave)
+
+
+async def reintentar_despliegue(db, pedido_id, admin, *, clave, motivo=None):
+    from app.services.reconciliacion_service import reintentar
+    return await reintentar(db, pedido_id, actor=admin, clave=clave, motivo=motivo)

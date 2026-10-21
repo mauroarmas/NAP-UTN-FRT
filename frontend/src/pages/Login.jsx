@@ -1,6 +1,7 @@
+import { mensajeError } from '../utils/errors.js';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { login, getMe } from '../services/api';
+import { login } from '../services/api';
 import useTheme from '../hooks/useTheme';
 import utnLogo from '../assets/utn-logo.jpeg';
 
@@ -17,16 +18,12 @@ export default function Login({ onLogin }) {
     setError('');
     setLoading(true);
     try {
-      const { data: tokenData } = await login(username, password);
-      localStorage.setItem('token', tokenData.access_token);
-
-      const { data: userData } = await getMe();
-      localStorage.setItem('user', JSON.stringify(userData));
-
-      onLogin(userData);
+      const { data } = await login(username, password);
+      setPassword('');
+      await onLogin(data);
       navigate('/');
     } catch (err) {
-      setError(err.response?.data?.detail || 'Error al iniciar sesión');
+      setError(mensajeError(err, 'Error al iniciar sesión'));
     } finally {
       setLoading(false);
     }
@@ -48,7 +45,7 @@ export default function Login({ onLogin }) {
           <h2>NAP - Nube Académica Personal</h2>
           <p className="login__sub">Gestión de servicios por cátedra</p>
 
-          {error && <div className="login__error">{error}</div>}
+          {error && <div role="alert" className="login__error">{error}</div>}
 
           <div className="field">
             <label htmlFor="login-user">Usuario o Correo</label>
@@ -60,6 +57,7 @@ export default function Login({ onLogin }) {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               required
+              autoComplete="username"
               autoFocus
             />
           </div>
@@ -69,6 +67,7 @@ export default function Login({ onLogin }) {
               id="login-pass"
               className="input"
               type="password"
+              autoComplete="current-password"
               placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}

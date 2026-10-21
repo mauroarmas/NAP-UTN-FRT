@@ -147,7 +147,7 @@ async def test_escenario_3_negociacion_y_ajuste(client, auth_admin, auth_catedra
     resp_reenviar = await client.post(
         f"/pedidos/{pedido_id}/reenviar",
         json={"descripcion_requerimientos": "Ajustado a 4GB de RAM conforme a lo sugerido"},
-        headers=auth_catedra,
+        headers=auth_admin,
     )
     assert resp_reenviar.status_code == 200
     assert resp_reenviar.json()["estado"] == EstadoPedido.SOLICITADO.value
@@ -178,7 +178,7 @@ async def test_escenario_4_rechazo_fundado_obligatorio(client, auth_admin, auth_
         headers=auth_admin,
     )
     assert resp_espacios.status_code == 400
-    assert "motivo" in resp_espacios.json()["detail"].lower()
+    assert "motivo" in resp_espacios.json()["detail"]["mensaje"].lower()
 
     # 4. Rechazo con motivo fundado debe prosperar
     resp_ok = await client.post(
@@ -204,7 +204,7 @@ async def test_escenario_5_abm_templates_y_limite_constitucional(client, auth_ad
         headers=auth_admin,
     )
     assert resp_sin_just.status_code == 400
-    assert "8 GB" in resp_sin_just.json()["detail"]
+    assert "8 GB" in resp_sin_just.json()["detail"]["mensaje"]
 
     # 2. Con justificación debe tener éxito
     resp_con_just = await client.post(
