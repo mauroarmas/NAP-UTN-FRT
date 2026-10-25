@@ -71,14 +71,16 @@ async def limpiar_autenticacion(db):
     return {'afectados': 0}
 
 
-def registrar_trabajos():
+def registrar_trabajos(*, solo_notificaciones=False):
+    scheduler.registrar('procesar_notificaciones', procesar_notificaciones, cada_minutos=1)
+    if solo_notificaciones:
+        return
     from app.services import capacidad_service, inactividad_service, vencimiento_service, alerta_service, resumen_metricas_service
     from app.services.reconciliacion_service import reconciliar_operaciones
     scheduler.registrar('recolectar_metricas', inactividad_service.recolectar_metricas, cada_minutos=1)
     scheduler.registrar('evaluar_inactividad', inactividad_service.evaluar_inactividad, cada_minutos=60)
     scheduler.registrar('aplicar_vencimientos', vencimiento_service.aplicar_vencimientos, cada_minutos=1)
     scheduler.registrar('expirar_reservas', capacidad_service.expirar_reservas, cada_minutos=1)
-    scheduler.registrar('procesar_notificaciones', procesar_notificaciones, cada_minutos=1)
     scheduler.registrar('limpiar_autenticacion', limpiar_autenticacion, cada_minutos=1)
     scheduler.registrar('reconciliar_operaciones', reconciliar_operaciones, cada_minutos=1)
     scheduler.registrar('evaluar_alertas', alerta_service.evaluar_alertas, cada_minutos=1)
@@ -95,12 +97,12 @@ async def procesar_operaciones(db):
     return {'afectados': sum(results)}
 
 
-async def main():
+async def main(*, solo_notificaciones=False):
     from app.config import get_settings
     if get_settings().app_env=='production':
         from app.services.puesta_servicio_service import comprobar_arranque
         await comprobar_arranque('worker')
-    registrar_trabajos()
+    registrar_trabajos(solo_notificaciones=solo_notificaciones)
     scheduler.iniciar()
     try:
         # Los ticks manuales y automáticos comparten job/lock. Cada operación
@@ -111,4 +113,8 @@ async def main():
 
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--solo-notificaciones', action='store_true', help='Despachar correos sin ejecutar operaciones de infraestructura')
+    args = parser.parse_args()
+    asyncio.run(main(solo_notificaciones=args.solo_notificaciones))

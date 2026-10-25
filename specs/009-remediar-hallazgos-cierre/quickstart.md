@@ -1,6 +1,6 @@
 # Guía de validación — feature 009
 
-Esta guía prueba el diseño de [plan.md](plan.md) después de implementarlo. Hoy no están construidos los nuevos endpoints, worker, scripts, imágenes ni pruebas aquí propuestos. No ejecutar los ejemplos contra la base o contenedores de uso real. [Modelo](data-model.md) · [Auth](contracts/auth.md) · [Operaciones](contracts/operations.md) · [Catálogo/UI](contracts/catalog-ui.md) · [Runner](contracts/guest-runner.md) · [Evidencias](contracts/evidence.md) · [Revocación de consola](contracts/console-access.md).
+Esta guía documenta la validación del diseño de [plan.md](plan.md) una vez implementado en el repositorio (`009-remediar-hallazgos-cierre`). Los endpoints, worker, scripts, recetas, esquemas y suites automatizadas en entorno aislado están implementados y verificados en [docs/evidencia/009/regresion-cierre.md](../../docs/evidencia/009/regresion-cierre.md), mientras que las pruebas dependientes de clúster Proxmox real, red de alumnos y docente externo (`T101`, `T102`, `T119`, `T131`, `T133`) se ejecutan en la fase de validación de infraestructura. No ejecutar los ejemplos contra la base o contenedores de uso real. [Modelo](data-model.md) · [Auth](contracts/auth.md) · [Operaciones](contracts/operations.md) · [Catálogo/UI](contracts/catalog-ui.md) · [Runner](contracts/guest-runner.md) · [Evidencias](contracts/evidence.md) · [Revocación de consola](contracts/console-access.md).
 
 ## 1. Preparar entorno y evidencia
 
@@ -34,13 +34,13 @@ cd backend
 
 Baseline del análisis del 18-10-2026: 320 pruebas pasan y una falla por expectativa antigua del límite de disco; frontend build/lint pasan con advertencias. Es evidencia previa, no una ejecución de este plan. Al cerrar implementación, actualizar esa prueba a la política vigente y exigir suite sin fallos.
 
-Los siguientes comandos/interfases **se incorporan durante implementación**; no están disponibles todavía:
+Los siguientes comandos/interfases fueron incorporados durante la implementación de la feature 009 y están disponibles en el repositorio:
 
 ~~~bash
 cd backend
 ./venv/bin/python -m scripts.preflight --entorno pruebas
 ./venv/bin/python -m scripts.validar_definicion --manifest /tmp/nap-validacion/manifest.json
-./venv/bin/python -m pytest -q tests/postgres
+./venv/bin/python -m pytest --require-postgres -q tests/postgres
 ./venv/bin/python -m scripts.validar_carga --servicios 100 --dias 90 --sesiones 10 --salida /tmp/nap-validacion/carga.json
 ~~~
 
@@ -50,10 +50,10 @@ npm --prefix frontend run test:e2e
 npm --prefix frontend run test:performance -- --base-url https://nap-pruebas.example.edu --sesiones 10 --muestras-por-recorrido 100 --salida /tmp/nap-validacion/rendimiento-navegador.json
 ~~~
 
-Desde la raíz, ejecutar también las suites de infraestructura con su configuración propia (se incorporan durante implementación):
+Desde la raíz, ejecutar también las suites de infraestructura con su configuración propia:
 
 ~~~bash
-backend/venv/bin/python -m pytest -c infra/pytest.ini -q infra/runner/tests infra/services/tests
+backend/venv/bin/python -m pytest -c infra/pytest.ini -q infra/runner/tests infra/services/tests infra/laboratorio/tests
 ~~~
 
 `infra/pytest.ini` declara testpaths runner/tests services/tests y pythonpath .. ../backend; infra/conftest.py inyecta dobles y bloquea red/subprocess reales por defecto. backend/pytest.ini solo recolecta backend/tests: su ejecución no acredita estas suites. El job infra de CI y el cierre exigen recolectar y ejecutar al menos un test en **cada** suite; rutas faltantes o cero tests fallan, sin `|| true` ni omisión silenciosa. Las pruebas reales de PVE/imágenes no se ejecutan en ese job.

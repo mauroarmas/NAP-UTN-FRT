@@ -1,5 +1,48 @@
 import { test, expect } from './fixtures';
 
+test('administración configura desde 2026, corrige solapamientos y guarda sólo los períodos completos', async ({ page }) => {
+  await page.route('**/api/v1/auth/me', (route) => route.fulfill({ json: { estado: 'operativo', usuario: { id: 1, nombre: 'Admin', rol: 'admin' } } }));
+  await page.route('**/api/v1/auth/csrf', (route) => route.fulfill({ json: { csrf_token: 'test-csrf' } }));
+  const queries = [];
+  let saved;
+  await page.route('**/api/v1/calendarios/*', (route) => {
+    const year = Number(new URL(route.request().url()).pathname.split('/').pop());
+    if (route.request().method() === 'GET') {
+      queries.push(year);
+      return route.fulfill({ status: 404, json: { detail: { codigo: 'calendario_no_configurado' } } });
+    }
+    saved = route.request().postDataJSON();
+    expect(year).toBe(2026);
+    return route.fulfill({ status: 201, json: { anio: year, revision: 1, zona_horaria: 'America/Argentina/Tucuman', periodos: saved.periodos } });
+  });
+  await page.goto('/calendario');
+  const year = page.getByLabel('Año lectivo');
+  await expect(year).toHaveAttribute('min', '2026');
+  await year.fill('2025');
+  await expect(page.getByRole('button', { name: 'Consultar año' })).toBeDisabled();
+  await expect(page.getByText('Elegí un año entre 2026 y 9998 para configurar el calendario.')).toBeVisible();
+  expect(queries).toEqual([]);
+  await year.fill('2026');
+  await expect(page.getByRole('button', { name: 'Año anterior', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'Consultar año' }).click();
+  const start = page.getByLabel('Inicio del primer cuatrimestre');
+  await expect(start).toHaveAttribute('min', '2026-01-01');
+  await start.fill('2026-03-01');
+  await expect(page.getByRole('button', { name: 'Guardar calendario' })).toBeDisabled();
+  await page.getByLabel('Fin del primer cuatrimestre').fill('2026-06-30');
+  await page.getByLabel('Inicio del segundo cuatrimestre').fill('2026-06-30');
+  await page.getByLabel('Fin del segundo cuatrimestre').fill('2026-11-30');
+  await expect(page.getByText(/Los cuatrimestres se superponen/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Guardar calendario' })).toBeDisabled();
+  await page.getByLabel('Inicio del segundo cuatrimestre').fill('2026-08-01');
+  await page.getByRole('button', { name: 'Guardar calendario' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Calendario guardado' })).toBeVisible();
+  expect(saved).toEqual({ revision_esperada: 0, periodos: [
+    { tipo: 'primer_cuatrimestre', desde: '2026-03-01', hasta: '2026-06-30' },
+    { tipo: 'segundo_cuatrimestre', desde: '2026-08-01', hasta: '2026-11-30' },
+  ] });
+});
+
 test('administración corrige otro año sin sobrescribir una revisión perdida', async ({ page }) => {
   await page.route('**/api/v1/auth/me', (route) => route.fulfill({ json: { estado: 'operativo', usuario: { id: 1, nombre: 'Admin', rol: 'admin' } } }));
   await page.route('**/api/v1/auth/csrf', (route) => route.fulfill({ json: { csrf_token: 'test-csrf' } }));
@@ -26,16 +69,34 @@ test('administración corrige otro año sin sobrescribir una revisión perdida',
   expect(changes).toBe(1);
 });
 
-test('docente consulta ajustes sin cancelar ni reenviar su pedido', async ({ page }) => {
+test('docente responde aclaraciones de su pedido sin cancelar ni elegir hardware', async ({ page }) => {
   await page.route('**/api/v1/auth/me', (route) => route.fulfill({ json: { estado: 'operativo', usuario: { id: 2, nombre: 'Docente', rol: 'catedra_admin' } } }));
-  const pedido = { id: 10, catedra_id: 1, template_id: 1, estado: 'requiere_ajuste', modelo_servicio: 'iaas', observaciones_ajuste: 'Revisar las fechas con administración', historial: [] };
-  await page.route('**/api/v1/pedidos/**', (route) => route.fulfill({ json: route.request().url().endsWith('/10') ? pedido : [pedido] }));
-  await page.route('**/api/v1/templates/**', (route) => route.fulfill({ json: [{ id: 1, nombre: 'Linux', tipo: 'lxc' }] }));
+  await page.route('**/api/v1/auth/csrf', (route) => route.fulfill({ json: { csrf_token: 'test-csrf' } }));
+  const pedido = { id: 10, catedra_id: 1, template_id: 1, estado: 'requiere_ajuste', modelo_servicio: 'iaas', observaciones_ajuste: 'Revisar las fechas con administración', historial: [],
+    descripcion_requerimientos: 'Prácticas', parametros_extra: { titulo: 'Laboratorio' }, vigencia: { tipo: 'personalizado', desde: '2027-03-01', hasta: '2027-06-30' } };
+  let replies = 0;
+  await page.route('**/api/v1/pedidos/**', (route) => {
+    if (route.request().url().endsWith('/reenviar')) {
+      replies += 1;
+      Object.assign(pedido, route.request().postDataJSON(), { estado: 'solicitado', observaciones_ajuste: null });
+      return route.fulfill({ json: pedido });
+    }
+    return route.fulfill({ json: route.request().url().endsWith('/10') ? pedido : [pedido] });
+  });
+  await page.route('**/api/v1/templates/**', (route) => route.fulfill({ json: [{ id: 1, nombre: 'Linux', tipo: 'lxc', modelo_servicio: 'iaas', activo: true }] }));
   await page.route('**/api/v1/catedras/**', (route) => route.fulfill({ json: [{ id: 1, nombre: 'Propia' }] }));
   await page.goto('/pedidos');
   await page.getByRole('button', { name: 'Ver detalle' }).click();
   await expect(page.getByText('Revisar las fechas con administración')).toBeVisible();
-  await expect(page.getByRole('button', { name: /reenviar|Cancelar solicitud/i })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Cancelar solicitud' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Responder aclaración', exact: true }).click();
+  await expect(page.locator('.dialog')).toHaveCount(1);
+  await expect(page.getByLabel('RAM (MiB)')).toHaveCount(0);
+  await page.getByLabel('Justificación pedagógica y aclaraciones').fill('Prácticas para 40 estudiantes, en el período solicitado.');
+  await page.getByRole('button', { name: 'Reenviar para revisión' }).click();
+  await expect(page.getByRole('button', { name: 'Responder aclaración', exact: true })).toHaveCount(0);
+  await expect(page.getByText('Prácticas para 40 estudiantes, en el período solicitado.').first()).toBeVisible();
+  expect(replies).toBe(1);
 });
 
 test('receso conserva períodos y permite solicitar fechas sin encender', async ({ page }) => {

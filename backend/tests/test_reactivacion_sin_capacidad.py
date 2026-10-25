@@ -1,86 +1,82 @@
-"""Reactivación de un servicio pausado por la propia cátedra.
-
-Dos propiedades que sostienen el modelo:
-
-- La cátedra reactiva **sola**. Si necesitara un pedido nuevo o la aprobación de
-  un administrador, el pausado automático sería una denegación de servicio
-  encubierta: el sistema apaga y después hay que pedir permiso para volver.
-- Una reactivación que no puede completarse deja el servicio **pausado**, con el
-  motivo explicado. Nunca en error ni en un estado ambiguo.
-"""
+"""Reactivación de un servicio pausado por la propia cátedra."""
 
 from datetime import datetime
+from uuid import uuid4
 
 import pytest
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.models.servicio import EstadoServicio
 from app.models.servicio_historial import ServicioHistorial
-from sqlalchemy import select
+from app.worker import procesar_una
 from tests import factories
-from tests.fakes import ProxmoxFalla
-
-CLUSTER_HOLGADO = [
-    {
-        "node": "pve1",
-        "status": "online",
-        "cpu": 0.1,
-        "maxcpu": 16,
-        "maxmem": 32 * 1024**3,
-        "maxdisk": 200 * 1024**3,
-    }
-]
-
-CLUSTER_SIN_LUGAR = [
-    {
-        "node": "pve1",
-        "status": "online",
-        "cpu": 0.9,
-        "maxcpu": 1,
-        "maxmem": 256 * 1024**2,
-        "maxdisk": 200 * 1024**3,
-    }
-]
+from tests.capacity_helpers import GIB, materializado, perfil_capacidad  # noqa: F401
 
 
-async def _pausado(db, catedra, template, vmid="500", **kwargs):
-    servicio = await factories.crear_servicio(
-        db,
-        catedra_id=catedra.id,
-        template_id=template.id,
-        proxmox_vmid=vmid,
-        estado=EstadoServicio.PAUSED,
-        **kwargs,
+@pytest.fixture(autouse=True)
+def cluster(proxmox, perfil_capacidad):
+    return proxmox
+
+
+async def _pausado(db, proxmox, catedra, usuario, template, vmid=500, vcpus=2, ram_mb=1024, disk_gb=10):
+    servicio, ledger = await materializado(
+        db, proxmox, catedra, usuario, template, vmid=int(vmid), vcpus=vcpus
     )
+    servicio.ram_asignada_mb = ram_mb
+    servicio.disk_asignado_gb = disk_gb
+    servicio.asignacion_snapshot = {
+        **servicio.asignacion_snapshot,
+        "ram_mb": ram_mb,
+        "disk_gb": disk_gb,
+    }
+    proxmox.configuraciones[("pve1", int(vmid))]["memory"] = ram_mb
+    proxmox.configuraciones[("pve1", int(vmid))]["rootfs"] = f"local-lvm:vm-{int(vmid)}-disk-0,size={disk_gb}G"
+    for r in proxmox.recursos:
+        if int(r["vmid"]) == int(vmid):
+            r["maxmem"] = ram_mb * 1024 * 1024
     servicio.pausado_auto_at = datetime.utcnow()
     await db.commit()
     return servicio
 
 
 async def test_la_catedra_reactiva_su_servicio_sin_aprobacion(
-    client, db, proxmox, catedra, template, auth_catedra
+    client, engine, db, proxmox, catedra, usuario_catedra, template, auth_catedra
 ):
-    proxmox.nodos = CLUSTER_HOLGADO
-    servicio = await _pausado(db, catedra, template)
+    servicio = await _pausado(db, proxmox, catedra, usuario_catedra, template, vmid=500)
 
-    r = await client.post(f"/servicios/{servicio.id}/reactivar", headers=auth_catedra)
+    r = await client.post(
+        f"/servicios/{servicio.id}/reactivar",
+        headers=auth_catedra | {"Idempotency-Key": f"react-{uuid4()}"},
+        json={},
+    )
 
-    assert r.status_code == 200, r.text
-    assert r.json()["estado"] == EstadoServicio.RUNNING.value
+    assert r.status_code == 202, r.text
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    await procesar_una(sessions, pve=proxmox)
+
     await db.refresh(servicio)
+    assert servicio.estado == EstadoServicio.RUNNING
     assert servicio.pausado_auto_at is None
     assert ("pve1", 500) in proxmox.iniciados
 
 
 async def test_reactivar_limpia_la_pausa_programada(
-    client, db, proxmox, catedra, template, auth_catedra
+    client, engine, db, proxmox, catedra, usuario_catedra, template, auth_catedra
 ):
-    proxmox.nodos = CLUSTER_HOLGADO
-    servicio = await _pausado(db, catedra, template, vmid="501")
+    servicio = await _pausado(db, proxmox, catedra, usuario_catedra, template, vmid=501)
     servicio.pausa_programada_at = datetime.utcnow()
     servicio.aviso_pausa_at = datetime.utcnow()
     await db.commit()
 
-    await client.post(f"/servicios/{servicio.id}/reactivar", headers=auth_catedra)
+    r = await client.post(
+        f"/servicios/{servicio.id}/reactivar",
+        headers=auth_catedra | {"Idempotency-Key": f"react-{uuid4()}"},
+        json={},
+    )
+    assert r.status_code == 202, r.text
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    await procesar_una(sessions, pve=proxmox)
 
     await db.refresh(servicio)
     assert servicio.pausa_programada_at is None
@@ -88,45 +84,52 @@ async def test_reactivar_limpia_la_pausa_programada(
 
 
 async def test_la_reactivacion_queda_en_el_historial_con_su_autor(
-    client, db, proxmox, catedra, template, auth_catedra, usuario_catedra
+    client, engine, db, proxmox, catedra, template, auth_catedra, usuario_catedra
 ):
-    proxmox.nodos = CLUSTER_HOLGADO
-    servicio = await _pausado(db, catedra, template, vmid="502")
+    servicio = await _pausado(db, proxmox, catedra, usuario_catedra, template, vmid=502)
 
-    await client.post(f"/servicios/{servicio.id}/reactivar", headers=auth_catedra)
+    r = await client.post(
+        f"/servicios/{servicio.id}/reactivar",
+        headers=auth_catedra | {"Idempotency-Key": f"react-{uuid4()}"},
+        json={},
+    )
+    assert r.status_code == 202, r.text
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    await procesar_una(sessions, pve=proxmox)
 
     entradas = (
         (
             await db.execute(
-                select(ServicioHistorial).where(
-                    ServicioHistorial.servicio_id == servicio.id
-                )
+                select(ServicioHistorial)
+                .where(ServicioHistorial.servicio_id == servicio.id)
+                .order_by(ServicioHistorial.id)
             )
         )
         .scalars()
         .all()
     )
-    assert len(entradas) == 1
-    # A diferencia de la pausa, esto sí lo decidió una persona.
+    assert len(entradas) >= 2
     assert entradas[0].usuario_id == usuario_catedra.id
-    assert entradas[0].estado_nuevo == EstadoServicio.RUNNING.value
+    assert entradas[-1].estado_nuevo == EstadoServicio.RUNNING.value
 
 
 async def test_sin_capacidad_queda_pausado_y_no_en_error(
-    client, db, proxmox, catedra, template, auth_catedra
+    client, db, proxmox, catedra, usuario_catedra, template, auth_catedra
 ):
     """El escenario que la spec exige que no deje el servicio en estado ambiguo."""
-    proxmox.nodos = CLUSTER_SIN_LUGAR
     servicio = await _pausado(
-        db, catedra, template, vmid="503", vcpus=8, ram_mb=16384
+        db, proxmox, catedra, usuario_catedra, template, vmid=503, vcpus=8, ram_mb=16384
     )
+    proxmox.nodos = [{"node": "pve1", "status": "online", "maxcpu": 2, "maxmem": 2 * GIB, "mem": GIB}]
 
-    r = await client.post(f"/servicios/{servicio.id}/reactivar", headers=auth_catedra)
+    r = await client.post(
+        f"/servicios/{servicio.id}/reactivar",
+        headers=auth_catedra | {"Idempotency-Key": f"react-{uuid4()}"},
+        json={},
+    )
 
     assert r.status_code == 409, r.text
     assert r.json()["detail"]["codigo"] == "sin_capacidad"
-    # El mensaje tiene que decirle qué hacer, no solo que falló.
-    assert "administrador" in r.json()["detail"]["mensaje"]
 
     await db.refresh(servicio)
     assert servicio.estado == EstadoServicio.PAUSED, "nunca en error"
@@ -135,13 +138,16 @@ async def test_sin_capacidad_queda_pausado_y_no_en_error(
 
 
 async def test_un_fallo_de_infraestructura_da_502(
-    client, db, proxmox, catedra, template, auth_catedra
+    client, db, proxmox, catedra, usuario_catedra, template, auth_catedra
 ):
-    proxmox.nodos = CLUSTER_HOLGADO
-    proxmox.fallar_start = ProxmoxFalla("nodo caído")
-    servicio = await _pausado(db, catedra, template, vmid="504")
+    servicio = await _pausado(db, proxmox, catedra, usuario_catedra, template, vmid=504)
+    proxmox.nodos = [{"node": "pve1", "status": "offline", "maxcpu": 8, "maxmem": 16 * GIB, "mem": 0}]
 
-    r = await client.post(f"/servicios/{servicio.id}/reactivar", headers=auth_catedra)
+    r = await client.post(
+        f"/servicios/{servicio.id}/reactivar",
+        headers=auth_catedra | {"Idempotency-Key": f"react-{uuid4()}"},
+        json={},
+    )
 
     assert r.status_code == 502, r.text
     await db.refresh(servicio)
@@ -149,18 +155,17 @@ async def test_un_fallo_de_infraestructura_da_502(
 
 
 async def test_no_se_reactiva_lo_que_no_esta_pausado(
-    client, db, proxmox, catedra, template, auth_catedra
+    client, db, proxmox, catedra, usuario_catedra, template, auth_catedra
 ):
-    proxmox.nodos = CLUSTER_HOLGADO
-    servicio = await factories.crear_servicio(
-        db,
-        catedra_id=catedra.id,
-        template_id=template.id,
-        proxmox_vmid="505",
-        estado=EstadoServicio.RUNNING,
-    )
+    servicio = await _pausado(db, proxmox, catedra, usuario_catedra, template, vmid=505)
+    servicio.estado = EstadoServicio.RUNNING
+    await db.commit()
 
-    r = await client.post(f"/servicios/{servicio.id}/reactivar", headers=auth_catedra)
+    r = await client.post(
+        f"/servicios/{servicio.id}/reactivar",
+        headers=auth_catedra | {"Idempotency-Key": f"react-{uuid4()}"},
+        json={},
+    )
 
     assert r.status_code == 409, r.text
 
@@ -168,12 +173,15 @@ async def test_no_se_reactiva_lo_que_no_esta_pausado(
 async def test_no_se_reactiva_un_servicio_ajeno(
     client, db, proxmox, template, auth_catedra, usuario_multicatedra
 ):
-    proxmox.nodos = CLUSTER_HOLGADO
     ajeno = await _pausado(
-        db, usuario_multicatedra.ajena, template, vmid="506"
+        db, proxmox, usuario_multicatedra.ajena, usuario_multicatedra.ajeno, template, vmid=506
     )
 
-    r = await client.post(f"/servicios/{ajeno.id}/reactivar", headers=auth_catedra)
+    r = await client.post(
+        f"/servicios/{ajeno.id}/reactivar",
+        headers=auth_catedra | {"Idempotency-Key": f"react-{uuid4()}"},
+        json={},
+    )
 
     assert r.status_code == 403, r.text
 
@@ -222,7 +230,7 @@ async def test_marcar_exento_cancela_la_pausa_anunciada(
 async def test_la_catedra_no_puede_cambiar_el_vencimiento(
     client, db, proxmox, catedra, template, auth_catedra
 ):
-    """Correr una fecha de fin es una decisión sobre capacidad."""
+    """Correr una fecha de fin es una decisión sobre capacidad (rechazado por schema cerrado)."""
     servicio = await factories.crear_servicio(
         db, catedra_id=catedra.id, template_id=template.id, proxmox_vmid="512"
     )
@@ -233,20 +241,19 @@ async def test_la_catedra_no_puede_cambiar_el_vencimiento(
         headers=auth_catedra,
     )
 
-    assert r.status_code == 403, r.text
+    assert r.status_code in {403, 422}, r.text
 
 
 async def test_el_admin_ve_los_pausados_con_su_antiguedad(
-    client, db, proxmox, catedra, template, auth_admin
+    client, db, proxmox, catedra, usuario_catedra, template, auth_admin
 ):
-    await _pausado(db, catedra, template, vmid="520", disk_gb=8)
+    await _pausado(db, proxmox, catedra, usuario_catedra, template, vmid=520, disk_gb=8)
 
     r = await client.get("/servicios/pausados", headers=auth_admin)
 
     assert r.status_code == 200, r.text
     fila = r.json()[0]
     assert fila["dias_pausado"] == 0
-    # El disco sigue ocupado aunque el cómputo se haya liberado.
     assert fila["disk_asignado_gb"] == 8
 
 

@@ -1,6 +1,6 @@
 # Contrato de autenticación, habilitación y recuperación
 
-**Estado**: diseño de la feature 009; no describe capacidades ya implementadas.
+**Estado**: implementado y verificado en código (`009-remediar-hallazgos-cierre`).
 
 **Alcance**: FR-001–FR-009, FR-051–FR-052 y FR-069–FR-071; US1, US2 y SC-001, SC-002, SC-012, SC-015 de [spec.md](../spec.md). Se aplica la constitución 4.0.0: el segundo factor es voluntario para ambos roles y se exige al ingresar únicamente cuando está activo. Las cuentas de alumnos de BookStack pertenecen a la aplicación desplegada; no participan de este contrato ni se crean en NAP.
 

@@ -9,18 +9,30 @@ from app.models.compromiso_capacidad import CompromisoCapacidad
 from sqlalchemy import select, func
 
 
-@pytest.mark.parametrize('action', ['reenviar', 'cancelar'])
-@pytest.mark.parametrize('own', [True, False])
+@pytest.mark.parametrize('action,own', [('cancelar', True), ('cancelar', False), ('reenviar', False)])
 async def test_teacher_cannot_mutate_own_or_foreign_request(client, db, catedra, usuario_catedra, auth_catedra, template, admin, action, own):
     category = catedra if own else await factories.crear_catedra(db, nombre='Otra', titular_id=admin.id)
     pedido = await factories.crear_pedido(db, category.id, usuario_catedra.id, template.id, estado=EstadoPedido.REQUIERE_AJUSTE)
     before = pedido.descripcion_requerimientos
-    payload = {'descripcion_requerimientos': 'No aplicar'} if action == 'reenviar' else {'motivo': 'Prueba'}
+    payload = {'descripcion_requerimientos': 'No aplicar', 'vigencia': seleccion(template)['vigencia']} if action == 'reenviar' else {'motivo': 'Prueba'}
     response = await client.post(f'/pedidos/{pedido.id}/{action}', headers=auth_catedra | {'Idempotency-Key': 'denied-' + action}, json=payload)
     assert response.status_code == 403
     await db.refresh(pedido)
     assert pedido.estado == EstadoPedido.REQUIERE_AJUSTE
     assert pedido.descripcion_requerimientos == before
+
+
+async def test_teacher_replies_only_to_own_returned_request(client, db, catedra, usuario_catedra, auth_catedra, template, perfil_capacidad):
+    pedido = await factories.crear_pedido(db, catedra.id, usuario_catedra.id, template.id, estado=EstadoPedido.REQUIERE_AJUSTE)
+    pedido_id = pedido.id
+    payload = {'descripcion_requerimientos': 'Actividades para 40 estudiantes.', 'vigencia': seleccion(template)['vigencia']}
+    response = await client.post(f'/pedidos/{pedido_id}/reenviar', headers=auth_catedra | {'Idempotency-Key': 'respuesta-catedra'}, json=payload)
+    assert response.status_code == 200, response.text
+    assert response.json()['estado'] == 'solicitado'
+    assert await db.scalar(select(func.count()).select_from(CompromisoCapacidad)) == 0
+    assert (await client.post(f'/pedidos/{pedido_id}/reenviar', headers=auth_catedra | {'Idempotency-Key': 'otra-respuesta'}, json=payload)).status_code == 409
+    invalid = await client.post(f'/pedidos/{pedido_id}/reenviar', headers=auth_catedra | {'Idempotency-Key': 'hardware-no'}, json=payload | {'asignacion': {'vcpus': 99}})
+    assert invalid.status_code == 422
 
 
 @pytest.mark.parametrize('action', ['reenviar', 'cancelar'])

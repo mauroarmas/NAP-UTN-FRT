@@ -27,7 +27,7 @@ def node_case(tmp_path):
             self.calls.append((list(argv), input))
             if argv[0] == '/usr/bin/pvesh':
                 if '/cluster/resources' in argv:
-                    return json.dumps([{'vmid': value['vmid'], 'node': 'pve1', 'pool': value['pool'], 'type': 'lxc'}]).encode()
+                    return json.dumps([{'vmid': value['vmid'], 'node': 'pve1', 'pool': value['pool'], 'type': 'lxc', 'cpu': 0.0125}]).encode()
                 marker = {key: value[key] for key in ['cluster_uuid', 'resource_uuid', 'pool', 'definition_sha256', 'bundle_sha256']}
                 marker['nonce_sha256'] = hashlib.sha256(value['nonce'].encode()).hexdigest()
                 if self.foreign:

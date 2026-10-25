@@ -74,6 +74,25 @@ with tempfile.TemporaryDirectory(prefix='recipe-', dir='/run/nap-runner') as tem
 '''
 
 
+def parse_system_json(raw, *, limit=65536):
+    """Parsear JSON de herramientas del sistema (pvesh/ip) que incluyen métricas float."""
+    def pairs(items):
+        result = {}
+        for key, value in items:
+            if key in result:
+                raise ValueError()
+            result[key] = value
+        return result
+    def invalid(value):
+        raise ValueError()
+    try:
+        if not isinstance(raw, bytes) or len(raw) > limit:
+            raise ValueError()
+        return json.loads(raw.decode('utf-8'), object_pairs_hook=pairs, parse_constant=invalid)
+    except (ValueError, TypeError, RecursionError):
+        raise RunnerError('UNCONFIRMED') from None
+
+
 def bounded_command(argv, *, input=None, timeout=30, limit=2097152):
     """Drenar stdout con límite, sin capturar stderr ni usar un shell."""
     process = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
@@ -147,12 +166,12 @@ class NodeExecutor:
     def _identity(self, request):
         if request['node'] != self.local_node:
             raise RunnerError('IDENTITY_MISMATCH')
-        resources = parse_json(self._run(['/usr/bin/pvesh', 'get', '/cluster/resources', '--type', 'vm', '--output-format', 'json']), limit=2097152)
+        resources = parse_system_json(self._run(['/usr/bin/pvesh', 'get', '/cluster/resources', '--type', 'vm', '--output-format', 'json']), limit=2097152)
         matches = [row for row in resources if row.get('vmid') == request['vmid']]
         if len(matches) != 1 or matches[0].get('node') != request['node'] or matches[0].get('type') != 'lxc' or matches[0].get('pool') != request['pool']:
             raise RunnerError('IDENTITY_MISMATCH')
         path = '/nodes/' + request['node'] + '/lxc/' + str(request['vmid']) + '/config'
-        config = parse_json(self._run(['/usr/bin/pvesh', 'get', path, '--output-format', 'json']))
+        config = parse_system_json(self._run(['/usr/bin/pvesh', 'get', path, '--output-format', 'json']))
         try:
             marker = parse_json(config['description'].encode())['nap']
             expected = {key: request[key] for key in ['cluster_uuid', 'resource_uuid', 'pool', 'definition_sha256', 'bundle_sha256']}
@@ -171,7 +190,7 @@ class NodeExecutor:
             self._identity(request)
 
     def _exec(self, request, argv, *, input=None):
-        return self._checked(request, ['/usr/sbin/pct', 'exec', str(request['vmid']), '--keep-env=0', '--', *argv], input=input)
+        return self._checked(request, ['/usr/sbin/pct', 'exec', str(request['vmid']), '--', *argv], input=input)
 
     def _entry(self, request):
         entry = self.registry.get(request['definition_key'] + ':' + request['definition_version'])
@@ -185,7 +204,7 @@ class NodeExecutor:
             subnets = [ipaddress.ip_network(value, strict=True) for value in profile['subnets']]
             if not subnets or any(network.prefixlen == 0 for network in subnets):
                 raise ValueError()
-            rows = parse_json(self._exec(request, ['/usr/sbin/ip', '-json', 'address', 'show']))
+            rows = parse_system_json(self._exec(request, ['/usr/sbin/ip', '-json', 'address', 'show']))
             observed = {ipaddress.ip_address(item['local']) for row in rows for item in row.get('addr_info', []) if item.get('family') in {'inet', 'inet6'}}
             allowed = {address for address in observed if not address.is_loopback and not address.is_link_local
                 and any(address in network for network in subnets if address.version == network.version)}

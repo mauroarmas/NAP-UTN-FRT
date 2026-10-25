@@ -95,3 +95,27 @@ async def test_request_requires_available_period_and_closed_complete_payload(cli
         {**payload, 'parametros_extra': {'node': 'untrusted-node'}},
     ]:
         assert (await client.post('/pedidos/', json=invalid, headers=auth_catedra | {'Idempotency-Key': 'invalid-period'})).status_code == 422
+
+
+async def test_calendar_starts_in_2026_and_rejects_earlier_dates(client, auth_admin):
+    assert (await client.get('/calendarios/2025', headers=auth_admin)).status_code == 422
+    assert (await put(client, auth_admin, calendar(2026), year=2025, key='past-year')).status_code == 422
+    payload = calendar(2026)
+    payload['periodos'][0]['desde'] = '2025-12-31'
+    assert (await put(client, auth_admin, payload, year=2026, key='past-date')).status_code == 422
+    response = await put(client, auth_admin, calendar(2026), year=2026, key='first-supported-year')
+    assert response.status_code == 201, response.text
+    assert response.json()['anio'] == 2026
+    assert (await client.get('/calendarios/2026', headers=auth_admin)).status_code == 200
+
+
+@pytest.mark.parametrize('vigencia', [
+    {'tipo': 'anual', 'anio_lectivo': 2025},
+    {'tipo': 'primer_cuatrimestre', 'anio_lectivo': 1900},
+    {'tipo': 'personalizado', 'desde': '2025-12-31', 'hasta': '2026-03-01'},
+    {'tipo': 'personalizado', 'desde': '2025-01-01', 'hasta': '2025-12-31'},
+])
+async def test_request_rejects_years_before_2026(client, template, auth_catedra, vigencia):
+    response = await client.post('/pedidos/', headers=auth_catedra | {'Idempotency-Key': 'past-lective-year'},
+        json={'template_id': template.id, 'modelo_servicio': 'iaas', 'vigencia': vigencia})
+    assert response.status_code == 422, response.text

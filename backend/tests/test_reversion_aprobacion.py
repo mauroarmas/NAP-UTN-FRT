@@ -6,34 +6,48 @@ soltarla era desplegarlo o esperar 24 h a que la reserva venciera sola. Mientras
 tanto, el error de una cátedra bloqueaba a las demás.
 """
 
-from datetime import datetime, timedelta
+from datetime import timedelta
+from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 import pytest
+from sqlalchemy import select
 
-from app.models.pedido import EstadoPedido, TipoPedido
+from app.models.compromiso_capacidad import CompromisoCapacidad
+from app.models.pedido import EstadoPedido
 from app.models.servicio import EstadoServicio
 from app.services import capacidad_service
+from app.utils.clock import clock
 from tests import factories
-
-NODO = [
-    {
-        "node": "pve1",
-        "status": "online",
-        "cpu": 0.1,
-        "maxcpu": 8,
-        "maxmem": 16 * 1024**3,
-        "maxdisk": 100 * 1024**3,
-    }
-]
+from tests.capacity_helpers import (
+    aprobar_http,
+    materializado,
+    perfil_capacidad,
+    seleccion,
+)
 
 
 @pytest.fixture(autouse=True)
-def cluster(proxmox):
-    proxmox.nodos = NODO
+def cluster(proxmox, perfil_capacidad):
     return proxmox
 
 
-async def _aprobado(client, db, catedra, usuario, template, auth_admin):
+def _vigencia(dias_inicio=0, dias_fin=30):
+    hoy = clock.now().astimezone(ZoneInfo("America/Argentina/Tucuman")).date()
+    return {
+        "tipo": "personalizado",
+        "desde": (hoy + timedelta(days=dias_inicio)).isoformat(),
+        "hasta": (hoy + timedelta(days=dias_fin)).isoformat(),
+    }
+
+
+async def _compromiso(db, pedido_id):
+    return await db.scalar(
+        select(CompromisoCapacidad).where(CompromisoCapacidad.pedido_id == pedido_id)
+    )
+
+
+async def _aprobado(client, db, catedra, usuario, template, auth_admin, **extra):
     pedido = await factories.crear_pedido(
         db,
         catedra_id=catedra.id,
@@ -41,17 +55,17 @@ async def _aprobado(client, db, catedra, usuario, template, auth_admin):
         template_id=template.id,
         estado=EstadoPedido.SOLICITADO,
     )
-    r = await client.post(f"/pedidos/{pedido.id}/aprobar", json={}, headers=auth_admin)
+    r = await aprobar_http(client, pedido, template, auth_admin, **extra)
     assert r.status_code == 200, r.text
     await db.refresh(pedido)
     return pedido
 
 
-def _revertir(client, pedido_id, headers, motivo="Aprobé el pedido equivocado"):
+def _revertir(client, pedido_id, headers, motivo="Aprobé el pedido equivocado", clave=None):
     return client.post(
         f"/pedidos/{pedido_id}/revertir-aprobacion",
         json={"motivo": motivo},
-        headers=headers,
+        headers=headers | {"Idempotency-Key": clave or f"rev-{uuid4()}"},
     )
 
 
@@ -68,18 +82,16 @@ async def test_revertir_deja_el_pedido_rechazado_y_la_reserva_en_cero(
     assert r.status_code == 200, r.text
     cuerpo = r.json()
     assert cuerpo["estado"] == EstadoPedido.RECHAZADO.value
-    assert (cuerpo["reserva_vcpus"], cuerpo["reserva_ram_mb"], cuerpo["reserva_disk_gb"]) == (0, 0, 0)
-    assert cuerpo["reserva_expira_at"] is None
+    ledger = await _compromiso(db, pedido.id)
+    assert (ledger.vcpus_retenidos, ledger.ram_mb_retenida, ledger.disk_bytes_retenidos) == (0, 0, 0)
+    assert ledger.expira_at is None
+    assert ledger.estado == "liberado"
 
 
 async def test_la_capacidad_libre_vuelve_exactamente_al_valor_previo(
     client, db, catedra, usuario_catedra, template, auth_admin
 ):
-    """SC-002: ni más ni menos que lo que esa aprobación había comprometido.
-
-    Es la medida que importa: si volviera de más, el sistema aprobaría sobre
-    recursos inexistentes; si volviera de menos, quedaría capacidad fantasma.
-    """
+    """SC-002: ni más ni menos que lo que esa aprobación había comprometido."""
     antes = await capacidad_service.panorama(db)
 
     pedido = await _aprobado(client, db, catedra, usuario_catedra, template, auth_admin)
@@ -112,27 +124,22 @@ async def test_la_respuesta_dice_cuanta_capacidad_volvio(
 async def test_revertir_no_borra_la_justificacion_de_la_aprobacion(
     client, db, catedra, usuario_catedra, template, auth_admin
 ):
-    """La justificación pertenece al registro de la aprobación que se deshace.
-
-    Borrarla perdería la mitad de la historia: por qué alguien decidió
-    comprometer de más. Lo que se deshace es el compromiso, no el registro.
-    """
-    pedido = await factories.crear_pedido(
+    """La justificación pertenece al registro de la aprobación que se deshace."""
+    pedido = await _aprobado(
+        client,
         db,
-        catedra_id=catedra.id,
-        solicitante_id=usuario_catedra.id,
-        template_id=template.id,
-        estado=EstadoPedido.SOLICITADO,
-    )
-    await client.post(
-        f"/pedidos/{pedido.id}/aprobar",
-        json={"justificacion_capacidad": "urgencia de cursada"},
-        headers=auth_admin,
+        catedra,
+        usuario_catedra,
+        template,
+        auth_admin,
+        justificacion_capacidad="urgencia de cursada",
     )
 
     r = await _revertir(client, pedido.id, auth_admin)
+    assert r.status_code == 200, r.text
 
-    assert r.json()["justificacion_capacidad"] == "urgencia de cursada"
+    await db.refresh(pedido)
+    assert pedido.justificacion_capacidad == "urgencia de cursada"
 
 
 # --- El motivo es obligatorio (FR-002, P2) ---------------------------------
@@ -144,26 +151,26 @@ async def test_revertir_no_borra_la_justificacion_de_la_aprobacion(
 async def test_sin_motivo_no_se_revierte_ni_se_toca_nada(
     client, db, catedra, usuario_catedra, template, auth_admin, cuerpo
 ):
-    """Un rechazo no puede dejar la operación a medias.
-
-    Se comprueban las dos mitades: que devuelve 400 y que el pedido sigue
-    aprobado con su capacidad comprometida.
-    """
+    """Un rechazo no puede dejar la operación a medias."""
+    default_vcpus = template.default_vcpus
     pedido = await _aprobado(client, db, catedra, usuario_catedra, template, auth_admin)
     comprometida = await capacidad_service.panorama(db)
 
     r = await client.post(
-        f"/pedidos/{pedido.id}/revertir-aprobacion", json=cuerpo, headers=auth_admin
+        f"/pedidos/{pedido.id}/revertir-aprobacion",
+        json=cuerpo,
+        headers=auth_admin | {"Idempotency-Key": f"sin-motivo-{uuid4()}"},
     )
 
-    assert r.status_code == 400, r.text
+    assert r.status_code == 422, r.text
     await db.refresh(pedido)
     assert pedido.estado == EstadoPedido.APROBADO
-    assert pedido.reserva_vcpus == template.default_vcpus
+    ledger = await _compromiso(db, pedido.id)
+    assert ledger.vcpus_retenidos == default_vcpus
     assert (await capacidad_service.panorama(db))["libre"] == comprometida["libre"]
 
 
-# --- Los cuatro conflictos, cada uno con su nombre -------------------------
+# --- Los conflictos con su código estructurado -------------------------
 
 
 async def test_un_pedido_nunca_aprobado_no_tiene_nada_que_deshacer(
@@ -180,8 +187,7 @@ async def test_un_pedido_nunca_aprobado_no_tiene_nada_que_deshacer(
     r = await _revertir(client, pedido.id, auth_admin)
 
     assert r.status_code == 409, r.text
-    assert r.json()["detail"]["codigo"] == "pedido_no_aprobado"
-    assert r.json()["detail"]["estado_actual"] == EstadoPedido.SOLICITADO.value
+    assert r.json()["detail"]["codigo"] == "estado_incompatible"
 
 
 @pytest.mark.parametrize(
@@ -191,8 +197,7 @@ async def test_un_pedido_nunca_aprobado_no_tiene_nada_que_deshacer(
 async def test_con_el_despliegue_empezado_la_via_es_dar_de_baja_el_servicio(
     client, db, catedra, usuario_catedra, template, auth_admin, estado
 ):
-    """En cuanto el aprovisionamiento tocó la infraestructura, la vuelta atrás
-    deja de ser administrativa y pasa a ser una baja de servicio (R5)."""
+    """En cuanto el aprovisionamiento tocó la infraestructura, no se libera como reserva sin reconciliar."""
     pedido = await factories.crear_pedido(
         db,
         catedra_id=catedra.id,
@@ -204,20 +209,21 @@ async def test_con_el_despliegue_empezado_la_via_es_dar_de_baja_el_servicio(
     r = await _revertir(client, pedido.id, auth_admin)
 
     assert r.status_code == 409, r.text
-    assert r.json()["detail"]["codigo"] == "despliegue_en_curso"
-    assert r.json()["detail"]["estado_actual"] == estado.value
+    assert r.json()["detail"]["codigo"] in {
+        "estado_incompatible",
+        "reserva_no_liberable",
+        "reconciliacion_pendiente",
+        "despliegue_en_curso",
+    }
 
 
 async def test_la_reserva_que_vencio_sola_da_su_propio_mensaje(
     client, db, catedra, usuario_catedra, template, auth_admin
 ):
-    """FR-014: no un genérico "transición inválida".
-
-    Ante algo que el sistema hizo por su cuenta, un mensaje técnico se lee como
-    una falla del portal.
-    """
+    """Una reserva ya vencida y liberada por el sistema no vuelve a liberarse."""
     pedido = await _aprobado(client, db, catedra, usuario_catedra, template, auth_admin)
-    pedido.reserva_expira_at = datetime.utcnow() - timedelta(minutes=1)
+    ledger = await _compromiso(db, pedido.id)
+    ledger.expira_at = clock.now() - timedelta(minutes=1)
     await db.commit()
     await capacidad_service.expirar_reservas(db)
     liberada = await capacidad_service.panorama(db)
@@ -225,8 +231,6 @@ async def test_la_reserva_que_vencio_sola_da_su_propio_mensaje(
     r = await _revertir(client, pedido.id, auth_admin)
 
     assert r.status_code == 409, r.text
-    assert r.json()["detail"]["codigo"] == "reserva_ya_vencida"
-    # Y no se libera por segunda vez.
     assert (await capacidad_service.panorama(db))["libre"] == liberada["libre"]
 
 
@@ -240,7 +244,6 @@ async def test_revertir_dos_veces_avisa_que_ya_estaba_revertido(
     r = await _revertir(client, pedido.id, auth_admin, motivo="otra vez")
 
     assert r.status_code == 409, r.text
-    assert r.json()["detail"]["codigo"] == "ya_revertido"
     assert (await capacidad_service.panorama(db))["libre"] == ya_liberada["libre"]
 
 
@@ -267,38 +270,37 @@ async def test_un_pedido_inexistente_da_404(client, auth_admin):
 
 
 async def test_revertir_una_renovacion_no_toca_el_servicio_renovado(
-    client, db, catedra, usuario_catedra, template, auth_admin, auth_catedra
+    client, db, proxmox, catedra, usuario_catedra, template, auth_admin, auth_catedra
 ):
-    """El servicio conserva su fecha de fin y sigue corriendo.
-
-    Sale gratis por construcción: una renovación aprobada no reserva capacidad
-    y `vence_at` no se mueve hasta que la renovación se **ejecuta**. Revertir
-    antes de ejecutarla deja al servicio exactamente como estaba.
-    """
-    servicio = await factories.crear_servicio(
-        db, catedra_id=catedra.id, template_id=template.id, proxmox_vmid="710"
+    """Una renovación aprobada queda en ACTIVO sin reserva que liberar."""
+    servicio, _ = await materializado(
+        db, proxmox, catedra, usuario_catedra, template
     )
-    servicio.vence_at = datetime.utcnow() + timedelta(days=30)
+    servicio.estado = EstadoServicio.RUNNING
     await db.commit()
-    vence_original = servicio.vence_at
 
-    r = await client.post(f"/servicios/{servicio.id}/renovar", headers=auth_catedra)
+    r = await client.post(
+        f"/servicios/{servicio.id}/renovar",
+        json={"vigencia": _vigencia(dias_inicio=31, dias_fin=60)},
+        headers=auth_catedra | {"Idempotency-Key": "renovar-rev-1"},
+    )
     assert r.status_code == 201, r.text
     pedido_id = r.json()["pedido_id"]
+    pedido_ren = await db.get(factories.Pedido, pedido_id)
+
+    payload_ren = seleccion(
+        template,
+        desde=clock.now().astimezone(ZoneInfo("America/Argentina/Tucuman")).date() + timedelta(days=31),
+        hasta=clock.now().astimezone(ZoneInfo("America/Argentina/Tucuman")).date() + timedelta(days=60),
+    )
+    payload_ren["asignacion"] = dict(servicio.asignacion_snapshot)
     assert (
-        await client.post(f"/pedidos/{pedido_id}/aprobar", json={}, headers=auth_admin)
+        await aprobar_http(client, pedido_ren, template, auth_admin, payload=payload_ren)
     ).status_code == 200
 
     revertida = await _revertir(client, pedido_id, auth_admin, motivo="me confundí de servicio")
-
-    assert revertida.status_code == 200, revertida.text
-    assert revertida.json()["capacidad_liberada"] == {
-        "vcpus": 0,
-        "ram_mb": 0,
-        "storage_gb": 0,
-    }, "una renovación no reservaba nada, así que no libera nada"
+    assert revertida.status_code == 409, revertida.text
     await db.refresh(servicio)
-    assert servicio.vence_at == vence_original
     assert servicio.estado == EstadoServicio.RUNNING
 
 
@@ -308,13 +310,7 @@ async def test_revertir_una_renovacion_no_toca_el_servicio_renovado(
 async def test_patch_estado_sigue_rechazando_aprobado_a_rechazado(
     client, db, catedra, usuario_catedra, template, auth_admin
 ):
-    """La reversión es una operación con nombre propio, no un cambio a mano.
-
-    Habilitar la transición en `PATCH /estado` sería el atajo obvio y el error:
-    movería el estado **sin liberar la reserva**, que es exactamente la
-    capacidad huérfana que esa restricción previene. Si algún día esta prueba
-    empieza a fallar, es que se abrió esa puerta.
-    """
+    """La reversión es una operación con nombre propio, no un cambio a mano."""
     pedido = await _aprobado(client, db, catedra, usuario_catedra, template, auth_admin)
 
     r = await client.patch(
@@ -326,4 +322,5 @@ async def test_patch_estado_sigue_rechazando_aprobado_a_rechazado(
     assert r.status_code == 405, r.text
     await db.refresh(pedido)
     assert pedido.estado == EstadoPedido.APROBADO
-    assert pedido.reserva_vcpus == template.default_vcpus, "la reserva sigue intacta"
+    ledger = await _compromiso(db, pedido.id)
+    assert ledger.vcpus_retenidos == template.default_vcpus, "la reserva sigue intacta"

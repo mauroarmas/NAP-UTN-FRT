@@ -292,6 +292,15 @@
         },
         "otros_accesos_legitimos_comprobados": {
           "const": true
+        },
+        "cluster_uuid": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "pve_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
         }
       }
     }

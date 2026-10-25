@@ -176,9 +176,11 @@ GRANT ALL PRIVILEGES ON bookstack.* TO 'bookstack'@'localhost';
                 'MAIL_DRIVER': 'log'}
             system.write(APPLICATION + '/.env', ''.join(name + '=' + value + '\n' for name, value in fields.items()), mode=0o640)
             system.run(['/usr/bin/chown', 'root:www-data', '/' + APPLICATION + '/.env'])
-            for directory in ['storage/uploads/images', 'storage/uploads/files', 'storage/logs', 'storage/framework/cache/data',
+            for directory in ['storage/uploads/images', 'storage/uploads/files', 'storage/logs',
+                'storage/framework/cache', 'storage/framework/cache/data',
                 'storage/framework/sessions', 'storage/framework/views', 'bootstrap/cache', 'public/uploads', 'themes']:
-                system.run(['/usr/bin/install', '-d', '-o', 'www-data', '-g', 'www-data', '-m', '0750', '/' + APPLICATION + '/' + directory])
+                system.run(['/usr/bin/install', '-d', '-o', 'www-data', '-g', 'www-data', '-m', '0775', '/' + APPLICATION + '/' + directory])
+            system.run(['/usr/bin/chown', '-R', 'www-data:www-data', '/' + APPLICATION + '/storage', '/' + APPLICATION + '/bootstrap/cache'])
         context.step('environment', environment)
         artisan = ['/usr/bin/php8.3', '/' + APPLICATION + '/artisan']
         context.step('package_discovery', lambda: system.run(artisan + ['package:discover', '--no-interaction', '--no-ansi']))

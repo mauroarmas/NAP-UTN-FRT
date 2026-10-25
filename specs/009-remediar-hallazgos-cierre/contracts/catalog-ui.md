@@ -1,6 +1,6 @@
 # Contratos de catálogo, acceso y experiencia
 
-Diseño de feature 009. Complementa [auth.md](auth.md), [operations.md](operations.md) y [guest-runner.md](guest-runner.md). Prefijo /api/v1; autenticación, CSRF/Origin, errores e idempotencia siguen esos contratos. Las rutas nuevas requieren implementación posterior.
+Contrato implementado en la feature 009. Complementa [auth.md](auth.md), [operations.md](operations.md) y [guest-runner.md](guest-runner.md). Prefijo /api/v1; autenticación, CSRF/Origin, errores e idempotencia siguen esos contratos.
 
 ## Catálogo y definiciones
 
@@ -68,14 +68,14 @@ Las credenciales iniciales BookStack pueden quedar desactualizadas si el docente
 | Recorrido | Comportamiento exigido |
 |---|---|
 | Nueva solicitud | Reinicia al abrir, cátedra/modelo/template compatibles; cambiar modelo elimina opciones incompatibles. Sin VMID/nodo/template PVE para docente. |
-| Reenvío (solo admin) | Recupera datos editables; modalidad académica usa año/período configurados; personalizada exige rango. Cambiar modalidad limpia/recalcula fechas, sin arrastrar un fin anterior. |
+| Responder aclaración | Administración o titular actual del pedido propio, sólo en `requiere_ajuste`. Recupera datos editables sin hardware; modalidad académica usa año/período configurados y personalizada exige rango. Reenvía a revisión y avisa a administración. |
 | Aprobación | Muestra asignación/destino/fechas efectivos; al editar invalida evaluación. Sobreasignación muestra cifras y exige motivo; 409 conserva formulario y solicita reevaluación. |
 | Futuro/receso | Explica desde cuándo puede desplegar/reactivar y cuándo vence la reserva. Fecha habilitada no significa ejecución automática. Receso informa pausa/datos conservados/capacidad al reactivar. |
 | Acción de servicio | 202 muestra progreso y operación; no toast de éxito final ni cambio a running hasta confirmar. Al recargar conserva seguimiento desde servidor. |
 | Catálogo/filtros | Modelo IaaS/PaaS/SaaS desde snapshot, independiente de lxc. Plantillas retiradas siguen legibles en historial. |
 | Copiar datos | Éxito solo si Clipboard API confirma; error ofrece seleccionar/copiar manualmente sin ocultar el acceso. No copiar secretos por defecto. |
 
-Reenviar y cancelar solo aparecen para administración. El docente ve detalle y observaciones de ajuste sin controles de edición del pedido existente. Una reasignación/retiro que requiera retirar consola se muestra pendiente o fallida según [console-access.md](console-access.md); no hay toast de cambio completado ni acceso del nuevo titular antes de confirmar. El formulario admin de evidencias importa un JSON acotado, muestra tipo/instancia/origen/resultados y conserva el UUID devuelto; no pide una URL libre. Nunca muestra cookies, nonce sin hash ni contraseñas.
+Cancelar sólo aparece para administración. La cátedra ve «Responder aclaración» únicamente en un pedido propio devuelto; puede corregir la solicitud sin hardware ni decisiones de aprobación. «Pedir aclaración» registra el aviso de portal y encola correo según preferencias. Una reasignación/retiro que requiera retirar consola se muestra pendiente o fallida según [console-access.md](console-access.md); no hay toast de cambio completado ni acceso del nuevo titular antes de confirmar. El formulario admin de evidencias importa un JSON acotado, muestra tipo/instancia/origen/resultados y conserva el UUID devuelto; no pide una URL libre. Nunca muestra cookies, nonce sin hash ni contraseñas.
 
 Operación en curso impide doble confirmación del mismo recurso; se permite consultar/operar otros recursos independientes. Polling inicial de operación cada dos segundos con pausa al ocultar la pestaña y backoff ante fallo; al volver se consulta resultado. Un estado incierto ofrece seguimiento/administración, no un botón que envíe create de nuevo.
 

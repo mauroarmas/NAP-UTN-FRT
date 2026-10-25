@@ -45,16 +45,20 @@ test('el catálogo docente solicita una vigencia desde un perfil publicado sin c
   });
   await page.goto('/catalogo');
   await page.getByRole('button', { name: 'Solicitar Base de laboratorio' }).click();
-  await expect(page.getByLabel('Plantilla')).toHaveValue('2');
+  await expect(page.getByLabel('Servicio', { exact: true })).toHaveValue('2');
   await expect(page.getByText('image-internal-only')).toHaveCount(0);
   await expect(page.getByText('No publicada', { exact: true })).toHaveCount(0);
   await expect(page.getByText('QEMU histórico', { exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Rango Personalizado' }).click();
   await page.getByLabel('Fecha desde').fill('2027-03-01');
   await page.getByLabel('Fecha hasta').fill('2027-06-30');
+  await page.getByLabel('Nombre de la solicitud').fill('Prácticas de consultas');
+  await page.getByLabel('Justificación pedagógica').fill('Ejercicios de consultas para estudiantes de la cátedra.');
   await page.getByRole('button', { name: 'Enviar solicitud' }).click();
   await expect(page.getByRole('status')).toHaveText(/Solicitud #20 registrada/);
-  expect(submitted).toEqual({ modelo_servicio: 'paas', template_id: 2, catedra_id: 1, descripcion_requerimientos: null,
+  expect(submitted).toEqual({ modelo_servicio: 'paas', template_id: 2, catedra_id: 1,
+    descripcion_requerimientos: 'Ejercicios de consultas para estudiantes de la cátedra.',
+    parametros_extra: { titulo: 'Prácticas de consultas', software_solicitado: null },
     vigencia: { tipo: 'personalizado', desde: '2027-03-01', hasta: '2027-06-30' } });
 });
 

@@ -1,6 +1,6 @@
 # Contrato del runner de personalización de invitados
 
-Versión: `nap-guest-runner/1`. Contrato de diseño para FR-014, FR-019–FR-022, FR-035–FR-038, FR-061–FR-063 y FR-073. El runner todavía no está instalado ni se ha comprobado la versión real del clúster.
+Versión: `nap-guest-runner/1`. Contrato implementado en el repositorio para FR-014, FR-019–FR-022, FR-035–FR-038, FR-061–FR-063 y FR-073 (`infra/runner/nap_guest_runner.py` y recetas en `infra/services/`). La instalación en nodos reales del clúster universitario requiere la validación externa de infraestructura (`T102`).
 
 ## Responsabilidad y transporte
 

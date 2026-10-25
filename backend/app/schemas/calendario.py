@@ -5,11 +5,14 @@ from typing import Literal
 from pydantic import Field, StrictInt, field_validator, model_validator
 from app.schemas.common import Contrato
 
+ANIO_LECTIVO_MINIMO = 2026
+FECHA_MINIMA = date(ANIO_LECTIVO_MINIMO, 1, 1)
+
 
 class PeriodoEscritura(Contrato):
     tipo: Literal['primer_cuatrimestre', 'segundo_cuatrimestre', 'anual']
-    desde: date
-    hasta: date
+    desde: date = Field(ge=FECHA_MINIMA)
+    hasta: date = Field(ge=FECHA_MINIMA)
 
     @field_validator('desde', 'hasta', mode='before')
     @classmethod

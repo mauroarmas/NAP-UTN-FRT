@@ -59,6 +59,12 @@ async def reclamar(db, operation, *, pve=None):
         if vmid in busy or vmid > 999999999:
             raise InfraNoVerificable()
         resource_uuid, nonce = uuid4(), secrets.token_urlsafe(32)
+        product = operation.contexto_seguro['asignacion'].get('product')
+        if product in {'postgresql', 'bookstack'}:
+            from app.services.reserva_red_service import reservar
+            network_id = operation.contexto_seguro.get('preparacion_validada', {}).get('network_profile_id')
+            resource_uuid, allocation = await reservar(db, network_id=network_id, product=product, node=destination['nodo'])
+            operation.contexto_seguro = {**operation.contexto_seguro, 'red_reservada': allocation}
         identity = IdentidadInfraestructura(cluster_id=cluster, vmid=vmid, nodo=destination['nodo'],
             pool_catedra=f"catedra-{operation.contexto_seguro['catedra_id']}", resource_uuid=resource_uuid,
             nonce_cifrado=configured_keyring().encrypt(nonce, context=f'infra:{resource_uuid}:nonce'),

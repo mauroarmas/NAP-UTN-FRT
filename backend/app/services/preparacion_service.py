@@ -107,6 +107,16 @@ async def preparar(*, sessions, servicio_id, operacion_id, identidad_id, lease, 
         if not frozen:
             raise error(409, 'red_no_preparada', 'La operación no conserva el perfil validado antes de crear')
         selected, profile, _ = _profile(definition.manifest, op.contexto_seguro['destino'], frozen=frozen)
+        allocation = op.contexto_seguro.get('red_reservada')
+        if definition.producto in {'postgresql', 'bookstack'}:
+            from app.services.reserva_red_service import snapshot
+            try:
+                if (not allocation or allocation['network_profile_id'] != selected
+                    or allocation['resource_uuid'] != str(identity.resource_uuid)
+                    or allocation['instance'] != snapshot(profile, profile['instances'][str(identity.resource_uuid)])):
+                    raise ValueError()
+            except (KeyError,TypeError,ValueError):
+                raise error(409, 'red_preparada_cambiada', 'El destino preparado cambió; revisar sin reasignar identidad o secretos') from None
         parameters = current.get('bootstrap_parameters')
         if parameters is None:
             parameters = {'display_name': (assignment.get('nombre') or definition.codigo)[:100]}

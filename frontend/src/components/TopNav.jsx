@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   Activity, Building2, ChevronDown, ClipboardCheck, Home, LogOut,
-  Moon, Package, Server, Settings, Sun, Users, CalendarDays,
+  Moon, Package, Server, Settings, Sun, Users, CalendarDays, Shield,
 } from 'lucide-react';
 import useTheme from '../hooks/useTheme';
 import { iniciales } from './ui';
@@ -13,7 +13,11 @@ const LINKS = [
   { to: '/pedidos', label: 'Pedidos', icon: ClipboardCheck },
   { to: '/servicios', label: 'Servicios', icon: Server },
   { to: '/metricas', label: 'Métricas', icon: Activity },
-  { to: '/seguridad', label: 'Seguridad', icon: Settings },
+];
+
+const CATEDRA_LINKS = [
+  { to: '/catalogo', label: 'Catálogo', icon: Package },
+  { to: '/pedidos', label: 'Pedidos', icon: ClipboardCheck },
 ];
 
 const ADMIN_LINKS = [
@@ -90,19 +94,17 @@ export default function TopNav({ user, onLogout }) {
           </span>
         </button>
 
-        {isAdmin && <div className="topnav-divider" />}
+        <div className="topnav-divider" />
 
-        {!isAdmin && <NavLink to="/catalogo" className="topnav-link"><Package size={16} />Catálogo</NavLink>}
+        <nav className="topnav-links">
+          {(isAdmin ? LINKS : CATEDRA_LINKS).map(({ to, label, icon: Icon }) => (
+            <NavLink key={to} to={to} className={({ isActive }) => `topnav-link ${isActive ? 'active' : ''}`}>
+              <Icon size={16} />
+              {label}
+            </NavLink>
+          ))}
 
-        {isAdmin && (
-          <nav className="topnav-links">
-            {LINKS.map(({ to, label, icon: Icon }) => (
-              <NavLink key={to} to={to} className={({ isActive }) => `topnav-link ${isActive ? 'active' : ''}`}>
-                <Icon size={16} />
-                {label}
-              </NavLink>
-            ))}
-
+          {isAdmin && (
             <div className="menu" ref={adminRef} style={{ marginLeft: 6 }}>
               <button
                 className={`topnav-menu-trigger ${ADMIN_LINKS.some((l) => location.pathname.startsWith(l.to)) ? 'active' : ''}`}
@@ -123,8 +125,8 @@ export default function TopNav({ user, onLogout }) {
                 </div>
               )}
             </div>
-          </nav>
-        )}
+          )}
+        </nav>
 
         <div className="topnav-right" style={{ marginLeft: 'auto' }}>
           <div className="menu" ref={menuRef}>
@@ -149,7 +151,7 @@ export default function TopNav({ user, onLogout }) {
                 {/* Separador */}
                 <div style={{ height: 1, background: 'var(--color-divider)', margin: '4px 0' }} />
 
-                {/* Para cátedra, accesos directos a Inicio y Pedidos */}
+                {/* Para cátedra, acceso directo a Inicio */}
                 {!isAdmin && (
                   <NavLink
                     to="/"
@@ -162,13 +164,14 @@ export default function TopNav({ user, onLogout }) {
                   </NavLink>
                 )}
 
+                {/* Seguridad (para admin y cátedra) */}
                 <NavLink
-                  to="/pedidos"
+                  to="/seguridad"
                   className={({ isActive }) => `menu-item ${isActive ? 'active' : ''}`}
                   onClick={() => setMenuOpen(false)}
                 >
-                  <ClipboardCheck size={15} />
-                  Pedidos
+                  <Shield size={15} />
+                  Seguridad
                 </NavLink>
 
                 {/* Separador */}

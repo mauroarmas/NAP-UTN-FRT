@@ -93,6 +93,10 @@ export default function AprobarPedidoModal({ open, pedido, templates = EMPTY, on
   return <Dialog wide title={`Aprobar pedido #${pedido.id}`} onClose={onClose} closeDisabled={busy}>
     <form onSubmit={submit} className="col gap-3">
       <ErrorFormulario error={error} />
+      {!renewal && !pedido.template_id && <div className="callout">
+        <strong>Servicio solicitado: {pedido.parametros_extra?.software_solicitado || 'Otro'}</strong>
+        <p>Prepará el servicio y agregalo al catálogo. Después seleccioná aquí su oferta publicada para evaluar y aprobar la asignación de este pedido.</p>
+      </div>}
       <label htmlFor="approval-template">Plantilla</label>
       <select id="approval-template" value={templateId} onChange={(e) => changeTemplate(e.target.value)} disabled={busy || renewal} required>
         <option value="">Seleccioná una plantilla compatible</option>

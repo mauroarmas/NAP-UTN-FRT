@@ -5,13 +5,14 @@ import re
 
 from pydantic import Field, StrictInt, StrictBool, field_validator, model_validator
 from app.schemas.common import Contrato, Recursos, Destino
+from app.schemas.calendario import ANIO_LECTIVO_MINIMO, FECHA_MINIMA
 
 
 class VigenciaSolicitud(Contrato):
     tipo: Literal['primer_cuatrimestre', 'segundo_cuatrimestre', 'anual', 'personalizado']
-    anio_lectivo: StrictInt | None = Field(default=None, ge=1900, le=9998)
-    desde: date | None = None
-    hasta: date | None = None
+    anio_lectivo: StrictInt | None = Field(default=None, ge=ANIO_LECTIVO_MINIMO, le=9998)
+    desde: date | None = Field(default=None, ge=FECHA_MINIMA)
+    hasta: date | None = Field(default=None, ge=FECHA_MINIMA)
 
     @field_validator('desde', 'hasta', mode='before')
     @classmethod

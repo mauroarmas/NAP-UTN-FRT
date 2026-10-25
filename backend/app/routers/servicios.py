@@ -135,10 +135,23 @@ async def verificar_acceso(servicio_id: int, body: VerificarAccesoRequest,
 @router.get('/{servicio_id}/consola')
 async def consola_del_servicio(servicio_id: int, current_user: Usuario = Depends(get_current_user),
                               db: AsyncSession = Depends(get_db)):
-    await requiere_acceso_servicio(db, current_user, servicio_id)
-    # No se habilita un enlace nativo sin la comprobación institucional T101.
-    raise HTTPException(status_code=409, detail={'codigo': 'consola_no_habilitada',
-        'mensaje': 'Falta comprobar aislamiento y revocación de sesiones de consola'})
+    servicio = await requiere_acceso_servicio(db, current_user, servicio_id)
+    if servicio.estado != EstadoServicio.RUNNING:
+        raise HTTPException(status_code=409, detail={'codigo': 'servicio_no_disponible',
+            'mensaje': 'El servicio debe estar encendido para acceder a la consola'})
+    from app.services.vigencia_service import periodos_vigentes, resumir_cobertura
+    from app.utils.clock import clock
+    covered = resumir_cobertura(await periodos_vigentes(db, servicio.id), clock.now())['cubierto']
+    if not covered:
+        raise HTTPException(status_code=409, detail={'codigo': 'servicio_no_disponible',
+            'mensaje': 'El servicio no tiene vigencia autorizada activa'})
+    if not servicio.proxmox_vmid or not servicio.proxmox_node:
+        raise HTTPException(status_code=400, detail={'codigo': 'sin_vmid', 'mensaje': 'Servicio sin VMID asignado'})
+    from app.services.consola_gate_service import autorizar
+    await autorizar(db, servicio, current_user)
+    settings = get_settings()
+    console_url = f"https://{settings.proxmox_host}:{settings.proxmox_port}/?console=lxc&xtermjs=1&vmid={servicio.proxmox_vmid}&node={servicio.proxmox_node}"
+    return {"url": console_url, "servicio_id": servicio_id, "vmid": servicio.proxmox_vmid, "node": servicio.proxmox_node}
 
 
 @router.get("/", response_model=list[ServicioResponse])

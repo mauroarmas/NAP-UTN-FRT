@@ -48,8 +48,13 @@ Una instantánea del hipervisor puede complementar el procedimiento si se compru
 
 RPO observado: diferencia entre el último dato de negocio durable previo al incidente y el dato más reciente comprobado en la copia recuperada. RTO observado: desde el inicio del procedimiento hasta completar las comprobaciones acordadas y habilitar el acceso. Registrar tiempos observados, volumen y hardware; no presentar una meta como medición. Una frecuencia diaria permite planificar una ventana de pérdida de hasta el último corte diario exitoso; fallos de copia pueden ampliarla.
 
-T131 exige evidencia separada de portal+keyring, PostgreSQL con dato y BookStack con libro/imagen/adjunto/cuentas/permisos. Un ensayo local con dobles o sólo restauración de portal no completa ese criterio. El destino externo, custodios y aceptación operativa siguen pendientes mientras se arma el clúster.
+Se verificaron el control de restauración/revocación en [restauracion-control.md](evidencia/009/restauracion-control.md) y las migraciones mediante suites PostgreSQL aisladas. No se encuentra evidencia de un ensayo completo de pg_dump/pg_restore del portal+keyring ni del contenido de las aplicaciones; no se consideran recuperaciones aceptadas. T131 conserva la ejecución de la restauración completa y separada con comparación de datos/permisos y RTO/RPO. T133 conserva el recorrido desde otra computadora con ambos roles, SMTP y aplicaciones. El destino externo y sus custodios se completan con infraestructura; por ahora se trabaja con la VM.
+
 
 ## Referencias de operación
 
-[pg_dump PostgreSQL 16](https://www.postgresql.org/docs/16/app-pgdump.html), [pg_dumpall y roles](https://www.postgresql.org/docs/16/app-pg-dumpall.html), [respaldo BookStack](https://www.bookstackapp.com/docs/admin/backup-restore/) y [mariadb-dump](https://mariadb.com/kb/en/mariadb-dump/). Los scripts/recetas de servicio fijan versiones; confirmar las opciones de la herramienta de esa versión antes de ejecutar el corte.
+- [Manual de Administración y Operación](manual-administrador.md)
+- [Manual de Usuario Docente](manual-docente.md)
+- [Guía de Despliegue Docker](../DOCKER.md)
+- [Preparador de Restauración](preparar-restauracion.md)
+- [pg_dump PostgreSQL 16](https://www.postgresql.org/docs/16/app-pgdump.html), [pg_dumpall y roles](https://www.postgresql.org/docs/16/app-pg-dumpall.html), [respaldo BookStack](https://www.bookstackapp.com/docs/admin/backup-restore/) y [mariadb-dump](https://mariadb.com/kb/en/mariadb-dump/). Los scripts/recetas de servicio fijan versiones; confirmar las opciones de la herramienta de esa versión antes de ejecutar el corte.

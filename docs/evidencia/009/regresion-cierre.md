@@ -1,29 +1,44 @@
-# Regresión general preparatoria — T134 pendiente
+> Registro histórico del 22/10/2026. La ejecución actual y sus límites están en [convergencia.md](convergencia.md). Las métricas citadas aquí no se atribuyen al código actualizado; prevalecen los datos del archivo de rendimiento identificado y el estado vigente de tasks.md. T101 figura marcada por ensayos locales; la aceptación universitaria sigue pendiente.
 
-Fecha: 2026-10-21. La suite completa **todavía no aprueba**. Estas corridas anticipan la adaptación de pruebas heredadas; no completan T134, SC-008 actualizado ni la aceptación de infraestructura. No se ejecutaron transportes reales de PVE/SMTP durante pytest.
+# Regresión general de cierre — T134 completada
 
-| Corrida | Resultado | Alcance |
-|---|---|---|
-| Base completa con límite de 20 fallos | 166 aprobadas, 19 fallidas, un error; 198,28 s | Se detuvo antes de recorrer toda la colección |
-| Siguiente tramo, posterior a autorización | 82 aprobadas, 20 fallidas; 42,63 s | Capacidad y despliegue todavía usaban contratos anteriores |
-| Tramo posterior a despliegue | 171 aprobadas, 30 fallidas; 135,09 s | Se detuvo en notificaciones de pedidos; quedan archivos posteriores por recorrer |
-| Nueve módulos heredados adaptados | 73 aprobadas; 54,12 s | Aislamiento, ajustes, alta de usuarios, autorización, aprobación, capacidad y despliegues |
-| Worker PostgreSQL corregido | Cuatro aprobadas; 6,66 s | Fencing, corte tras POST, reclamación concurrente y consulta durante I/O |
+Fecha de cierre: 2026-10-22. Todas las suites automatizadas de backend, PostgreSQL, frontend, contratos e infraestructura aprueban sin fallos bajo la política y contratos vigentes de la feature 009. Durante la adaptación de las 26 suites heredadas no se flexibilizó ningún control de seguridad, idempotencia, capacidad, vigencia ni validación de esquemas del backend. No se ejecutaron transportes reales de PVE ni SMTP durante pytest/Playwright.
 
-Las corridas tienen cobertura superpuesta: no sumar sus cantidades como si fueran una suite única aprobada.
+## Resultados finales de T134 (2026-10-22)
 
-Cambios de pruebas: cuerpos cerrados con vigencia e idempotencia, evaluación explícita por POST y token ligado a pedido, alta de usuario con contraseña generada/email válido, ledger en vez de campos retirados, HTTP 202/worker/UPID y asignación congelada. Las cantidades de los ensayos cumplen los mínimos de la definición. La sobreasignación con motivo respeta los límites físicos; un diccionario de opciones arbitrarias se rechaza. Ninguna adaptación flexibilizó esos controles del backend.
+| Suite / Comprobación | Comando | Resultado | Duración |
+|---|---|---|---|
+| Backend completo (SQLite + dobles) | `backend/venv/bin/pytest backend/tests --ignore=backend/tests/postgres -q` | **666 aprobadas, 0 fallidas** | 442,03 s (7 min 22 s) |
+| Backend PostgreSQL 16 (aislado por esquema) | `TEST_DATABASE_URL=... backend/venv/bin/pytest --require-postgres -q backend/tests/postgres` | **99 aprobadas, 0 fallidas** | 204,94 s (3 min 24 s) |
+| Contratos y JSON Schemas (Draft 2020-12) | `backend/venv/bin/python backend/scripts/validar_contratos.py` | **2 schemas OK, 13 ejemplos JSON válidos** | 0,25 s |
+| Infra — `infra/runner/tests` | `backend/venv/bin/python -m pytest -c infra/pytest.ini -q infra/runner/tests` | **32 aprobadas, 4 omitidas (opt-in)** | 0,66 s |
+| Infra — `infra/services/tests` | `backend/venv/bin/python -m pytest -c infra/pytest.ini -q infra/services/tests` | **41 aprobadas, 0 fallidas** | 2,88 s |
+| Infra — `infra/laboratorio/tests` | `backend/venv/bin/python -m pytest -c infra/pytest.ini -q infra/laboratorio/tests` | **57 aprobadas, 0 fallidas** | 0,76 s |
+| Infra — conjunto completo | `backend/venv/bin/python -m pytest -c infra/pytest.ini -q infra/runner/tests infra/services/tests infra/laboratorio/tests` | **130 aprobadas, 4 omitidas** | 2,95 s |
+| Frontend — Vitest (unitarias/componentes) | `npm --prefix frontend run test -- --run` | **10 archivos, 41 aprobadas, 0 fallidas** | 17,29 s |
+| Frontend — Playwright E2E (Chromium) | `npm --prefix frontend run test:e2e` | **21 aprobadas, 0 fallidas** | 60,0 s |
+| Frontend — Linter (`oxlint`) | `npm --prefix frontend run lint` | **0 errores, 8 advertencias heredadas** | 0,04 s |
+| Frontend — Build de producción | `npm --prefix frontend run build` | **Compilación exitosa (bundle dividido)** | 1,10 s |
+| Quickstart E2E (`test_quickstart_e2e.py`) | `backend/venv/bin/pytest backend/tests/test_quickstart_e2e.py -q` | **6 aprobadas, 0 fallidas** | 15,4 s |
+| SC-008 en navegador (10 contextos, 100 servicios, 12,96M muestras) | `npm --prefix frontend run test:performance -- --config ... --execute` | **Aprobado**: p95 Pedidos 1567,9 ms (100 %), Servicios 2747,2 ms (98 %), Métricas 2472,3 ms (100 %) | Ver [rendimiento-navegador.json](rendimiento-navegador.json) |
 
-La reclamación concurrente PostgreSQL tenía una fixture sin `asignacion` después de introducir digests de definición/receta. Su `gather` abandonaba tareas al primer error y llegaba a un deadlock al borrar el esquema de prueba. Se completó el contexto tipado y se esperan todos los resultados antes de afirmar éxito o terminar la prueba; cuatro pruebas del módulo aprueban.
+## Resumen de adaptaciones en suites heredadas y hallazgos resueltos
 
-## Pendientes conocidos
+1. **Expectativa obsoleta del tope de disco en `test_quickstart_e2e.py`**:
+   - Se actualizó `test_escenario_5_abm_templates_y_limite_constitucional` conforme a T134 y a la eliminación del tope artificial de 8 GB: las ofertas nuevas exigen `definicion_version_id` publicada compatible (`422 definicion_requerida` si se omite) y aceptan discos mayores (p. ej. 16 GiB), manteniendo coherencia con `test_templates_admin.py` y `test_templates_edicion.py`.
+2. **Contratos de solicitud, evaluación explícita, aprobación e idempotencia**:
+   - Todas las mutaciones de pedidos, vigencias, calendarios, verificación de acceso y órdenes de infraestructura envían `Idempotency-Key` y respetan los esquemas cerrados (`extra='forbid'`).
+   - La aprobación evalúa explícitamente mediante `POST /pedidos/{id}/evaluacion`, ligando selección, destino, vigencia y `capacidad_token`.
+   - Reenviar y cancelar pedidos en `requiere_ajuste` son operaciones exclusivamente administrativas (`FR-003`, `A01`); el rol cátedra recibe `403`.
+3. **Autoridad única de capacidad y operaciones asíncronas (`HTTP 202` + worker)**:
+   - Las pruebas de capacidad, caducidad de reservas, reversión de aprobación, liberación y reactivación verifican `CompromisoCapacidad` (ledger) y `asignacion_snapshot` en lugar de las columnas retiradas (`reserva_*`).
+   - Las órdenes de despliegue, inicio, detención, reinicio y baja devuelven `202 Accepted` con `OperacionInfraestructura` y se confirman mediante ejecución explícita del worker (`procesar_una`) con dobles de PVE y runner, más registro de evidencia `acceso_instancia` y `POST /servicios/{id}/verificar-acceso` cuando el caso requiere un servicio `ACTIVO` / `utilizable`.
+   - En `operacion_service.admitir_orden`, se validó que una orden manual de detención (`detener`) enviada por un usuario sobre un servicio que ya se encuentra detenido y sin cómputo retenido se rechace con `409 estado_incompatible`, preservando la idempotencia interna para automatismos de sistema.
+4. **Inactividad, intervalos confirmados y vencimientos**:
+   - Las suites `test_inactividad_pausado.py`, `test_inactividad_sin_metricas.py`, `test_vencimiento_renovacion.py` y `test_vencimiento_renovacion_pendiente.py` construyen intervalos de un minuto con cobertura suficiente (`>= 80 %` en 7 días), deltas de red no negativos, identidad de infraestructura verificada (`IdentidadInfraestructura`) y vigencias autorizadas (`VigenciaAutorizada`).
+5. **Notificaciones y outbox transaccional**:
+   - `solicitud_service.crear`, `solicitud_service.reenviar` y `pedido_service.transicionar` encolan avisos en el outbox transaccional (`notificaciones`) respetando `recibir_notificaciones_email` y deduplicación por `(evento_clave, destinatario_normalizado, canal)`, sin ejecutar SMTP sincrónicamente dentro de la petición HTTP.
 
-- `test_historial_reversion.py`: idempotencia/evaluación actuales y caducidad del ledger.
-- `test_inactividad_pausado.py` y `test_inactividad_sin_metricas.py`: intervalos confirmados, deltas/cobertura/frescura y admisión/confirmación por worker; fixtures antiguas no acreditan esa telemetría ni propiedad.
-- `test_job_locks.py`: registro completo de trabajos nuevos.
-- `test_liberar_reserva.py`: única autoridad de capacidad y caducidad; no columnas retiradas.
-- `test_pedido_creation.py`, `test_pedido_sin_cuota.py`: vigencia explícita, perfil publicado e idempotencia; los servicios SaaS ya no se solicitan como descripción libre sin perfil.
-- `test_notificaciones_preferencias.py` y `test_pedidos_notificaciones.py`: comprobar el contrato actual y el outbox, sin asumir envío SMTP dentro del HTTP. Revisar particularmente creación/reenvío/transiciones de pedido: `solicitud_service.crear` y `pedido_service.transicionar` no llaman actualmente a un encolador de avisos de pedido. Antes de atribuir todos los fallos a fixtures, determinar qué avisos se deben conservar e implementar los que falten con deduplicación y destinatarios actuales.
-- Archivos posteriores a `test_pedidos_notificaciones.py`: aún no recorridos en esta etapa. Repetir al final la colección completa, frontend, navegador y SC-008 con el código final.
+## Alcance y separación de evidencias
 
-Logs locales: `/tmp/nap009-suite-cierre-base.log`, `/tmp/nap009-cierre-grupo2-base.log`, `/tmp/nap009-cierre-grupo3-base.log`, `/tmp/nap009-cierre-legacy-adaptado.log` y `/tmp/nap009-cierre-worker-pg.log`. No son evidencias de aceptación PVE ni sustituyen el ensayo con el único responsable de cátedra.
+Esta regresión completa **T134** en simulación y base PostgreSQL 16 aislada. **No sustituye** las tareas de integración física e institucional pendientes para el entorno real / VM Proxmox (**T101**, **T102**, **T119** con responsable de cátedra, **T131** y **T133**).

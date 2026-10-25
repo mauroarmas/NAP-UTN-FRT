@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, StrictInt
+from pydantic import BaseModel, Field, StrictInt, model_validator
 from datetime import datetime
 from typing import Literal
 from uuid import UUID
@@ -19,12 +19,29 @@ class CatedraBreve(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class DatosSolicitud(Contrato):
+    titulo: str | None = Field(default=None, max_length=200)
+    software_solicitado: str | None = Field(default=None, max_length=200)
+
+
 class PedidoCreate(Contrato):
-    template_id: StrictInt = Field(ge=1)
+    template_id: StrictInt | None = Field(default=None, ge=1)
     modelo_servicio: Literal['iaas', 'paas', 'saas']
     descripcion_requerimientos: str | None = Field(default=None, max_length=5000)
     vigencia: VigenciaSolicitud
     catedra_id: StrictInt | None = Field(default=None, ge=1)
+    parametros_extra: DatosSolicitud | None = None
+
+    @model_validator(mode='after')
+    def validar_servicio_a_medida(self):
+        if self.template_id is None:
+            if self.modelo_servicio == 'iaas':
+                raise ValueError('Para infraestructura, seleccioná una plantilla del catálogo')
+            if not self.parametros_extra or not (self.parametros_extra.software_solicitado or '').strip():
+                raise ValueError('Indicá qué software o servicio necesitás al elegir Otro')
+            if not (self.descripcion_requerimientos or '').strip():
+                raise ValueError('Describí el uso y la justificación pedagógica del servicio solicitado')
+        return self
 
 
 class PedidoCambiarEstado(BaseModel):
@@ -45,6 +62,7 @@ class PedidoReenviar(Contrato):
     modelo_servicio: Literal['iaas', 'paas', 'saas'] | None = None
     descripcion_requerimientos: str | None = Field(default=None, max_length=5000)
     vigencia: VigenciaSolicitud
+    parametros_extra: DatosSolicitud | None = None
 
 
 class PedidoCancelar(Contrato):

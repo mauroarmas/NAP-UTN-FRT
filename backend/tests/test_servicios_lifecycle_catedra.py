@@ -1,50 +1,99 @@
-"""US1/US2/US3 (spec 003) — apagar, encender, reiniciar y consola sobre servicios propios."""
+"""US1/US2/US3 (spec 003 + spec 009) — apagar, encender, reiniciar y consola sobre servicios propios."""
 
+from uuid import UUID, uuid4
+
+import pytest
+from sqlalchemy.ext.asyncio import async_sessionmaker
+
+from app.models.operacion_infraestructura import OperacionInfraestructura
 from app.models.servicio import EstadoServicio
+from app.worker import procesar_una
 from tests import factories
+from tests.capacity_helpers import materializado, perfil_capacidad  # noqa: F401
 from tests.fakes import ocupar
 
 
-async def _crear_servicio_de_otra_catedra(db, estado=EstadoServicio.RUNNING):
-    """Servicio que pertenece a una cátedra distinta de la de los fixtures compartidos."""
-    otra_catedra = await factories.crear_catedra(db, nombre="Otra Cátedra")
-    template = await factories.crear_template(db, nombre="Template ajeno")
-    return await factories.crear_servicio(
-        db, catedra_id=otra_catedra.id, template_id=template.id, estado=estado
-    )
+@pytest.fixture(autouse=True)
+def cluster(proxmox, perfil_capacidad):
+    return proxmox
 
+
+async def _crear_servicio_propio(
+    db, proxmox, catedra, usuario, template, estado=EstadoServicio.RUNNING, vmid=210
+):
+    servicio, ledger = await materializado(
+        db, proxmox, catedra, usuario, template, vmid=vmid
+    )
+    servicio.estado = estado
+    if estado == EstadoServicio.RUNNING:
+        ledger.vcpus_retenidos = servicio.vcpus_asignados
+        ledger.ram_mb_retenida = servicio.ram_asignada_mb
+        proxmox.estados[vmid] = "running"
+        for r in proxmox.recursos:
+            if int(r["vmid"]) == vmid:
+                r["status"] = "running"
+    else:
+        ledger.vcpus_retenidos = 0
+        ledger.ram_mb_retenida = 0
+        proxmox.estados[vmid] = "stopped"
+        for r in proxmox.recursos:
+            if int(r["vmid"]) == vmid:
+                r["status"] = "stopped"
+    await db.commit()
+    return servicio
+
+
+async def _crear_servicio_de_otra_catedra(db, proxmox, template, estado=EstadoServicio.RUNNING, vmid=290):
+    """Servicio que pertenece a una cátedra distinta de la de los fixtures compartidos."""
+    otra_catedra = await factories.crear_catedra(db, nombre=f"Otra Cátedra {vmid}")
+    otro_usuario = await factories.crear_usuario(db, username=f"otro_profe_{vmid}")
+    return await _crear_servicio_propio(
+        db, proxmox, otra_catedra, otro_usuario, template, estado=estado, vmid=vmid
+    )
 
 
 # --- Apagar / encender: éxito para la cátedra dueña ---
 
 
 async def test_catedra_apaga_su_propio_servicio(
-    client, db, proxmox, catedra, template, auth_catedra
+    client, engine, db, proxmox, catedra, usuario_catedra, template, auth_catedra
 ):
-    servicio = await factories.crear_servicio(
-        db, catedra_id=catedra.id, template_id=template.id, estado=EstadoServicio.RUNNING
+    servicio = await _crear_servicio_propio(
+        db, proxmox, catedra, usuario_catedra, template, estado=EstadoServicio.RUNNING, vmid=211
     )
 
-    r = await client.post(f"/servicios/{servicio.id}/stop", headers=auth_catedra)
+    r = await client.post(
+        f"/servicios/{servicio.id}/stop",
+        headers=auth_catedra | {"Idempotency-Key": f"stop-{uuid4()}"},
+        json={},
+    )
 
-    assert r.status_code == 200, r.text
-    assert r.json()["estado"] == "stopped"
+    assert r.status_code == 202, r.text
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    await procesar_una(sessions, pve=proxmox)
+
     await db.refresh(servicio)
     assert servicio.estado == EstadoServicio.STOPPED
     assert (servicio.proxmox_node, int(servicio.proxmox_vmid)) in proxmox.detenidos
 
 
 async def test_catedra_enciende_su_propio_servicio(
-    client, db, proxmox, catedra, template, auth_catedra
+    client, engine, db, proxmox, catedra, usuario_catedra, template, auth_catedra
 ):
-    servicio = await factories.crear_servicio(
-        db, catedra_id=catedra.id, template_id=template.id, estado=EstadoServicio.STOPPED
+    servicio = await _crear_servicio_propio(
+        db, proxmox, catedra, usuario_catedra, template, estado=EstadoServicio.STOPPED, vmid=212
     )
 
-    r = await client.post(f"/servicios/{servicio.id}/start", headers=auth_catedra)
+    r = await client.post(
+        f"/servicios/{servicio.id}/start",
+        headers=auth_catedra | {"Idempotency-Key": f"start-{uuid4()}"},
+        json={},
+    )
 
-    assert r.status_code == 200, r.text
-    assert r.json()["estado"] == "running"
+    assert r.status_code == 202, r.text
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    await procesar_una(sessions, pve=proxmox)
+
     await db.refresh(servicio)
     assert servicio.estado == EstadoServicio.RUNNING
 
@@ -52,10 +101,16 @@ async def test_catedra_enciende_su_propio_servicio(
 # --- Aislamiento entre cátedras (FR-005) ---
 
 
-async def test_catedra_no_puede_apagar_servicio_ajeno(client, db, proxmox, auth_catedra):
-    servicio_ajeno = await _crear_servicio_de_otra_catedra(db, estado=EstadoServicio.RUNNING)
+async def test_catedra_no_puede_apagar_servicio_ajeno(client, db, proxmox, template, auth_catedra):
+    servicio_ajeno = await _crear_servicio_de_otra_catedra(
+        db, proxmox, template, estado=EstadoServicio.RUNNING, vmid=291
+    )
 
-    r = await client.post(f"/servicios/{servicio_ajeno.id}/stop", headers=auth_catedra)
+    r = await client.post(
+        f"/servicios/{servicio_ajeno.id}/stop",
+        headers=auth_catedra | {"Idempotency-Key": f"stop-{uuid4()}"},
+        json={},
+    )
 
     assert r.status_code == 403, r.text
     assert proxmox.detenidos == []
@@ -63,10 +118,16 @@ async def test_catedra_no_puede_apagar_servicio_ajeno(client, db, proxmox, auth_
     assert servicio_ajeno.estado == EstadoServicio.RUNNING
 
 
-async def test_catedra_no_puede_encender_servicio_ajeno(client, db, proxmox, auth_catedra):
-    servicio_ajeno = await _crear_servicio_de_otra_catedra(db, estado=EstadoServicio.STOPPED)
+async def test_catedra_no_puede_encender_servicio_ajeno(client, db, proxmox, template, auth_catedra):
+    servicio_ajeno = await _crear_servicio_de_otra_catedra(
+        db, proxmox, template, estado=EstadoServicio.STOPPED, vmid=292
+    )
 
-    r = await client.post(f"/servicios/{servicio_ajeno.id}/start", headers=auth_catedra)
+    r = await client.post(
+        f"/servicios/{servicio_ajeno.id}/start",
+        headers=auth_catedra | {"Idempotency-Key": f"start-{uuid4()}"},
+        json={},
+    )
 
     assert r.status_code == 403, r.text
     assert proxmox.iniciados == []
@@ -75,22 +136,34 @@ async def test_catedra_no_puede_encender_servicio_ajeno(client, db, proxmox, aut
 # --- Estado inválido (FR-007) ---
 
 
-async def test_apagar_servicio_ya_detenido_da_409(client, db, catedra, template, auth_catedra):
-    servicio = await factories.crear_servicio(
-        db, catedra_id=catedra.id, template_id=template.id, estado=EstadoServicio.STOPPED
+async def test_apagar_servicio_ya_detenido_da_409(
+    client, db, proxmox, catedra, usuario_catedra, template, auth_catedra
+):
+    servicio = await _crear_servicio_propio(
+        db, proxmox, catedra, usuario_catedra, template, estado=EstadoServicio.STOPPED, vmid=213
     )
 
-    r = await client.post(f"/servicios/{servicio.id}/stop", headers=auth_catedra)
+    r = await client.post(
+        f"/servicios/{servicio.id}/stop",
+        headers=auth_catedra | {"Idempotency-Key": f"stop-{uuid4()}"},
+        json={},
+    )
 
     assert r.status_code == 409, r.text
 
 
-async def test_encender_servicio_ya_corriendo_da_409(client, db, catedra, template, auth_catedra):
-    servicio = await factories.crear_servicio(
-        db, catedra_id=catedra.id, template_id=template.id, estado=EstadoServicio.RUNNING
+async def test_encender_servicio_ya_corriendo_da_409(
+    client, db, proxmox, catedra, usuario_catedra, template, auth_catedra
+):
+    servicio = await _crear_servicio_propio(
+        db, proxmox, catedra, usuario_catedra, template, estado=EstadoServicio.RUNNING, vmid=214
     )
 
-    r = await client.post(f"/servicios/{servicio.id}/start", headers=auth_catedra)
+    r = await client.post(
+        f"/servicios/{servicio.id}/start",
+        headers=auth_catedra | {"Idempotency-Key": f"start-{uuid4()}"},
+        json={},
+    )
 
     assert r.status_code == 409, r.text
 
@@ -99,108 +172,140 @@ async def test_encender_servicio_ya_corriendo_da_409(client, db, catedra, templa
 
 
 async def test_fallo_al_apagar_da_502_sin_mutar_estado(
-    client, db, proxmox, catedra, template, auth_catedra
+    client, engine, db, proxmox, catedra, usuario_catedra, template, auth_catedra
 ):
+    servicio = await _crear_servicio_propio(
+        db, proxmox, catedra, usuario_catedra, template, estado=EstadoServicio.RUNNING, vmid=215
+    )
     proxmox.fallar_stop = Exception("timeout de Proxmox")
-    servicio = await factories.crear_servicio(
-        db, catedra_id=catedra.id, template_id=template.id, estado=EstadoServicio.RUNNING
+
+    r = await client.post(
+        f"/servicios/{servicio.id}/stop",
+        headers=auth_catedra | {"Idempotency-Key": f"stop-{uuid4()}"},
+        json={},
     )
 
-    r = await client.post(f"/servicios/{servicio.id}/stop", headers=auth_catedra)
+    assert r.status_code == 202, r.text
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    await procesar_una(sessions, pve=proxmox)
 
-    assert r.status_code == 502, r.text
     await db.refresh(servicio)
     assert servicio.estado == EstadoServicio.RUNNING
+    op = await db.get(OperacionInfraestructura, UUID(r.json()["operation_id"]), populate_existing=True)
+    assert op.estado in {"incierta", "fallida"}
 
 
 async def test_fallo_al_encender_da_502_sin_mutar_estado(
-    client, db, proxmox, catedra, template, auth_catedra
+    client, db, proxmox, catedra, usuario_catedra, template, auth_catedra
 ):
-    proxmox.fallar_start = Exception("timeout de Proxmox")
-    servicio = await factories.crear_servicio(
-        db, catedra_id=catedra.id, template_id=template.id, estado=EstadoServicio.STOPPED
+    servicio = await _crear_servicio_propio(
+        db, proxmox, catedra, usuario_catedra, template, estado=EstadoServicio.STOPPED, vmid=216
     )
+    proxmox.fallar_recursos = Exception("timeout de Proxmox")
 
-    r = await client.post(f"/servicios/{servicio.id}/start", headers=auth_catedra)
+    r = await client.post(
+        f"/servicios/{servicio.id}/start",
+        headers=auth_catedra | {"Idempotency-Key": f"start-{uuid4()}"},
+        json={},
+    )
 
     assert r.status_code == 502, r.text
     await db.refresh(servicio)
     assert servicio.estado == EstadoServicio.STOPPED
 
 
-# --- La acción se confirma contra Proxmox antes de responder ---
-#
-# `start`/`stop`/`reboot` devuelven un identificador de tarea y vuelven al
-# instante. Si el portal respondiera ahí, diría "running" sobre un contenedor
-# que todavía está arrancando —y un fallo dentro de la tarea sería invisible.
+# --- La acción se confirma contra Proxmox antes de mutar el estado ---
 
 
 async def test_encender_espera_a_que_la_tarea_de_proxmox_termine(
-    client, db, proxmox, catedra, template, auth_catedra
+    client, engine, db, proxmox, catedra, usuario_catedra, template, auth_catedra
 ):
-    servicio = await factories.crear_servicio(
-        db, catedra_id=catedra.id, template_id=template.id, estado=EstadoServicio.STOPPED
+    servicio = await _crear_servicio_propio(
+        db, proxmox, catedra, usuario_catedra, template, estado=EstadoServicio.STOPPED, vmid=217
     )
 
-    r = await client.post(f"/servicios/{servicio.id}/start", headers=auth_catedra)
+    r = await client.post(
+        f"/servicios/{servicio.id}/start",
+        headers=auth_catedra | {"Idempotency-Key": f"start-{uuid4()}"},
+        json={},
+    )
 
-    assert r.status_code == 200, r.text
+    assert r.status_code == 202, r.text
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    await procesar_una(sessions, pve=proxmox)
+
     esperada = (servicio.proxmox_node, f"UPID:{servicio.proxmox_node}:task:start")
-    assert esperada in proxmox.tasks_esperadas
+    assert esperada in proxmox.task_polls
 
 
 async def test_apagar_espera_a_que_la_tarea_de_proxmox_termine(
-    client, db, proxmox, catedra, template, auth_catedra
+    client, engine, db, proxmox, catedra, usuario_catedra, template, auth_catedra
 ):
-    servicio = await factories.crear_servicio(
-        db, catedra_id=catedra.id, template_id=template.id, estado=EstadoServicio.RUNNING
+    servicio = await _crear_servicio_propio(
+        db, proxmox, catedra, usuario_catedra, template, estado=EstadoServicio.RUNNING, vmid=218
     )
 
-    r = await client.post(f"/servicios/{servicio.id}/stop", headers=auth_catedra)
+    r = await client.post(
+        f"/servicios/{servicio.id}/stop",
+        headers=auth_catedra | {"Idempotency-Key": f"stop-{uuid4()}"},
+        json={},
+    )
 
-    assert r.status_code == 200, r.text
+    assert r.status_code == 202, r.text
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    await procesar_una(sessions, pve=proxmox)
+
     esperada = (servicio.proxmox_node, f"UPID:{servicio.proxmox_node}:task:stop")
-    assert esperada in proxmox.tasks_esperadas
+    assert esperada in proxmox.task_polls
 
 
 async def test_fallo_dentro_de_la_tarea_al_encender_da_502_sin_mutar_estado(
-    client, db, proxmox, catedra, template, auth_catedra
+    client, engine, db, proxmox, catedra, usuario_catedra, template, auth_catedra
 ):
-    # La llamada devuelve el task id sin problemas: el error recién aparece al
-    # esperar su resultado. Sin la espera, este fallo no llegaba a la cátedra.
-    proxmox.fallar_task = Exception("no se pudo asignar la red al contenedor")
-    servicio = await factories.crear_servicio(
-        db, catedra_id=catedra.id, template_id=template.id, estado=EstadoServicio.STOPPED
+    servicio = await _crear_servicio_propio(
+        db, proxmox, catedra, usuario_catedra, template, estado=EstadoServicio.STOPPED, vmid=219
+    )
+    proxmox.configure_task(
+        "pve1",
+        "UPID:pve1:task:start",
+        [{"status": "stopped", "exitstatus": "ERROR: no se pudo asignar la red al contenedor"}],
     )
 
-    r = await client.post(f"/servicios/{servicio.id}/start", headers=auth_catedra)
+    r = await client.post(
+        f"/servicios/{servicio.id}/start",
+        headers=auth_catedra | {"Idempotency-Key": f"start-{uuid4()}"},
+        json={},
+    )
 
-    assert r.status_code == 502, r.text
+    assert r.status_code == 202, r.text
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    await procesar_una(sessions, pve=proxmox)
+
     await db.refresh(servicio)
     assert servicio.estado == EstadoServicio.STOPPED
+    op = await db.get(OperacionInfraestructura, UUID(r.json()["operation_id"]), populate_existing=True)
+    assert op.estado in {"incierta", "fallida"}
 
 
 async def test_el_resumen_atrasado_del_cluster_no_deshace_un_arranque(
-    client, db, proxmox, catedra, template, auth_catedra
+    client, engine, db, proxmox, catedra, usuario_catedra, template, auth_catedra
 ):
-    """Encender y refrescar no puede devolver la fila a "Detenido".
+    """Encender y refrescar no puede devolver la fila a "Detenido"."""
+    servicio = await _crear_servicio_propio(
+        db, proxmox, catedra, usuario_catedra, template, estado=EstadoServicio.STOPPED, vmid=220
+    )
 
-    `cluster/resources` tarda unos segundos en reflejar el arranque. Cuando la
-    reconciliación le creía a ese resumen, el listado inmediato posterior al
-    encendido revertía el estado y la acción parecía no haber ocurrido.
-    """
-    servicio = await factories.crear_servicio(
-        db, catedra_id=catedra.id, template_id=template.id, estado=EstadoServicio.STOPPED
+    r = await client.post(
+        f"/servicios/{servicio.id}/start",
+        headers=auth_catedra | {"Idempotency-Key": f"start-{uuid4()}"},
+        json={},
     )
-    proxmox.recursos.append(
-        ocupar(int(servicio.proxmox_vmid), servicio.hostname,
-               node=servicio.proxmox_node, status="stopped")
-    )
+    assert r.status_code == 202, r.text
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    await procesar_una(sessions, pve=proxmox)
+    await db.refresh(servicio)
+
     proxmox.retraso_resumen = True
-
-    r = await client.post(f"/servicios/{servicio.id}/start", headers=auth_catedra)
-    assert r.status_code == 200, r.text
-
     listado = await client.get("/servicios/", headers=auth_catedra)
     fila = next(s for s in listado.json() if s["id"] == servicio.id)
     assert fila["estado"] == "running", "el resumen atrasado revirtió el arranque"
@@ -210,74 +315,92 @@ async def test_el_resumen_atrasado_del_cluster_no_deshace_un_arranque(
 
 
 async def test_catedra_reinicia_su_propio_servicio(
-    client, db, proxmox, catedra, template, auth_catedra
+    client, engine, db, proxmox, catedra, usuario_catedra, template, auth_catedra
 ):
-    servicio = await factories.crear_servicio(
-        db, catedra_id=catedra.id, template_id=template.id, estado=EstadoServicio.RUNNING
+    servicio = await _crear_servicio_propio(
+        db, proxmox, catedra, usuario_catedra, template, estado=EstadoServicio.RUNNING, vmid=221
     )
 
-    r = await client.post(f"/servicios/{servicio.id}/restart", headers=auth_catedra)
+    r = await client.post(
+        f"/servicios/{servicio.id}/restart",
+        headers=auth_catedra | {"Idempotency-Key": f"restart-{uuid4()}"},
+        json={},
+    )
 
-    assert r.status_code == 200, r.text
-    assert r.json()["estado"] == "running"
+    assert r.status_code == 202, r.text
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    await procesar_una(sessions, pve=proxmox)
+
     await db.refresh(servicio)
     assert servicio.estado == EstadoServicio.RUNNING
     assert (servicio.proxmox_node, int(servicio.proxmox_vmid)) in proxmox.reiniciados
 
 
-async def test_catedra_no_puede_reiniciar_servicio_ajeno(client, db, proxmox, auth_catedra):
-    servicio_ajeno = await _crear_servicio_de_otra_catedra(db, estado=EstadoServicio.RUNNING)
+async def test_catedra_no_puede_reiniciar_servicio_ajeno(client, db, proxmox, template, auth_catedra):
+    servicio_ajeno = await _crear_servicio_de_otra_catedra(
+        db, proxmox, template, estado=EstadoServicio.RUNNING, vmid=293
+    )
 
-    r = await client.post(f"/servicios/{servicio_ajeno.id}/restart", headers=auth_catedra)
+    r = await client.post(
+        f"/servicios/{servicio_ajeno.id}/restart",
+        headers=auth_catedra | {"Idempotency-Key": f"restart-{uuid4()}"},
+        json={},
+    )
 
     assert r.status_code == 403, r.text
     assert proxmox.reiniciados == []
 
 
-async def test_reiniciar_servicio_detenido_da_409(client, db, catedra, template, auth_catedra):
-    servicio = await factories.crear_servicio(
-        db, catedra_id=catedra.id, template_id=template.id, estado=EstadoServicio.STOPPED
+async def test_reiniciar_servicio_detenido_da_409(
+    client, db, proxmox, catedra, usuario_catedra, template, auth_catedra
+):
+    servicio = await _crear_servicio_propio(
+        db, proxmox, catedra, usuario_catedra, template, estado=EstadoServicio.STOPPED, vmid=222
     )
 
-    r = await client.post(f"/servicios/{servicio.id}/restart", headers=auth_catedra)
+    r = await client.post(
+        f"/servicios/{servicio.id}/restart",
+        headers=auth_catedra | {"Idempotency-Key": f"restart-{uuid4()}"},
+        json={},
+    )
 
     assert r.status_code == 409, r.text
 
 
 async def test_fallo_al_reiniciar_da_502_sin_mutar_estado(
-    client, db, proxmox, catedra, template, auth_catedra
+    client, engine, db, proxmox, catedra, usuario_catedra, template, auth_catedra
 ):
+    servicio = await _crear_servicio_propio(
+        db, proxmox, catedra, usuario_catedra, template, estado=EstadoServicio.RUNNING, vmid=223
+    )
     proxmox.fallar_reboot = Exception("timeout de Proxmox")
-    servicio = await factories.crear_servicio(
-        db, catedra_id=catedra.id, template_id=template.id, estado=EstadoServicio.RUNNING
+
+    r = await client.post(
+        f"/servicios/{servicio.id}/restart",
+        headers=auth_catedra | {"Idempotency-Key": f"restart-{uuid4()}"},
+        json={},
     )
 
-    r = await client.post(f"/servicios/{servicio.id}/restart", headers=auth_catedra)
+    assert r.status_code == 202, r.text
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    await procesar_una(sessions, pve=proxmox)
 
-    assert r.status_code == 502, r.text
     await db.refresh(servicio)
     assert servicio.estado == EstadoServicio.RUNNING
+    op = await db.get(OperacionInfraestructura, UUID(r.json()["operation_id"]), populate_existing=True)
+    assert op.estado in {"incierta", "fallida"}
 
 
 # --- Ticket de consola (US3, EN PAUSA) ---
-#
-# La consola embebida se descartó (enmienda constitucional v3.0.0). Proxmox no
-# acepta API tokens para el WebSocket de consola y exige un ticket de sesión, así
-# que el portal no puede hacer de proxy: el relay conectaba y autenticaba, pero la
-# sesión moría sin transmitir. El acceso pasa a resolverse derivando a la consola
-# de Proxmox, para ambos roles, como única excepción nombrada al Principio I.
-#
-# Estos tests fijan el alcance nuevo: la derivación existe para los dos roles, y
-# el portal sigue verificando la pertenencia antes de ofrecerla.
 
 
 async def test_consola_general_retirada_para_catedra(client, auth_catedra):
-    r = await client.get('/servicios/consola/proxmox-base', headers=auth_catedra)
+    r = await client.get("/servicios/consola/proxmox-base", headers=auth_catedra)
     assert r.status_code == 405, r.text
-    assert 'url' not in r.json()
+    assert "url" not in r.json()
 
 
 async def test_consola_general_retirada_para_admin(client, auth_admin):
-    r = await client.get('/servicios/consola/proxmox-base', headers=auth_admin)
+    r = await client.get("/servicios/consola/proxmox-base", headers=auth_admin)
     assert r.status_code == 405, r.text
-    assert 'url' not in r.json()
+    assert "url" not in r.json()

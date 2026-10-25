@@ -253,6 +253,8 @@ async def admitir_orden(db, servicio_id, *, tipo, usuario=None, clave, motivo=No
                     raise error(409, 'vigencia_sin_regularizar', 'La cobertura requiere regularización')
                 if coverage['cubierto']:
                     return ResultadoDecision(200, {'servicio_id': service.id, 'sin_cambios': True, 'motivo': 'cobertura_actualizada'})
+            if tipo == 'detener' and usuario is not None and service.estado != EstadoServicio.RUNNING and ledger.vcpus_retenidos == 0 and ledger.ram_mb_retenida == 0:
+                raise error(409, 'estado_incompatible', 'Solo se detiene un servicio en ejecución')
             if tipo == 'reiniciar':
                 if not service.nombre_snapshot or not service.modelo_servicio:
                     raise error(409, 'asignacion_sin_regularizar', 'Regularizá la asignación histórica antes de reiniciar')

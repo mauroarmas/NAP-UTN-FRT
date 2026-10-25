@@ -15,7 +15,7 @@ from app.models.vigencia import VigenciaAutorizada
 from app.schemas.asignacion import AprobacionEfectiva
 from app.services.acceso_service import requiere_admin_actual, requiere_acceso_pedido, requiere_acceso_servicio, usuario_actual
 from app.services.idempotencia_service import ejecutar, ResultadoDecision, safe_json
-from app.services import capacidad_service, evaluacion_service
+from app.services import capacidad_service, evaluacion_service, notificacion_service
 from app.utils.clock import clock, db_utc
 from app.utils.errors import error
 
@@ -294,6 +294,15 @@ async def _liberar_pedido(db, pedido, *, actor, motivo, expirar=False, nuevo_est
     from app.services.pedido_service import transicionar
     await transicionar(db, pedido.id, nuevo_estado, usuario=actor, motivo=motivo,
         evento_clave=f'decision:{pedido.revision_decision}:liberada', metadata={'capacidad_liberada': released})
+    if nuevo_estado == EstadoPedido.RECHAZADO:
+        from app.models.catedra import Catedra
+        category = await db.get(Catedra, pedido.catedra_id)
+        cat_nombre = category.nombre if category else f'#{pedido.catedra_id}'
+        await notificacion_service.encolar_aviso_pedido(db, pedido,
+            evento=f'pedido:{pedido.id}:rechazado:{pedido.revision}', tipo='pedido_rechazado',
+            asunto=f'[Pedido Rechazado] Pedido #{pedido.id} - Cátedra {cat_nombre}',
+            texto=f'Tu pedido #{pedido.id} para la cátedra {cat_nombre} fue rechazado. Motivo: {motivo}',
+            destinatarios='titular')
     return released
 
 
@@ -331,7 +340,7 @@ async def ajustar(db, pedido_id, *, actor, observaciones, clave):
         async with capacidad_service.bloqueo_capacidad(session):
             pedido = await _request(session, pedido_id)
             released = {'vcpus': 0, 'ram_mb': 0, 'storage_gb': 0}
-            reason = 'Ajuste solicitado por administración: ' + observaciones
+            reason = 'Aclaración solicitada por administración: ' + observaciones
             if pedido.estado in {EstadoPedido.APROBADO, EstadoPedido.EN_DESPLIEGUE}:
                 released = await _liberar_pedido(session, pedido, actor=actor, motivo=reason,
                     nuevo_estado=EstadoPedido.REQUIERE_AJUSTE, observaciones=observaciones)
@@ -344,6 +353,14 @@ async def ajustar(db, pedido_id, *, actor, observaciones, clave):
                     motivo=reason, evento_clave=f'ajuste:{clave}')
             else:
                 raise error(409, 'estado_incompatible', 'El pedido no admite ajustes en su estado actual')
+            from app.models.catedra import Catedra
+            category = await session.get(Catedra, pedido.catedra_id)
+            cat_nombre = category.nombre if category else f'#{pedido.catedra_id}'
+            await notificacion_service.encolar_aviso_pedido(session, pedido,
+                evento=f'pedido:{pedido.id}:ajuste:{pedido.revision}', tipo='pedido_ajuste',
+                asunto=f'[Aclaración requerida] Pedido #{pedido.id} - Cátedra {cat_nombre}',
+                texto=f'El pedido #{pedido.id} para la cátedra {cat_nombre} requiere una aclaración. Observaciones: {observaciones}. Ingresá a Pedidos, abrí el detalle y elegí Responder aclaración.',
+                destinatarios='titular')
             return ResultadoDecision(200, {'id': pedido.id, 'pedido_id': pedido.id, 'estado': pedido.estado.value,
                 'observaciones_ajuste': observaciones, 'capacidad_liberada': released})
     return await ejecutar(db, actor_id=actor.id, clave=clave, metodo='POST', ruta=f'/pedidos/{pedido_id}/solicitar-ajuste',

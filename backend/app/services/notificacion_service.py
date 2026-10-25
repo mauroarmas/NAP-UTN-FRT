@@ -118,15 +118,18 @@ async def procesar_lote(session_factory, *, limit=20):
 
 async def encolar_acceso_verificado(db, service, *, preparation_id):
     """Solo aviso y referencia, sin claves ni enlaces externos al producto."""
+    from html import escape
     from app.models.catedra import Catedra
     category = await db.get(Catedra, service.catedra_id)
     user = await db.get(Usuario, category.titular_id) if category and category.titular_id else None
     if not user or not user.activo:
         return
+    cat_nombre = category.nombre if category else f'#{service.catedra_id}'
     event = f'acceso:{service.id}:{preparation_id}'
-    text = f'El acceso al servicio #{service.id} fue comprobado desde la red prevista. Consultá el portal para ver el acceso inicial.'
-    payload = {'tipo': 'acceso_verificado', 'servicio_id': service.id, 'asunto': 'Acceso a tu servicio verificado',
-        'texto': text, 'html': '<p>' + text + '</p>'}
+    text = f'El acceso al servicio #{service.id} ({cat_nombre}) fue comprobado desde la red prevista. Consultá el portal para ver el acceso inicial.'
+    payload = {'tipo': 'acceso_verificado', 'servicio_id': service.id,
+        'asunto': f'[Servicio Activo] Acceso a tu servicio para {cat_nombre} verificado',
+        'texto': text, 'html': '<p>' + escape(text) + '</p>'}
     safe_json(payload)
     for channel in ['portal'] + (['email'] if user.email and user.recibir_notificaciones_email else []):
         entry = Notificacion(evento_clave=event, destinatario_usuario_id=user.id,
@@ -159,6 +162,39 @@ async def encolar_aviso_servicio(db, service, *, evento, tipo, asunto, texto, in
                 destinatario_usuario_id=user.id, destinatario_normalizado=f'usuario:{user.id}', canal=channel,
                 catedra_id=service.catedra_id, servicio_id=service.id, payload=payload, proximo_intento_at=clock.now())
                 .on_conflict_do_nothing(index_elements=['evento_clave','destinatario_normalizado','canal'])
+                .returning(Notificacion.id))
+            if identity and channel == 'email':
+                entry = await db.get(Notificacion, identity)
+                entry.destinatario_email_cifrado = configured_keyring().encrypt(user.email, context=f'email:{entry.id}')
+    await db.flush()
+
+
+async def encolar_aviso_pedido(db, pedido, *, evento, tipo, asunto, texto, destinatarios='titular'):
+    """Aviso transaccional y deduplicado del ciclo de vida del pedido."""
+    from html import escape
+    from app.models.catedra import Catedra
+    from app.models.usuario import RolUsuario
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+    category = await db.get(Catedra, pedido.catedra_id)
+    owner = (category.titular_id if category and category.titular_id else None) or pedido.solicitante_id
+    query = select(Usuario).where(Usuario.activo.is_(True))
+    if destinatarios == 'admin':
+        query = query.where(Usuario.rol == RolUsuario.ADMIN)
+    elif destinatarios == 'ambos':
+        query = query.where(or_(Usuario.id == owner, Usuario.rol == RolUsuario.ADMIN))
+    else:
+        query = query.where(Usuario.id == owner)
+    payload = {'tipo': tipo, 'pedido_id': pedido.id, 'asunto': asunto, 'texto': texto,
+        'html': '<p>' + escape(texto) + '</p>'}
+    safe_json(payload)
+    insert = pg_insert if db.bind.dialect.name == 'postgresql' else sqlite_insert
+    for user in (await db.scalars(query)).all():
+        for channel in ['portal'] + (['email'] if user.email and user.recibir_notificaciones_email else []):
+            identity = await db.scalar(insert(Notificacion).values(evento_clave=evento,
+                destinatario_usuario_id=user.id, destinatario_normalizado=f'usuario:{user.id}', canal=channel,
+                catedra_id=pedido.catedra_id, servicio_id=None, payload=payload, proximo_intento_at=clock.now())
+                .on_conflict_do_nothing(index_elements=['evento_clave', 'destinatario_normalizado', 'canal'])
                 .returning(Notificacion.id))
             if identity and channel == 'email':
                 entry = await db.get(Notificacion, identity)

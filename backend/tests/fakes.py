@@ -64,6 +64,9 @@ class FakeProxmoxClient:
         retraso_resumen: bool = False,
     ):
         self.next_vmid = next_vmid
+        self.pools = {}
+        self.pools_creados = []
+        self.permisos_pool = {'Pool.Allocate': 1, 'VM.Allocate': 1, 'VM.Audit': 1, 'VM.PowerMgmt': 1}
         self.fallar_create = fallar_create
         # Fallo *dentro* de la tarea de Proxmox: la llamada devuelve el task id
         # sin problemas y el error recién aparece al esperar su resultado.
@@ -108,6 +111,21 @@ class FakeProxmoxClient:
             'type': {'create': 'vzcreate', 'start': 'vzstart', 'stop': 'vzstop', 'reboot': 'vzreboot', 'delete': 'vzdestroy'}[action],
             'starttime': int(clock.now().timestamp())})
         return upid
+
+    def list_pools(self):
+        return [{'poolid': name} for name in self.pools]
+
+    def get_pool(self, poolid):
+        return {'members': deepcopy(self.pools[poolid]) + [deepcopy(r) for r in self.recursos if r.get('pool') == poolid]}
+
+    def get_pool_permissions(self, poolid):
+        return deepcopy(self.permisos_pool)
+
+    def create_pool(self, poolid):
+        if poolid in self.pools:
+            raise RuntimeError('Pool existente')
+        self.pools[poolid] = []
+        self.pools_creados.append(poolid)
 
     def get_node_tasks(self, node, *, vmid, since, tipo):
         return [deepcopy(task) for task in self.task_history if task['node'] == node

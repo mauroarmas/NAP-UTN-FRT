@@ -1,11 +1,11 @@
 {
   "entorno": "staging_local_real",
-  "actualizado_at": "2026-10-21T17:37:26.939621+00:00",
+  "actualizado_at": "2026-10-22T19:48:11.802624+00:00",
   "cluster_uuid": "0834fb88-0a09-4b5c-8023-211bd80747d9",
   "pool": "nap009-staging",
-  "fase": "pausado_por_usuario_dhcp_pendiente",
-  "definition_draft_sha256": "e9adb44ade04fd3e5de5f9fabd2c9786f4d632d8beb0ae63a5f611b4238244ed",
-  "bundle_sha256": "efe8d3e20e65b39319530742a11c6a5f6d000df24b8481e164df57c886ce6eeb",
+  "fase": "dos_bootstraps_verificados_localmente",
+  "definition_draft_sha256": "861a8d94d6fe867ec9db1a5ad22ffb8f25199bfd582495a88794611f2392aebd",
+  "bundle_sha256": "5e5d62b384aa48606245abceddae0276a13c8ad66f7d72498fe7dfadb80527f8",
   "publicado": false,
   "consola_nativa_y_aceptacion_pendientes": true,
   "instancias": [
@@ -14,18 +14,68 @@
       "cluster_uuid": "0834fb88-0a09-4b5c-8023-211bd80747d9",
       "resource_uuid": "3df6e202-cf56-47c4-868b-bdd0a40a28da",
       "pool": "nap009-staging",
-      "definition_sha256": "e9adb44ade04fd3e5de5f9fabd2c9786f4d632d8beb0ae63a5f611b4238244ed",
-      "bundle_sha256": "efe8d3e20e65b39319530742a11c6a5f6d000df24b8481e164df57c886ce6eeb",
+      "definition_sha256": "861a8d94d6fe867ec9db1a5ad22ffb8f25199bfd582495a88794611f2392aebd",
+      "bundle_sha256": "5e5d62b384aa48606245abceddae0276a13c8ad66f7d72498fe7dfadb80527f8",
       "operation_id": "c8609152-fe62-45ee-a0e7-898882e1d16d",
-      "fase": "waiting_dhcp",
-      "actualizado_at": "2026-10-21T17:36:19.395543+00:00",
+      "fase": "verified_local",
+      "actualizado_at": "2026-10-22T19:44:50.867771+00:00",
       "create_upid": "UPID:proxmox:00011356:002821E1:6AD8F800:vzcreate:100:nap009lab@pve!ensayos:",
       "create_exitstatus": "WARNINGS: 1",
       "start_upid": "UPID:proxmox:000113F1:0028281D:6AD8F810:vzstart:100:nap009lab@pve!ensayos:",
       "start_exitstatus": "WARNINGS: 1",
       "pausa": {
         "fase": "stopped_confirmed",
-        "exitstatus": "OK"
+        "observado_at": "2026-10-21T17:50:54.592972+00:00",
+        "upid": "UPID:proxmox:00011FC4:00297F38:6AD8FB7E:vzstop:100:nap009lab@pve!ensayos:",
+        "confirmado_at": "2026-10-21T17:52:13.499945+00:00",
+        "exitstatus": "OK",
+        "reconsulta_sin_repetir_post": true
+      },
+      "addresses": [
+        "172.16.36.132"
+      ],
+      "bootstrap_response": {
+        "action": "bootstrap",
+        "identity_verified": true,
+        "observed_at": "2026-10-22T19:43:10.099718+00:00",
+        "operation_id": "c8609152-fe62-45ee-a0e7-898882e1d16d",
+        "phase": "verified",
+        "protocol": "nap-guest-runner/1",
+        "resource_uuid": "3df6e202-cf56-47c4-868b-bdd0a40a28da",
+        "result": {
+          "addresses": [
+            "172.16.36.132"
+          ],
+          "bootstrap_completed": true,
+          "checks": [
+            "linux-ready-v1"
+          ],
+          "ready": true,
+          "username": "napadmin"
+        },
+        "status": "succeeded"
+      },
+      "verify_operation_id": "b087b4e2-eb16-4a05-be76-1850160bd595",
+      "verify_response": {
+        "action": "verify",
+        "identity_verified": true,
+        "observed_at": "2026-10-22T19:44:50.926941+00:00",
+        "operation_id": "b087b4e2-eb16-4a05-be76-1850160bd595",
+        "phase": "verified",
+        "protocol": "nap-guest-runner/1",
+        "resource_uuid": "3df6e202-cf56-47c4-868b-bdd0a40a28da",
+        "result": {
+          "addresses": [
+            "172.16.36.132"
+          ],
+          "bootstrap_completed": true,
+          "checks": [
+            "linux-ready-v1"
+          ],
+          "ready": true,
+          "username": "napadmin"
+        },
+        "status": "succeeded"
       }
     },
     {
@@ -33,19 +83,61 @@
       "cluster_uuid": "0834fb88-0a09-4b5c-8023-211bd80747d9",
       "resource_uuid": "65293e1c-f42b-4682-8a4c-e37374330f38",
       "pool": "nap009-staging",
-      "definition_sha256": "e9adb44ade04fd3e5de5f9fabd2c9786f4d632d8beb0ae63a5f611b4238244ed",
-      "bundle_sha256": "efe8d3e20e65b39319530742a11c6a5f6d000df24b8481e164df57c886ce6eeb",
+      "definition_sha256": "861a8d94d6fe867ec9db1a5ad22ffb8f25199bfd582495a88794611f2392aebd",
+      "bundle_sha256": "5e5d62b384aa48606245abceddae0276a13c8ad66f7d72498fe7dfadb80527f8",
       "operation_id": "d4424aa5-e3f2-4e3c-adb3-11330b7de01d",
-      "fase": "created_stopped",
-      "actualizado_at": "2026-10-21T17:36:16.230296+00:00",
+      "fase": "verified_local",
+      "actualizado_at": "2026-10-22T19:48:11.792349+00:00",
       "create_upid": "UPID:proxmox:000113A8:002824D7:6AD8F807:vzcreate:102:nap009lab@pve!ensayos:",
-      "create_exitstatus": "WARNINGS: 1"
+      "create_exitstatus": "WARNINGS: 1",
+      "start_upid": "UPID:proxmox:00007075:000D8AA8:6ADA67B3:vzstart:102:nap009lab@pve!ensayos:",
+      "start_exitstatus": "WARNINGS: 1",
+      "addresses": [
+        "172.16.36.133"
+      ],
+      "bootstrap_response": {
+        "action": "bootstrap",
+        "identity_verified": true,
+        "observed_at": "2026-10-22T19:46:32.200281+00:00",
+        "operation_id": "d4424aa5-e3f2-4e3c-adb3-11330b7de01d",
+        "phase": "verified",
+        "protocol": "nap-guest-runner/1",
+        "resource_uuid": "65293e1c-f42b-4682-8a4c-e37374330f38",
+        "result": {
+          "addresses": [
+            "172.16.36.133"
+          ],
+          "bootstrap_completed": true,
+          "checks": [
+            "linux-ready-v1"
+          ],
+          "ready": true,
+          "username": "napadmin"
+        },
+        "status": "succeeded"
+      },
+      "verify_operation_id": "af5e61b3-b8d7-447c-8e07-4776c8735ef8",
+      "verify_response": {
+        "action": "verify",
+        "identity_verified": true,
+        "observed_at": "2026-10-22T19:48:11.836462+00:00",
+        "operation_id": "af5e61b3-b8d7-447c-8e07-4776c8735ef8",
+        "phase": "verified",
+        "protocol": "nap-guest-runner/1",
+        "resource_uuid": "65293e1c-f42b-4682-8a4c-e37374330f38",
+        "result": {
+          "addresses": [
+            "172.16.36.133"
+          ],
+          "bootstrap_completed": true,
+          "checks": [
+            "linux-ready-v1"
+          ],
+          "ready": true,
+          "username": "napadmin"
+        },
+        "status": "succeeded"
+      }
     }
-  ],
-  "error_tipo": "AssertionError",
-  "pausado_at": "2026-10-21T17:52:13.499945+00:00",
-  "invitados_detenidos_confirmados": [
-    100,
-    102
   ]
 }

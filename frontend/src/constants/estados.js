@@ -13,7 +13,7 @@ export const PASOS_PEDIDO = ['Solicitado', 'Aprobado', 'En Despliegue', 'Activo'
 
 export const ESTADO_PEDIDO_CONFIG = {
   solicitado:      { label: 'Solicitado',      badge: 'info',    icon: '📨', paso: 0 },
-  requiere_ajuste: { label: 'Requiere Ajuste', badge: 'warning', icon: '📝', paso: -1 },
+  requiere_ajuste: { label: 'Aclaración pendiente', badge: 'warning', icon: '📝', paso: -1 },
   cancelado:       { label: 'Cancelado',       badge: 'neutral', icon: '🚫', paso: -1 },
   aprobado:        { label: 'Aprobado',        badge: 'success', icon: '✅', paso: 1 },
   en_despliegue:   { label: 'En Despliegue',   badge: 'info',    icon: '🚀', paso: 2 },

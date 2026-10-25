@@ -129,3 +129,9 @@ backend/venv/bin/python -m pytest -c infra/pytest.ini -q infra/runner/tests infr
 ```
 
 Por defecto no hay procesos externos, red, PVE ni SMTP. Los cuatro casos opt-in `test_process_limits.py`/`test_client_streams.py` solo lanzan Python efímero local; su ejecución no acredita SSH o infraestructura. Evidencia de implementación en [docs/evidencia/009](../../docs/evidencia/009/).
+
+## Pool de aplicaciones y publicación portable (convergencia 2026-10-25)
+
+Para despliegues cotidianos, preparar en lote un pool de UUID/FQDN/IP/MAC/certificados en `network_profiles.instances` y en el registro root del runner, conforme a [conexion-infraestructura.md](../../docs/conexion-infraestructura.md). NAP consume una identidad aún no utilizada y fija su snapshot antes de crear; `net0` incluye su MAC de DHCP. No hay cambios por instancia en los perfiles ni administración general de DNS/CA. El agotamiento bloquea la creación y los reintentos no cambian identidad ni secretos. No reutilizar UUID históricos.
+
+El antiguo `scripts.publicar_catalogo` específico de la PC ya no publica ni cambia cuentas. Ahora sólo comprueba un manifiesto completo y su evidencia externa mediante los argumentos `--manifest`, `--evidence`, `--cluster-uuid` y `--definition-id`. Informa coherencia local; el registro/validación/publicación sigue ocurriendo en la UI administrativa con las comprobaciones reales del backend. No completa checks ausentes ni selecciona automáticamente un administrador.

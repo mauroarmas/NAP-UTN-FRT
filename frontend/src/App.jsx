@@ -13,6 +13,7 @@ const Calendario = lazy(() => import('./pages/Calendario'));
 const Definiciones = lazy(() => import('./pages/Definiciones'));
 const Metricas = lazy(() => import('./pages/Metricas'));
 import TopNav from './components/TopNav';
+import Footer from './components/Footer';
 import CambiarPasswordInicialModal from './components/CambiarPasswordInicialModal';
 import useSession from './hooks/useSession';
 import Seguridad, { CodigosRecuperacion, DesafioIngreso } from './pages/Seguridad';
@@ -59,6 +60,7 @@ function ProtectedLayout({ user, onRefresh, onLogout }) {
           </Routes></Suspense></RouteErrorBoundary>
         </div>
       </main>
+      <Footer userRole={user?.rol} />
     </div>
   );
 }
@@ -75,6 +77,8 @@ export default function App() {
   else content = <Login onLogin={refresh} />;
   return <BrowserRouter>
     {error && <p role="alert">{error}</p>}
-    {session?.estado === 'operativo' && !codes ? content : <div className="login fade-in"><div className="login__center">{content}</div>{session && <button className="btn btn-secondary" onClick={logout}>Cerrar sesión</button>}</div>}
+    {session?.estado === 'operativo' && !codes ? content : !session && !codes ?
+      <div className="public-shell">{content}<Footer /></div> :
+      <div className="login fade-in"><div className="login__center">{content}</div>{session && <button className="btn btn-secondary" onClick={logout}>Cerrar sesión</button>}</div>}
   </BrowserRouter>;
 }

@@ -3,6 +3,7 @@ from pydantic import Field
 from functools import lru_cache
 import json
 import os
+from pathlib import Path
 import stat
 
 
@@ -33,6 +34,7 @@ class Settings(BaseSettings):
     service_artifacts: dict = Field(default_factory=dict)
     network_profiles: dict = Field(default_factory=dict)
     runner_nodes: dict = Field(default_factory=dict, repr=False)
+    console_access_profile: dict = Field(default_factory=dict)
 
     # App
     app_name: str = "Portal de Gestión - Nube Privada UTN FRT"
@@ -51,7 +53,7 @@ class Settings(BaseSettings):
     smtp_ssl: bool = False
 
     model_config = {
-        "env_file": "../.env",
+        "env_file": str(Path(__file__).resolve().parents[2] / ".env"),
         "env_file_encoding": "utf-8",
         "extra": "ignore",
     }

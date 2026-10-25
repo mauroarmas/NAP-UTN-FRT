@@ -141,6 +141,19 @@ class ProxmoxClient:
 
     # --- Recursos del clúster ---
 
+    def list_pools(self):
+        return self.api.pools.get()
+
+    def get_pool(self, poolid):
+        return self.api.pools(poolid).get()
+
+    def create_pool(self, poolid):
+        return self.api.pools.post(poolid=poolid, comment='Servicios de cátedra gestionados por NAP')
+
+    def get_pool_permissions(self, poolid):
+        path = f'/pool/{poolid}'
+        return self.api.access.permissions.get(path=path).get(path, {})
+
     def get_cluster_resources(self, resource_type: str | None = None) -> list[dict]:
         """Obtiene todos los recursos del clúster (VMs, CTs, nodos, storage)."""
         if resource_type:

@@ -93,8 +93,22 @@ La base usa volumen persistente sin puerto publicado, autenticación SCRAM y una
 
 ## Alcance de la validación
 
-Las imágenes base tienen digest fijo; Python instala `requirements.lock` con hashes y frontend usa `npm ci`. La revisión de advisories/dependencias se registra aparte en la tarea T128. Un build correcto no acredita por sí solo las integraciones externas.
+Las imágenes base tienen digest fijo; Python instala `requirements.lock` con hashes y frontend usa `npm ci`. La auditoría histórica de dependencias está documentada en [docs/evidencia/009/dependencias.md](docs/evidencia/009/dependencias.md) (`T128`). Un build correcto no acredita por sí solo las integraciones externas.
 
-El ensayo Docker/HTTPS aislado se documenta en `docs/evidencia/009/produccion.md`. Usa CA, keyring, datos y credenciales exclusivos de prueba. La entrega operativa conserva pendientes sus pruebas reales de PVE/SSH/permisos/consola, DNS/TLS visitante, SMTP, aplicaciones, respaldo/restauración y ensayo con el responsable de cátedra.
+El ensayo Docker/HTTPS aislado se documenta en [docs/evidencia/009/produccion.md](docs/evidencia/009/produccion.md). Usa CA, keyring, datos y credenciales exclusivos de prueba. La entrega operativa conserva pendientes sus pruebas reales de PVE/SSH/permisos/consola (`T101`), aplicaciones de referencia en VM (`T102`), ensayo con el responsable de cátedra (`T119`), respaldo/restauración completa separada (`T131`) y recorrido desde otra computadora con red/SMTP/aplicaciones (`T133`).
+
+## Documentación operativa relacionada
+
+- [Manual de Administración y Operación](docs/manual-administrador.md)
+- [Manual de Usuario Docente](docs/manual-docente.md)
+- [Procedimiento de Respaldos y Restauración](docs/operacion-respaldos.md)
+- [Preparación de Restauración](docs/preparar-restauracion.md)
+- [Modelo de Base de Datos](docs/diagrama_bd.md)
 
 Referencias técnicas consultadas: [secretos de Compose](https://docs.docker.com/compose/how-tos/use-secrets/), [proxy WebSocket de Nginx](https://nginx.org/en/docs/http/websocket.html), [privilegios PostgreSQL 16](https://www.postgresql.org/docs/16/sql-grant.html).
+
+La preparación por lote del pool de aplicaciones y la compuerta de consola por instalación se describen en [conexion-infraestructura.md](docs/conexion-infraestructura.md). Mantener la consola cerrada mientras falten evidencia e identidades/scopes actuales.
+
+## Notificaciones en desarrollo
+
+El servicio `notificaciones` despacha el outbox de correo cada minuto mediante `app.worker --solo-notificaciones`. Usa la configuración SMTP de la API; en el entorno local estándar los mensajes se consultan en Mailpit (`http://localhost:8025`). Este proceso no ejecuta despliegues ni otros trabajos de infraestructura. Se inicia con Docker Compose y puede levantarse por separado con `docker compose up -d notificaciones`.

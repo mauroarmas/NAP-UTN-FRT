@@ -43,9 +43,8 @@ async def verificar(db, *, actor, servicio_id, body, clave):
         if definition is None:
             raise error(409, 'definicion_no_disponible', 'Falta la definición de esta instancia')
         if definition.producto == 'linux':
-            # T101 incorpora comprobación institucional y habilita la ruta
-            # nativa; la evidencia individual no puede saltarse esa compuerta.
-            raise error(409, 'consola_no_habilitada', 'Primero debe comprobarse aislamiento y revocación de consola en la instalación')
+            from app.services.consola_gate_service import exigir_gate
+            await exigir_gate(session, service)
         if service.disponibilidad_aplicacion == 'utilizable' and service.evidencia_acceso_id:
             if service.evidencia_acceso_id != evidence.id:
                 raise error(409, 'acceso_ya_verificado', 'Esta preparación ya tiene una evidencia de entrega registrada')

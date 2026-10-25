@@ -1,3 +1,5 @@
+> Estado actualizado al 25/10/2026: el texto siguiente conserva el registro inicial de preparación. Después se agregaron ensayos locales declarados en linux-staging.json, postgresql-staging.json, bookstack-staging.json y gate-revocacion-consola-t101.json; T101 figura marcada en tasks.md. Esos JSON no habilitan por existencia el gate ni acreditan el clúster universitario. La configuración y evidencia aplicables a la instalación receptora se preparan según [conexion-infraestructura.md](../../conexion-infraestructura.md); T102/T119/T131/T133 siguen pendientes. Ver [convergencia.md](convergencia.md).
+
 # Preparación institucional — T101/T102 pendientes
 
 Estado actualizado al 21 de octubre de 2026. Implementación activa. Las imágenes Linux, PostgreSQL y BookStack están construidas/saneadas y copiadas a la VM; todavía no hay definiciones publicadas ni aceptación de entrega. Las notas anteriores de pausa o de imágenes sin construir se reemplazan por este estado.
@@ -30,7 +32,7 @@ La receta Linux usa el hash del **manifiesto borrador** para staging y los artef
 - Dos despliegues por producto desde el flujo del portal y desde otra computadora. El usuario confirmó que las primeras pruebas son desde esta PC; la otra computadora sigue pendiente.
 - Confirmar identidad PVE individual del docente y procedimiento real para revocar permisos heredados/sesiones/consolas, conservando sus otros pools legítimos.
 
-No habilitar consola mediante un flag ni llamar aceptación a las pruebas locales. T101/T102 continúan sin marcar. La infraestructura institucional de clúster/red y el destino externo de respaldos siguen en preparación; por ahora se trabaja con esta VM.
+No habilitar consola mediante un flag ni llamar aceptación a las pruebas locales. En el registro original, T101/T102 estaban sin marcar; el estado vigente se aclara al inicio de este documento. La infraestructura institucional de clúster/red y el destino externo de respaldos siguen en preparación; por ahora se trabaja con esta VM.
 
 
 Pausa solicitada por el usuario el 21 de octubre: los cuatro LXC 100/101/102/103 quedaron detenidos, con datos conservados; sólo se detuvo el 100 propio. VMware registra un bloqueo explícito de promiscuo y el dispositivo vmnet8 no da acceso a mauro. No se cambiaron esos permisos ni opciones de VMware. La captura individual confirma networkd activo y eth0 sin IPv4. [Diagnóstico](linux-red-diagnostico.json), [pausa verificada](pausa-laboratorio.json). Al retomar se preparará la corrección mínima del permiso y se revalidará DHCP antes de bootstrap. La VM puede apagarse.

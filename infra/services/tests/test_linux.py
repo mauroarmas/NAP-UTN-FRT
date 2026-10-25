@@ -32,6 +32,7 @@ def linux_system(tmp_path):
             if argv[:2] == ['/usr/bin/passwd', '--lock']:
                 self.passwords['root'] = '!'
             if argv[:2] == ['/usr/bin/systemctl', 'show']:
+                assert not any(arg.endswith('@.service') for arg in argv[2:])
                 return '[Service]\nExecStart=-/sbin/agetty --noclear console\n'
             return ''
     return System()

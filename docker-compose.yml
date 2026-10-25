@@ -32,7 +32,7 @@ services:
     container_name: ps_backend
     ports:
       - "8001:8000"
-    environment:
+    environment: &api_environment
       DATABASE_URL: postgresql+asyncpg://ps_user:ps_password@db:5432/ps_db
       PROXMOX_HOST: ${PROXMOX_HOST:-172.16.36.100}
       PROXMOX_PORT: 8006
@@ -54,6 +54,22 @@ services:
       SMTP_FROM: ${SMTP_FROM:-noreply@frt.utn.edu.ar}
       SMTP_TLS: ${SMTP_TLS:-false}
       SMTP_SSL: ${SMTP_SSL:-false}
+    depends_on:
+      db:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+    restart: unless-stopped
+
+  notificaciones:
+    build:
+      context: .
+      dockerfile: dockerfile
+    container_name: ps_notificaciones
+    command: ["python", "-m", "app.worker", "--solo-notificaciones"]
+    environment:
+      <<: *api_environment
+      APP_DEBUG: "false"
     depends_on:
       db:
         condition: service_healthy

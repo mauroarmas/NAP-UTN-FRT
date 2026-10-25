@@ -195,7 +195,7 @@ async def _resolver_solicitud(db, pedido_id, user, *, tipo, data, clave):
 
 @router.post("/{pedido_id}/reenviar")
 async def reenviar_pedido_endpoint(pedido_id: int, data: PedidoReenviar, clave: str = Header(alias='Idempotency-Key'),
-    current_user: Usuario = Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    current_user: Usuario = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     return await _resolver_solicitud(db, pedido_id, current_user, tipo='reenviar', data=data, clave=clave)
 
 

@@ -1,6 +1,6 @@
 # Registro e importación de evidencias
 
-Contrato objetivo, pendiente de implementación. Prefijo `/api/v1`; sesión operativa admin, CSRF/Origin e idempotencia según [auth.md](auth.md) y [operations.md](operations.md). Productores: operador de pruebas de red, builder técnico y operador institucional de consola. Ninguno necesita credenciales del portal en la imagen o el runner.
+Contrato implementado en el repositorio (`009-remediar-hallazgos-cierre`). Prefijo `/api/v1`; sesión operativa admin, CSRF/Origin e idempotencia según [auth.md](auth.md) y [operations.md](operations.md). Productores: operador de pruebas de red, builder técnico y operador institucional de consola. Ninguno necesita credenciales del portal en la imagen o el runner.
 
 ## Interfaces y almacenamiento
 
@@ -45,7 +45,14 @@ Ejemplo de acceso (datos ficticios; no constituye aceptación real):
     "equipo_origen": "laboratorio-01",
     "red_origen": "red-alumnos",
     "metodo": "manual",
-    "pruebas": ["publicacion_docente", "lectura_individual", "persistencia"]
+    "pruebas": [
+      "publicacion_docente",
+      "lectura_individual",
+      "persistencia",
+      "permisos_lectores",
+      "revocacion_individual",
+      "archivos_privados"
+    ]
   }
 }
 ~~~

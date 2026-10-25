@@ -1,6 +1,6 @@
 # Reasignación y revocación de consola nativa
 
-Diseño objetivo para FR-001–FR-003/FR-052 y SC-001. La consola es la excepción de infraestructura autorizada por la constitución y requiere identidad PVE individual limitada a pools de cátedras actuales. Nunca usar identidad PVE compartida entre titulares. El control NAP y el control nativo se validan por separado.
+Contrato implementado en el repositorio para FR-001–FR-003/FR-052 y SC-001 (`cambios_acceso_consola`, `scripts.importar_identidades_consola` y evidencias `revocacion_consola`). La consola es la excepción de infraestructura autorizada por la constitución y requiere identidad PVE individual limitada a pools de cátedras actuales; la prueba negativa sobre sesión PVE real forma parte del gate externo (`T101`). Nunca usar identidad PVE compartida entre titulares. El control NAP y el control nativo se validan por separado.
 
 ## Gate de infraestructura
 
@@ -33,3 +33,9 @@ Todas admin operativo; errores/CSRF/Origin como auth.md. Mutaciones requieren Id
 Una revisión desactualizada devuelve 409; evidencia inválida 422; docente propio/ajeno 403. La UI muestra Pendiente de revocación / Revocación fallida / Completado y acciones solo admin. La identidad o URL de consola no se toma del solicitante: resuelve el recurso autorizado y bloquea trámites pendientes antes de emitir un enlace.
 
 Aceptación: dobles prueban orden bloqueo→revocación acreditada→transferencia, fallo/reinicio/replay y conflicto concurrente. Integración real mantiene abierta una consola previa, retira acceso y prueba tanto esa conexión como la URL guardada y el pool legítimo restante. No marcar completado el gate real por un test con dobles.
+
+## Implementación de la compuerta (convergencia, 2026-10-25)
+
+La configuración privada `console_access_profile` enlaza explícitamente evidencia UUID/SHA-256, `cluster_uuid`, `pve_version` y concesiones de identidades individuales con revisiones de usuario/cátedras. El resultado de evidencia `revocacion_consola` admite los campos opcionales `cluster_uuid` y `pve_version`; son obligatorios al consumirla como gate de instalación. Evidencias antiguas de trámites siguen siendo legibles y no habilitan por sí solas una instalación.
+
+El gate contrasta prueba real/canónica, trámite completado, identidad/revisión/scopes y fechas; el acceso concreto exige también identidad de servicio materializada y pertenencia/alcance actuales. La existencia de un archivo local no participa. Ver [contrato de conexión](../../../docs/conexion-infraestructura.md) para preparar los archivos con infraestructura. Sin esos valores y pruebas, la consola continúa cerrada.

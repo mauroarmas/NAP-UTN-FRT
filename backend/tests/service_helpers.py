@@ -63,18 +63,32 @@ def definition_proof(row_id, value):
             'pve_versions': proof['pve_versions'], 'instancias': [str(uuid4()), str(uuid4())], 'checks': proof['checks']}}
 
 
-async def link_capacity_definition(db, template, actor):
+async def link_capacity_definition(db, template, actor, product='linux'):
     """Fixture explícito de oferta validada, sin ejecutar ni publicar en PVE."""
     import hashlib
+    from sqlalchemy import select
     from app.models.definicion_servicio import DefinicionServicio
     from app.models.evidencia import Evidencia
     from app.schemas.evidencia import canonical
     from app.schemas.definicion import digest
     from app.utils.clock import clock
+    key = 'linux-capacity-test' if product == 'linux' else f'{product}-capacity-test'
+    existing = await db.scalar(
+        select(DefinicionServicio).where(
+            DefinicionServicio.codigo == key,
+            DefinicionServicio.version == '1.0.0',
+        )
+    )
+    if existing is not None:
+        template.definicion_version_id = existing.id
+        template.os_template = existing.manifest['image']['volume_id']
+        await db.commit()
+        return existing.manifest
     identity, reference = uuid4(), uuid4()
-    value = manifest('linux')
-    value['definition_key'] = 'linux-capacity-test'
-    value['image']['volume_id'] = 'local:vztmpl/ubuntu-test.tar.zst'
+    value = manifest(product)
+    value['definition_key'] = key
+    if product == 'linux':
+        value['image']['volume_id'] = 'local:vztmpl/ubuntu-test.tar.zst'
     value['validation']['validated_at'] = clock.now().isoformat()
     proof = definition_proof(identity, value)
     encoded = canonical(proof)
@@ -83,8 +97,8 @@ async def link_capacity_definition(db, template, actor):
         documento_canonico=encoded, sha256=checksum, registrada_por=actor.id))
     await db.flush()
     value['validation'].update(evidence_id=str(reference), evidence_sha256=checksum)
-    db.add(DefinicionServicio(id=identity, codigo=value['definition_key'], version='1.0.0', producto='linux',
-        modelo_servicio='iaas', manifest=value, manifest_sha256=digest(value), estado='publicada',
+    db.add(DefinicionServicio(id=identity, codigo=value['definition_key'], version='1.0.0', producto=product,
+        modelo_servicio=PRODUCTS[product], manifest=value, manifest_sha256=digest(value), estado='publicada',
         validada_por=actor.id, validada_at=clock.now(), evidencia_validacion=reference))
     template.definicion_version_id = identity
     template.os_template = value['image']['volume_id']

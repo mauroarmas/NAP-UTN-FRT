@@ -44,13 +44,13 @@ test('reabrir una solicitud restaura modelo y plantilla compatibles', async () =
 test('abrir desde catálogo conserva el perfil elegido y detecta su retiro', async () => {
   const props = { open: true, onClose: vi.fn(), user: teacher, initialTemplate: templates[1] };
   const view = render(<NuevoPedidoModal {...props} />);
-  await waitFor(() => expect(screen.getByRole('combobox', { name: /Plantilla/ })).toHaveValue('2'));
+  await waitFor(() => expect(screen.getByRole('combobox', { name: 'Servicio', exact: true })).toHaveValue('2'));
   expect(screen.getByRole('button', { name: /PaaS/ })).toHaveAttribute('aria-pressed', 'true');
   view.rerender(<NuevoPedidoModal {...props} open={false} />);
   api.getTemplates.mockResolvedValue({ data: [templates[0]] });
   view.rerender(<NuevoPedidoModal {...props} />);
   expect(await screen.findByText(/perfil elegido dejó de estar disponible/)).toBeVisible();
-  expect(screen.getByRole('combobox', { name: /Plantilla/ })).toHaveValue('');
+  expect(screen.getByRole('combobox', { name: 'Servicio', exact: true })).toHaveValue('');
   expect(api.createPedido).not.toHaveBeenCalled();
 });
 
@@ -121,7 +121,8 @@ test('cambiar modalidad y año envía el objeto completo sin arrastrar fechas', 
   await user.click(screen.getByRole('button', { name: 'Rango Personalizado' }));
   await user.type(screen.getByLabelText('Fecha desde'), '2027-04-01');
   await user.type(screen.getByLabelText('Fecha hasta'), '2027-05-01');
-  await user.type(screen.getByLabelText('Requerimientos o propósito'), 'Datos válidos para conservar');
+  await user.type(screen.getByLabelText('Nombre de la solicitud'), 'Prácticas de consultas');
+  await user.type(screen.getByLabelText('Justificación pedagógica'), 'Datos válidos para conservar');
   await user.click(screen.getByRole('button', { name: 'Ciclo Lectivo Anual' }));
   const year = screen.getByLabelText('Año lectivo');
   await user.clear(year); await user.type(year, '2028');
@@ -130,8 +131,68 @@ test('cambiar modalidad y año envía el objeto completo sin arrastrar fechas', 
   await user.click(send);
   expect(await screen.findByText('Revisar antes de confirmar.')).toBeVisible();
   expect(api.createPedido.mock.calls[0][0].vigencia).toEqual({ tipo: 'anual', anio_lectivo: 2028 });
-  expect(screen.getByLabelText('Requerimientos o propósito')).toHaveValue('Datos válidos para conservar');
+  expect(screen.getByLabelText('Justificación pedagógica')).toHaveValue('Datos válidos para conservar');
   expect(screen.queryByLabelText('Fecha hasta')).not.toBeInTheDocument();
   await user.click(send);
   expect(api.createPedido.mock.calls[0][1]).toBe(api.createPedido.mock.calls[1][1]);
+});
+
+test('Otro guarda servicio, título y justificación sin seleccionar una plantilla ficticia', async () => {
+  const user = userEvent.setup();
+  api.createPedido.mockResolvedValue({ data: { id: 30, estado: 'solicitado' } });
+  const onCreated = vi.fn();
+  render(<NuevoPedidoModal open user={teacher} onClose={vi.fn()} onCreated={onCreated} />);
+  await waitFor(() => expect(screen.getByLabelText('Plantilla')).toHaveValue('1'));
+  await user.click(screen.getByRole('button', { name: /SaaS/ }));
+  expect(screen.getByLabelText('Servicio')).toHaveValue('otro');
+  const send = screen.getByRole('button', { name: 'Enviar solicitud', exact: true });
+  expect(send).toBeDisabled();
+  await user.type(screen.getByLabelText('¿Qué software o servicio necesitás?'), 'Libro virtual');
+  await user.type(screen.getByLabelText('Nombre de la solicitud'), 'Apuntes de Bases de Datos');
+  await user.type(screen.getByLabelText('Justificación pedagógica'), 'Publicar apuntes y ejercicios para 40 estudiantes.');
+  await user.click(screen.getByRole('button', { name: 'Rango Personalizado' }));
+  await user.type(screen.getByLabelText('Fecha desde'), '2027-03-01');
+  await user.type(screen.getByLabelText('Fecha hasta'), '2027-06-30');
+  await user.click(send);
+  await waitFor(() => expect(onCreated).toHaveBeenCalled());
+  expect(api.createPedido.mock.calls[0][0]).toEqual({ modelo_servicio: 'saas', template_id: null, catedra_id: 1,
+    descripcion_requerimientos: 'Publicar apuntes y ejercicios para 40 estudiantes.', vigencia: dates,
+    parametros_extra: { titulo: 'Apuntes de Bases de Datos', software_solicitado: 'Libro virtual' } });
+});
+
+test('cambiar de Otro a catálogo no arrastra el software solicitado', async () => {
+  const user = userEvent.setup();
+  render(<NuevoPedidoModal open user={teacher} onClose={vi.fn()} />);
+  await waitFor(() => expect(screen.getByLabelText('Plantilla')).toHaveValue('1'));
+  await user.click(screen.getByRole('button', { name: /PaaS/ }));
+  await user.selectOptions(screen.getByLabelText('Servicio'), 'otro');
+  await user.type(screen.getByLabelText('¿Qué software o servicio necesitás?'), 'Otro motor');
+  await user.selectOptions(screen.getByLabelText('Servicio'), '2');
+  expect(screen.queryByLabelText('¿Qué software o servicio necesitás?')).not.toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: /IaaS/ }));
+  expect(screen.queryByRole('option', { name: 'Otro', exact: true })).not.toBeInTheDocument();
+});
+
+test('la solicitud sólo consulta años lectivos desde 2026 y bloquea fechas anteriores', async () => {
+  const user = userEvent.setup();
+  api.getCalendario.mockImplementation(async (year) => ({ data: { anio: Number(year),
+    periodos: [{ tipo: 'primer_cuatrimestre', desde: `${year}-03-01`, hasta: `${year}-06-30` }] } }));
+  render(<NuevoPedidoModal open user={teacher} onClose={vi.fn()} />);
+  await waitFor(() => expect(screen.getByLabelText('Plantilla')).toHaveValue('1'));
+  await user.type(screen.getByLabelText('Nombre de la solicitud'), 'Prácticas');
+  await user.type(screen.getByLabelText('Justificación pedagógica'), 'Resolver ejercicios.');
+  const year = screen.getByLabelText('Año lectivo');
+  expect(year).toHaveAttribute('min', '2026');
+  await user.clear(year); await user.type(year, '2025');
+  expect(await screen.findByText('Elegí un año lectivo entre 2026 y 9998.')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Enviar solicitud', exact: true })).toBeDisabled();
+  expect(api.getCalendario.mock.calls.some(([value]) => String(value) === '2025')).toBe(false);
+  await user.clear(year); await user.type(year, '2026');
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Enviar solicitud', exact: true })).toBeEnabled());
+  await user.click(screen.getByRole('button', { name: 'Rango Personalizado' }));
+  expect(screen.getByLabelText('Fecha desde')).toHaveAttribute('min', '2026-01-01');
+  await user.type(screen.getByLabelText('Fecha desde'), '2025-12-31');
+  await user.type(screen.getByLabelText('Fecha hasta'), '2026-03-01');
+  expect(await screen.findByText('Las fechas deben corresponder a 2026 o un año posterior.')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Enviar solicitud', exact: true })).toBeDisabled();
 });

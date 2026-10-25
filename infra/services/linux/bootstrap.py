@@ -8,6 +8,7 @@ else:
 
 
 UNITS, LOGIN = CONSOLE_UNITS, CONSOLE_LOGIN
+SHOW_UNITS = ['console-getty.service', 'container-getty@1.service', 'getty@tty1.service', 'serial-getty@ttyS0.service']
 SUDO = 'napadmin ALL=(ALL:ALL) ALL\n'
 
 
@@ -59,7 +60,7 @@ class Linux:
         if not result['ready']:
             raise GuestError('PROBE_FAILED')
         context.system.run(['/usr/sbin/visudo', '--check', '--file', '/etc/sudoers.d/napadmin'])
-        effective = context.system.run(['/usr/bin/systemctl', 'show', '--property=ExecStart', '--value', *UNITS])
+        effective = context.system.run(['/usr/bin/systemctl', 'show', '--property=ExecStart', '--value', *SHOW_UNITS])
         active = '\n'.join(line for line in effective.splitlines() if not line.lstrip().startswith('#'))
         # Antes de entregar también se comprueba un login real desde consola;
         # esta prueba local solo acredita configuración sin autologin.

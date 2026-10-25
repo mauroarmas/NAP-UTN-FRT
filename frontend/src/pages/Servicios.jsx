@@ -6,7 +6,7 @@ import { mensajeError } from '../utils/errors.js';
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   RefreshCw, Play, Pause, RotateCw, Trash2, Activity,
-  Pin, PinOff, CalendarClock, Send, Loader2, Search, X, Settings,
+  Pin, PinOff, CalendarClock, Send, Loader2, Search, X, Settings, CircleAlert,
 } from 'lucide-react';
 import {
   getPedidos, listarServicios, desplegarPedido, iniciarServicio, detenerServicio,
@@ -43,7 +43,7 @@ const Spinner = ({ size = 13 }) => <Loader2 size={size} className="spin" aria-hi
 
 function CoberturaServicio({ servicio, isAdmin, onModificar, disabled }) {
   const labels = { con_cobertura: 'Dentro del período autorizado', receso: 'En receso · datos conservados',
-    esperando_inicio: 'Esperando fecha inicial', vencido: 'Período finalizado · datos conservados', sin_regularizar: 'Períodos pendientes de regularización' };
+    esperando_inicio: 'Esperando fecha inicial', vencido: 'Período finalizado · datos conservados', sin_regularizar: 'Fechas de uso pendientes de revisión' };
   return <div className="col gap-1">
     <span className="card-meta">{labels[servicio.estado_cobertura] || 'Cobertura sin confirmar'}</span>
     {servicio.fin_efectivo_at && <span className="card-meta">Cobertura actual hasta {new Date(servicio.fin_efectivo_at).toLocaleString('es-AR')} (fin exclusivo).</span>}
@@ -67,6 +67,9 @@ export default function Servicios({ user }) {
   const [actionError, setActionError] = useState('');
   const [access, setAccess] = useState(null);
   const [regularizacion, setRegularizacion] = useState(null);
+  const [revisionDetalle, setRevisionDetalle] = useState(null);
+  const [resultadoPreferencia, setResultadoPreferencia] = useState(null);
+  const statusRequest = useRef(0);
   const intentKeys = useRef({});
   const claveIntencion = (tipo, id) => {
     const key = `${tipo}:${id}`;
@@ -151,7 +154,7 @@ export default function Servicios({ user }) {
   const templateDe = (s) => templates.find((t) => t.id === s.template_id);
 
   const tipoServicioBadge = (s) => {
-    if (!s.modelo_servicio) return { label: 'Modelo sin regularizar', kind: 'warn' };
+    if (!s.modelo_servicio) return { label: 'Tipo pendiente de revisión', kind: 'warn' };
     if (s.modelo_servicio === 'saas') return { label: 'SaaS', kind: 'accent' };
     if (s.modelo_servicio === 'paas') return { label: 'PaaS', kind: 'accent' };
     return { label: 'IaaS', kind: 'neutral' };
@@ -198,18 +201,24 @@ export default function Servicios({ user }) {
   };
 
   const handleExento = async (s) => {
+    if (accionandoRef.current) return;
     const activando = !s.exento_pausado;
     if (activando && !confirm(
       'Marcar "siempre activo" excluye este servicio del apagado automático por falta de uso.\n\n' +
       'Usalo cuando el servicio deba seguir arriba aunque no registre actividad.'
     )) return;
+    setResultadoPreferencia(null);
     marcarAccion('exento', s.id);
     try {
       await actualizarServicio(s.id, { exento_pausado: activando });
+      setResultadoPreferencia({ id: s.id, mensaje: activando
+        ? 'Siempre activo habilitado: no se pausará por falta de uso. No enciende el servicio ni cambia sus fechas autorizadas.'
+        : 'Siempre activo deshabilitado: vuelve a aplicarse la pausa por falta de uso.' });
       await fetchData();
     } catch (err) {
       registrarConflicto(err);
-      setActionError(mensajeError(err, 'No se confirmó la acción. Volvé a consultar el servicio.'));
+      setResultadoPreferencia({ id: s.id, error: true,
+        mensaje: mensajeError(err, 'No se pudo confirmar el cambio. Volvé a consultar el servicio antes de repetirlo.') });
     } finally {
       marcarAccion(null);
     }
@@ -259,13 +268,20 @@ export default function Servicios({ user }) {
   };
 
   const handleStatus = async (id) => {
+    const request = ++statusRequest.current;
+    setStatusDetalle({ servicioId: id, loading: true });
     try {
       const { data } = await getStatusServicio(id);
-      setStatusDetalle(data);
-    } catch (err) {
-      registrarConflicto(err);
-      setActionError(mensajeError(err, 'No se confirmó la acción. Volvé a consultar el servicio.'));
+      if (statusRequest.current === request) setStatusDetalle({ servicioId: id, data });
+    } catch {
+      if (statusRequest.current === request) setStatusDetalle({ servicioId: id,
+        error: 'No se pudo consultar el estado del servicio. La conexión con la infraestructura puede no estar disponible. Intentá nuevamente o consultá al administrador.' });
     }
+  };
+
+  const cerrarEstado = () => {
+    statusRequest.current += 1;
+    setStatusDetalle(null);
   };
 
   // Filtrado de servicios
@@ -514,6 +530,12 @@ export default function Servicios({ user }) {
                   const ocupada = Boolean(operacion) || Boolean(s.operation_id && !operaciones[s.operation_id]) || (accionando !== null
                     && accionando.tipo !== 'deploy' && accionando.id === s.id);
                   const permite = (accion) => !ocupada && Boolean(s.acciones_habilitadas?.includes(accion));
+                  const motivoAccion = (accion) => {
+                    if (ocupada) return 'Esperá a que termine la operación en curso.';
+                    if (s.regularizacion_pendiente) return 'Administración debe revisar los datos y las fechas de este servicio.';
+                    if (accion === 'restart' && s.estado !== 'running') return 'El servicio debe estar encendido para reiniciarlo.';
+                    return s.motivo_bloqueo || 'Esta acción no está disponible para el estado actual del servicio.';
+                  };
                   const abreHaciaArriba = serviciosFiltrados.length > 1 && idx >= serviciosFiltrados.length - 1;
 
                   return (
@@ -593,12 +615,17 @@ export default function Servicios({ user }) {
                           )}
                           {s.exento_pausado && <span className="card-meta">siempre activo</span>}
                           <CoberturaServicio servicio={s} isAdmin={isAdmin} onModificar={(periodo) => handleRenovar(s, periodo)} disabled={ocupada || !s.acciones_habilitadas?.includes('renovar')} />
-                          {s.motivo_bloqueo && <span className="card-meta">{s.motivo_bloqueo}</span>}
+                          {s.regularizacion_pendiente ? <button type="button" className="btn btn-secondary btn-sm"
+                            aria-haspopup="dialog" onClick={() => setRevisionDetalle(s)}>
+                            <CircleAlert size={14} aria-hidden="true" /> Pendiente de Revisión
+                          </button> : s.motivo_bloqueo && <span className="card-meta">{s.motivo_bloqueo}</span>}
                           {isAdmin && s.regularizacion_legacy && s.regularizacion_pendiente && <button
                             className="btn btn-secondary btn-sm" disabled={ocupada} onClick={() => { setNotice(''); setRegularizacion(s); }}>
                             Regularizar registro
                           </button>}
                           <span className="card-meta">{s.confirmado_at ? `Última confirmación: ${new Date(s.confirmado_at).toLocaleString('es-AR')}` : 'Sin confirmación registrada'} · {s.fuente_observacion === 'worker' ? 'Observación del sistema' : 'Sin observación reciente'}</span>
+                          {resultadoPreferencia?.id === s.id && <p className={`service-action-feedback ${resultadoPreferencia.error ? 'bad' : ''}`}
+                            role={resultadoPreferencia.error ? 'alert' : 'status'}>{resultadoPreferencia.mensaje}</p>}
                         </div>
                       </td>
 
@@ -623,8 +650,9 @@ export default function Servicios({ user }) {
                                   className="btn-icon ok"
                                   onClick={() => handleReactivar(s.id)}
                                   disabled={!permite('start')}
+                                  aria-label="Reanudar / Reactivar servicio"
                                   aria-busy={busy('reactivar')}
-                                  title="Reanudar / Reactivar servicio"
+                                  title={permite('start') ? 'Reanudar / Reactivar servicio' : motivoAccion('start')}
                                 >
                                   {busy('reactivar') ? <Spinner size={14} /> : <Play size={16} />}
                                 </button>
@@ -633,8 +661,9 @@ export default function Servicios({ user }) {
                                   className="btn-icon warn"
                                   onClick={() => handleStop(s.id)}
                                   disabled={!permite('stop')}
+                                  aria-label="Pausar / Detener servicio"
                                   aria-busy={busy('stop')}
-                                  title="Pausar / Detener servicio"
+                                  title={permite('stop') ? 'Pausar / Detener servicio' : motivoAccion('stop')}
                                 >
                                   {busy('stop') ? <Spinner size={14} /> : <Pause size={16} />}
                                 </button>
@@ -643,8 +672,9 @@ export default function Servicios({ user }) {
                                   className="btn-icon ok"
                                   onClick={() => handleStart(s.id)}
                                   disabled={!permite('start')}
+                                  aria-label="Iniciar servicio"
                                   aria-busy={busy('start')}
-                                  title="Iniciar servicio"
+                                  title={permite('start') ? 'Iniciar servicio' : motivoAccion('start')}
                                 >
                                   {busy('start') ? <Spinner size={14} /> : <Play size={16} />}
                                 </button>
@@ -674,6 +704,9 @@ export default function Servicios({ user }) {
                                       boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
                                     }}
                                   >
+                                    {(s.regularizacion_pendiente || ocupada) && <p className="service-menu-note">
+                                      {ocupada ? 'Hay una operación en curso. Esperá su confirmación.' : 'Algunas acciones requieren que administración revise los datos del servicio.'}
+                                    </p>}
                                     {/* Reiniciar */}
                                     <button
                                       className="menu-item"
@@ -682,7 +715,7 @@ export default function Servicios({ user }) {
                                         handleRestart(s.id);
                                       }}
                                       disabled={!permite('restart')}
-                                      title={s.estado !== 'running' ? 'El servicio debe estar corriendo para reiniciarlo' : undefined}
+                                      title={!permite('restart') ? motivoAccion('restart') : undefined}
                                     >
                                       <RotateCw size={14} />
                                       <span>Reiniciar</span>
@@ -696,6 +729,7 @@ export default function Servicios({ user }) {
                                         handleRenovar(s);
                                       }}
                                       disabled={!permite('renovar')}
+                                      title={!permite('renovar') ? motivoAccion('renovar') : undefined}
                                     >
                                       <CalendarClock size={14} />
                                       <span>Solicitar renovación</span>
@@ -723,7 +757,7 @@ export default function Servicios({ user }) {
                                       }}
                                     >
                                       <Activity size={14} />
-                                      <span>Estado en Proxmox</span>
+                                      <span>{isAdmin ? 'Estado en Proxmox' : 'Consultar estado'}</span>
                                     </button>
 
                                     {/* Dar de baja */}
@@ -770,15 +804,33 @@ export default function Servicios({ user }) {
         <AccesoServicio servicio={access} user={user} onVerified={fetchData} />
       </Dialog>}
 
+      {revisionDetalle && <Dialog title="Pendiente de Revisión" onClose={() => setRevisionDetalle(null)}
+        actions={<button type="button" className="btn btn-secondary" onClick={() => setRevisionDetalle(null)}>Entendido</button>}>
+        <div className="col gap-3">
+          <p><strong>{revisionDetalle.nombre_snapshot || revisionDetalle.hostname || `Servicio #${revisionDetalle.id}`}</strong></p>
+          <p>Administración debe confirmar qué recurso corresponde a este servicio y sus fechas de uso. Hasta completar esa revisión, no se permite iniciar, reiniciar ni renovar.</p>
+          <p>{isAdmin ? 'Usá «Regularizar registro» si está disponible. Si requiere reconciliación, revisá el registro antes de continuar.' : 'Pedile al administrador del portal que revise este servicio.'}</p>
+        </div>
+      </Dialog>}
+
       {statusDetalle && (
-        <Dialog wide title={`Estado en Proxmox — VMID ${statusDetalle.vmid}`} onClose={() => setStatusDetalle(null)}>
-          <pre style={{
+        <Dialog wide title="Estado del servicio" onClose={cerrarEstado}>
+          {statusDetalle.loading && <p role="status"><Spinner /> Consultando el estado del servicio…</p>}
+          {statusDetalle.error && <div className="col gap-3">
+            <p role="alert">{statusDetalle.error}</p>
+            <button className="btn btn-secondary" onClick={() => handleStatus(statusDetalle.servicioId)}>Reintentar consulta</button>
+          </div>}
+          {statusDetalle.data && <div className="col gap-3">
+            <p>Estado consultado: <strong>{CFG[statusDetalle.data.proxmox_status?.status]?.label || 'Sin confirmar'}</strong>.</p>
+            <p>Esta consulta no inicia ni reinicia el servicio.</p>
+            {isAdmin && <details><summary>Detalles técnicos</summary><pre style={{
             fontSize: 12, color: 'var(--text-body)', overflowX: 'auto',
             background: 'color-mix(in srgb, var(--color-text) 6%, transparent)',
             padding: 'var(--space-3)', borderRadius: 'var(--radius-md)',
           }}>
-            {JSON.stringify(statusDetalle.proxmox_status, null, 2)}
-          </pre>
+            {JSON.stringify(statusDetalle.data.proxmox_status, null, 2)}
+          </pre></details>}
+          </div>}
         </Dialog>
       )}
     </div>

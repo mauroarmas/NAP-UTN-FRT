@@ -420,7 +420,7 @@ export default function Pedidos({ user }) {
                     <div className="row wrap gap-2" style={{ alignItems: 'baseline' }}>
                       <span className="section-count">#{p.id}</span>
                       <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 'var(--font-heading-weight)', fontSize: 19 }}>
-                        {p.asignacion_snapshot?.nombre || templateNombre(p.template_id)}
+                        {p.asignacion_snapshot?.nombre || (!p.template_id && parseDescripcionPedido(p).software) || templateNombre(p.template_id)}
                       </span>
                       {(() => {
                         const mb = modeloServicioBadge(p.modelo_servicio);
@@ -631,6 +631,7 @@ function DetalleDialog({
           )}
         </div>
 
+        <p className="card-meta" style={{ marginTop: 8 }}>Justificación pedagógica</p>
         {parsed.justificacion ? (
           <div
             style={{
@@ -666,7 +667,7 @@ function DetalleDialog({
         <div className="callout warn" style={{ marginBottom: 'var(--space-3)' }}>
           <AlertTriangle size={16} />
           <div>
-            <strong>Observaciones de ajuste solicitadas:</strong>
+            <strong>Aclaración solicitada por administración:</strong>
             <div style={{ marginTop: 4, whiteSpace: 'pre-wrap' }}>{detalle.observaciones_ajuste}</div>
           </div>
         </div>
@@ -695,7 +696,7 @@ function DetalleDialog({
           <p>Revisá recursos, fechas y capacidad antes de confirmar la asignación.</p>
           <div className="row gap-2 wrap">
             <button className="btn btn-primary" onClick={onAbrirAprobar} disabled={transicionando}><CheckCircle2 size={15} /> Revisar y aprobar…</button>
-            <button className="btn btn-warning" onClick={onAbrirAjuste} disabled={transicionando}>Solicitar ajuste</button>
+            <button className="btn btn-warning" onClick={onAbrirAjuste} disabled={transicionando}>Pedir aclaración</button>
             <button className="btn btn-ghost" onClick={() => setMostrarRechazo(!mostrarRechazo)} disabled={transicionando}><XCircle size={15} /> Rechazar…</button>
           </div>
           {mostrarRechazo && <div className="col gap-2">
@@ -706,20 +707,27 @@ function DetalleDialog({
         </div>
       )}
 
+      {isAdmin && detalle.estado === 'error' && <section className="decision-container">
+        <p>El cierre exige ausencia confirmada o una operación sin envío, sin recursos ni compromisos pendientes.</p>
+        <label htmlFor="reject-error-reason">Motivo de cierre del pedido fallido</label>
+        <textarea id="reject-error-reason" value={motivoRechazo} maxLength={2000} onChange={(e) => setMotivoRechazo(e.target.value)} disabled={transicionando} />
+        <button className="btn btn-danger" onClick={onRechazar} disabled={transicionando || !motivoRechazo.trim()}>Cerrar pedido fallido como rechazado</button>
+      </section>}
+
       {/* 5. Acciones de Ajuste (cuando requiere ajuste) */}
-      {isAdmin && detalle.estado === 'requiere_ajuste' && (
+      {detalle.estado === 'requiere_ajuste' && (
         <div className="decision-container">
-          <div className="section-label" style={{ margin: 0, fontSize: '0.84rem' }}>Acciones de Ajuste</div>
+          <div className="section-label" style={{ margin: 0, fontSize: '0.84rem' }}>Aclaración pendiente</div>
           <p className="text-muted" style={{ margin: 0 }}>
-            Este pedido requiere adecuación según las observaciones del administrador antes de poder ser evaluado nuevamente.
+            Revisá las observaciones, completá la información y reenviá el pedido para que administración lo evalúe nuevamente.
           </p>
           <div className="row gap-2 wrap" style={{ paddingTop: 'var(--space-2)' }}>
             <button className="btn btn-primary btn-sm" onClick={onAbrirReenviar} disabled={transicionando}>
-              Modificar y reenviar solicitud
+              {isAdmin ? 'Modificar y reenviar solicitud' : 'Responder aclaración'}
             </button>
-            <button className="btn btn-danger btn-sm" onClick={() => onCancelarPedido(detalle.id)} disabled={transicionando}>
+            {isAdmin && <button className="btn btn-danger btn-sm" onClick={() => onCancelarPedido(detalle.id)} disabled={transicionando}>
               Cancelar solicitud
-            </button>
+            </button>}
           </div>
         </div>
       )}

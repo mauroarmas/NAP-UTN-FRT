@@ -2,8 +2,7 @@
 
 **Feature**: 009-remediar-hallazgos-cierre | **Fecha**: 2026-10-18
 
-Este documento define el comportamiento objetivo de la API; los endpoints nuevos,
-los cambios de respuesta y sus pruebas todavía deben implementarse. Los ejemplos
+Este documento define el contrato implementado en la API (`009-remediar-hallazgos-cierre`). Los ejemplos
 son datos de aceptación y no crean calendario, infraestructura ni cuentas reales.
 La validación con dobles no sustituye la integración real indicada en
 [quickstart.md](../quickstart.md).
@@ -16,8 +15,8 @@ La validación con dobles no sustituye la integración real indicada en
   pertenencia. Listados se filtran; un identificador ajeno conocido devuelve 403
   sin contenido, y uno inexistente devuelve 404.
 - `admin`: todas las cátedras; `propio`: administrador o titular vigente de la
-  cátedra del pedido/servicio. Aprobar, rechazar, corregir/reenviar, cancelar, asignar y modificar calendarios
-  son operaciones administrativas.
+  cátedra del pedido/servicio. Aprobar, rechazar, cancelar, asignar y modificar calendarios
+  son operaciones administrativas. Reenviar admite al titular actual sólo para un pedido de su cátedra en `requiere_ajuste`.
 - Fechas de cursada: `YYYY-MM-DD` en la zona institucional configurada.
   Instantes: RFC 3339 UTC con `Z`. El intervalo efectivo es
   `[inicio_at, fin_exclusivo_at)`: el día final local se admite completo.
@@ -138,12 +137,18 @@ y servicios. No se adopta ni elimina un recurso por similitud de nombre.
 
 ### Crear, corregir y consultar
 
+#### Preparación del pool de cátedra
+
+`GET /catedras/{id}/infraestructura` exige administración actual y devuelve `Cache-Control: no-store`. Respuesta: `catedra_id`, `pool`, `estado` (`preparada`, `sin_servicios`, `requiere_atencion`), `codigo`, `mensaje`, `verificado_at` y, si corresponde, `permisos_faltantes`. La consulta no crea pools, concede ACL, adopta recursos ni escribe datos. La interfaz muestra **Sin verificar** hasta ejecutar la consulta.
+
+La operación de despliegue prepara `catedra-{id}` después de validar reserva/vigencia y preparación del producto, antes de reclamar identidad y crear el invitado. Comprueba permisos efectivos de la cuenta API en el pool (`Pool.Allocate`, `VM.Allocate`, `VM.Audit`, `VM.PowerMgmt`), crea únicamente ese nombre si falta y vuelve a leer su estado. Si el POST pierde su respuesta o otra operación crea el mismo pool, se reconcilia por nombre; no se generan variantes ni se borra/reemplaza el pool existente. Los miembros existentes deben ser LXC de identidades comprobadas de la cátedra; lo desconocido bloquea sin cambios. Un problema `pool_*` anterior al envío del invitado cede la operación con diagnóstico y conserva la reserva para comprobar de nuevo, sujeto a la expiración ordinaria. No configura cuotas ni sustituye las verificaciones de red, consola o aplicación.
+
 | Método y ruta | Permiso | Resultado y condición |
 |---|---|---|
 | `GET /pedidos/` | Operativo | 200; filtros de modelo/estado/cátedra e históricos autorizados. |
 | `GET /pedidos/{id}` | Propio | 200; detalle e historial de solo agregado. |
 | `POST /pedidos/` | Operativo sobre cátedra autorizada | 201; solicitud nueva válida. |
-| `POST /pedidos/{id}/reenviar` | Admin | 200; solo `requiere_ajuste`, vuelve a `solicitado`. |
+| `POST /pedidos/{id}/reenviar` | Admin o titular actual propio | 200; solo `requiere_ajuste`, vuelve a `solicitado` y avisa a administración. |
 | `POST /pedidos/{id}/cancelar` | Admin | 200; solo `solicitado` o `requiere_ajuste`, sin operación externa iniciada. |
 | `POST /pedidos/{id}/solicitar-ajuste` | Admin | 200; observaciones obligatorias, transición central; desde alta aprobada sin dispatch revoca la decisión anterior y libera compromiso antes del ajuste. |
 | `POST /pedidos/{id}/rechazar` | Admin | 200; motivo obligatorio, transición central. |
@@ -159,6 +164,7 @@ Solicitud ordinaria:
   "modelo_servicio": "paas",
   "template_id": 7,
   "descripcion_requerimientos": "Base de datos para prácticas de consultas",
+  "parametros_extra": {"titulo": "Prácticas de consultas", "software_solicitado": null},
   "vigencia": {
     "tipo": "primer_cuatrimestre",
     "anio_lectivo": 2027
@@ -168,15 +174,22 @@ Solicitud ordinaria:
 
 `catedra_id` puede omitirse únicamente si hay una sola cátedra propia activa.
 Modelo y plantilla deben ser compatibles, LXC y publicables; QEMU histórico se
-conserva como histórico, sin habilitar nuevas solicitudes. Para PaaS/SaaS una
-necesidad sin preparación compatible puede tramitarse como ajuste/rechazo, pero
-no se aprueba una instalación arbitraria ni una oferta no validada.
+conserva como histórico, sin habilitar nuevas solicitudes. La interfaz exige nombre y justificación pedagógica.
 
-`reenviar` es administrativo y acepta los campos editables de solicitud, sin sustituir la decisión separada de asignación. `cancelar` exige motivo. El docente consulta observaciones y comunica correcciones por el canal institucional: no puede editar/reenviar/cancelar el pedido propio ni ajeno; se devuelve 403 antes de cualquier cambio o efecto. No se agrega una ruta docente alternativa de cambio de estado.
+**Otro (PaaS/SaaS)**: permite `template_id: null` con `parametros_extra.software_solicitado` y
+`descripcion_requerimientos` no vacíos. `parametros_extra` sólo admite `titulo` (máximo 200 caracteres)
+y `software_solicitado` (máximo 200); la descripción admite hasta 5000. Se conserva en estado
+`solicitado`, sin definición, reserva ni despliegue. Administración prepara y publica una oferta
+compatible, y la selecciona en la evaluación/aprobación del pedido original. Se conservan el título,
+la necesidad original y la justificación. No se aprueba una instalación arbitraria ni una oferta no validada.
+IaaS sigue exigiendo una plantilla publicada. Se mantiene compatibilidad con clientes existentes que
+envían un perfil concreto sin `parametros_extra`.
+
+`reenviar` acepta los campos editables de solicitud sin sustituir la decisión separada de asignación. El titular actual puede responder una aclaración únicamente en pedidos de su propia cátedra en `requiere_ajuste`; un pedido ajeno devuelve 403 y un estado distinto devuelve 409. No permite indicar hardware, aprobar, cancelar ni alterar la asignación autorizada. Se conserva la idempotencia y se avisa a administración mediante portal/outbox de correo. `cancelar` sigue siendo administrativo y exige motivo. La interfaz denomina la devolución «Pedir aclaración» y su respuesta «Responder aclaración»; el estado técnico conserva `requiere_ajuste`.
 Al cambiar modalidad se envía el objeto `vigencia` completo: las fechas de una
 modalidad anterior se eliminan o resuelven de nuevo, no sobreviven por omisión.
 
-La vigencia académica exige año y período configurado. La personalizada exige
+La vigencia académica exige año entre 2026 y 9998 y período configurado; consultar o escribir `/calendarios/{anio}` también exige ese rango. Los períodos de calendario y las fechas de solicitudes nuevas no admiten valores anteriores al 01/01/2026. La personalizada exige
 `tipo: "personalizado"`, `desde` y `hasta` como fechas completas; no admite rango
 invertido ni fin ya pasado. No existe fallback a 180 días.
 

@@ -14,7 +14,7 @@ from app.models.servicio import Servicio, EstadoServicio
 from app.models.usuario import Usuario
 from app.models.vigencia import VigenciaAutorizada
 from app.services import operacion_service as operations, identidad_infra_service as identities
-from app.services import capacidad_service, bootstrap_service, historial_service
+from app.services import capacidad_service, bootstrap_service, historial_service, notificacion_service
 from app.services.infraestructura_io import consultar, con_cliente, InfraNoVerificable
 from app.services.inventario_service import integer, disk_size, marker
 from app.services.acceso_service import requiere_acceso_catedra
@@ -52,7 +52,7 @@ async def _view(sessions, lease):
         return rows[1:]
 
 
-async def _defer(sessions, lease, *, uncertain=False, code=None):
+async def _defer(sessions, lease, *, uncertain=False, code=None, message=None):
     async with _locked(sessions, lease) as (db, op, identity, service, request, ledger):
         if uncertain and ledger:
             ledger.estado = 'incierto'
@@ -60,7 +60,7 @@ async def _defer(sessions, lease, *, uncertain=False, code=None):
             identity.estado = 'incierta'
         if not await operations.ceder(db, lease, incierta=uncertain,
             segundos=min(30, 2 ** min(op.intento, 4)), error_codigo=code,
-            error_detalle_seguro='Resultado pendiente de comprobación; se conserva el compromiso' if uncertain else None):
+            error_detalle_seguro=message or ('Resultado pendiente de comprobación; se conserva el compromiso' if uncertain else None)):
             raise LeasePerdido()
 
 
@@ -80,6 +80,14 @@ async def _finish_failure(sessions, lease, code, *, absence=None, release_unsent
         if request and request.estado == EstadoPedido.EN_DESPLIEGUE:
             await transicionar(db, request.id, EstadoPedido.ERROR, motivo='La operación requiere revisión: ' + code,
                 operacion_id=op.id, evento_clave=f'operacion:{op.id}:fallida')
+            from app.models.catedra import Catedra
+            category = await db.get(Catedra, request.catedra_id)
+            cat_nombre = category.nombre if category else f'#{request.catedra_id}'
+            await notificacion_service.encolar_aviso_pedido(db, request,
+                evento=f'pedido:{request.id}:error:{op.id}', tipo='pedido_error_despliegue',
+                asunto=f'[Error en Despliegue] Incidente en Pedido #{request.id} ({cat_nombre})',
+                texto=f'La operación de despliegue del pedido #{request.id} ({cat_nombre}) falló ({code}) y requiere revisión.',
+                destinatarios='ambos')
         if not await operations.terminar(db, lease, estado='fallida', error_codigo=code,
             error_detalle_seguro='La operación no se completó. Revisá el diagnóstico antes de reintentar'):
             raise LeasePerdido()
@@ -128,12 +136,25 @@ async def _prepare(sessions, lease, *, pve, runner):
         net0 = validated.get('net0') if isinstance(validated, dict) else None
         if not isinstance(net0, str) or not re.fullmatch(r'name=eth0,bridge=[A-Za-z][A-Za-z0-9_-]{0,14},ip=dhcp(?:,tag=\d{1,4})?', net0):
             raise error(409, 'red_no_preparada', 'Falta una red institucional validada')
+        async with _locked(sessions, lease) as (db, current, _, current_service, current_request, current_ledger):
+            if not current_ledger or not current_request or current_request.estado != EstadoPedido.EN_DESPLIEGUE:
+                raise error(409, 'decision_no_vigente', 'La decisión de despliegue ya no está vigente')
+            if not await _coverage(db, current, current_request, current_service) or (current_ledger.expira_at and db_utc(current_ledger.expira_at) <= clock.now()):
+                raise error(409, 'vigencia_no_habilitada', 'La reserva o vigencia no habilita la creación')
+            category_id = current_request.catedra_id
+        from app.services.pool_catedra_service import asegurar
+        async with sessions() as db:
+            await asegurar(db, category_id, pve=pve)
         async with _locked(sessions, lease) as (db, op, identity, service, request, ledger):
             if not ledger or not request or request.estado != EstadoPedido.EN_DESPLIEGUE:
                 raise error(409, 'decision_no_vigente', 'La decisión de despliegue ya no está vigente')
             if not await _coverage(db, op, request, service) or (ledger.expira_at and db_utc(ledger.expira_at) <= clock.now()):
                 raise error(409, 'vigencia_no_habilitada', 'La reserva o vigencia no habilita la creación')
+            op.contexto_seguro = {**op.contexto_seguro, 'preparacion_validada': validated}
             identity = await identities.reclamar(db, op, pve=pve)
+            allocation = op.contexto_seguro.get('red_reservada')
+            if allocation:
+                net0 += ',hwaddr=' + allocation['instance']['mac_address']
             ledger.identidad_infraestructura_id = identity.id
             await _cas(db, lease, identidad_infraestructura_id=identity.id, fase='lista',
                 contexto_seguro={**op.contexto_seguro, 'red_preparada': net0,
@@ -287,13 +308,26 @@ async def _confirmed(sessions, lease, observation, *, preparation=None):
             identity.estado, identity.ownership_verificada_at = 'materializada', clock.now()
             if preparation:
                 service.acceso_metadata = preparation.get('acceso_metadata')
-            service.disponibilidad_aplicacion = 'no_verificada'
+                # Una preparación nueva sí requiere nueva prueba de red. Un
+                # stop/start del mismo guest no borra la entrega ya acreditada;
+                # el revelado sigue exigiendo running, cobertura y pertenencia.
+                service.disponibilidad_aplicacion = 'no_verificada'
             if new_state == EstadoServicio.PAUSED:
                 service.pausado_auto_at = clock.now().replace(tzinfo=None)
             elif new_state == EstadoServicio.RUNNING:
                 service.pausado_auto_at = service.pausa_programada_at = service.aviso_pausa_at = None
         before = service.estado.value
         service.estado, service.observado_at = new_state, clock.now()
+        if request:
+            from app.services.pedido_service import transicionar
+            target = (EstadoPedido.SUSPENDIDO if new_state == EstadoServicio.PAUSED
+                and request.estado == EstadoPedido.ACTIVO else EstadoPedido.ACTIVO
+                if new_state == EstadoServicio.RUNNING and request.estado == EstadoPedido.SUSPENDIDO else None)
+            if target:
+                actor = await db.get(Usuario, op.actor_usuario_id) if op.actor_usuario_id else None
+                await transicionar(db, request.id, target, usuario=actor,
+                    motivo=op.motivo or ('Efecto confirmado: ' + op.tipo), operacion_id=op.id,
+                    evento_clave=f'operacion:{op.id}:pedido_confirmado')
         db.add(historial_service.registrar_servicio(service.id, before, new_state.value,
             comentario='Efecto de infraestructura confirmado: ' + op.tipo, operacion_id=op.id,
             evento_clave=f'operacion:{op.id}:confirmada', metadata=historial_service.asignacion_historica(service)))
@@ -414,6 +448,9 @@ async def procesar_lease(sessions, lease, *, pve=None, runner=None, after_dispat
         if getattr(exc, 'status_code', None) in {409, 422}:
             op, *rest = await _view(sessions, lease)
             code = exc.detail.get('codigo', 'preparacion_no_disponible') if isinstance(exc.detail, dict) else 'preparacion_no_disponible'
+            if code.startswith('pool_') and op.dispatch_started_at is None:
+                await _defer(sessions, lease, code=code, message=exc.detail['mensaje'])
+                return
             if op.dispatch_started_at is None:
                 await _finish_failure(sessions, lease, code, release_unsent=True)
             else:

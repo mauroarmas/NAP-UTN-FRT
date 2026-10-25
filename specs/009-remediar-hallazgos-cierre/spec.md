@@ -38,7 +38,7 @@ Como responsable de una o varias cátedras, quiero que mis pedidos, servicios, a
 **Acceptance Scenarios**:
 
 1. **Given** dos responsables distintos, **When** uno intenta consultar o modificar pedidos, historial, servicios, accesos o métricas del otro, **Then** se deniega el acceso sin devolver contenido ni producir cambios.
-2. **Given** un pedido propio o ajeno que requiere ajustes, **When** un docente intenta cancelarlo o reenviarlo por cualquier vía, **Then** se deniega sin cambios; esas decisiones corresponden a administración.
+2. **Given** un pedido que requiere aclaración, **When** su titular actual responde, **Then** puede reenviar únicamente el pedido propio a solicitado, sin hardware ni decisión de aprobación; un pedido ajeno o la cancelación docente se deniegan sin cambios.
 3. **Given** una persona con varias cátedras, **When** solicita y consulta recursos, **Then** puede operar en todas sus cátedras actuales sin incluir las ajenas.
 4. **Given** una reasignación de titularidad, retiro, desactivación o cambio de rol que quite acceso, **When** administración lo solicita, **Then** se bloquean inmediatamente en el portal las acciones afectadas y el cambio queda pendiente hasta acreditar la revocación nativa, incluida una consola ya abierta; después, ni la sesión anterior ni una URL guardada acceden al recurso retirado, se conserva el acceso legítimo a otras cátedras y el historial académico. Si infraestructura falla, el cambio no se anuncia completado ni se entrega al nuevo titular.
 5. **Given** una persona con rol cátedra que altera sus datos locales de sesión, **When** intenta aprobar, rechazar, asignar recursos o administrar cuentas, **Then** el sistema rechaza la operación.
@@ -111,11 +111,11 @@ Como administrador y docente quiero que los estados describan resultados reales 
 
 ### User Story 5 - Solicitar y aprobar datos y vigencia coherentes (Priority: P2)
 
-Como docente quiero crear y consultar solicitudes sin arrastrar datos incompatibles; como administrador quiero corregirlas, reenviarlas o cancelarlas y revisar el costo y las fechas que efectivamente autorizo.
+Como docente quiero crear y consultar solicitudes y responder aclaraciones propias sin arrastrar datos incompatibles; como administrador quiero evaluarlas, pedir aclaraciones, corregirlas o cancelarlas y revisar el costo y las fechas que efectivamente autorizo.
 
 **Why this priority**: Los formularios actuales mezclan modelos/plantillas, conservan fechas anteriores o impiden justificar aumentos de recursos.
 
-**Independent Test**: Alternar modelos y cerrar/reabrir solicitudes como docente; corregir/reenviar con otra vigencia y modificar recursos durante la aprobación como administrador; contrastar lo pedido, autorizado y entregado y denegar reenvío/cancelación docentes incluso sobre pedidos propios.
+**Independent Test**: Alternar modelos y cerrar/reabrir solicitudes; devolver un pedido con aclaraciones, comprobar ambos avisos y responder como titular actual sólo en ese estado. Denegar reenvíos ajenos, cancelación docente y selección de hardware. Modificar recursos durante la aprobación como administrador y contrastar lo pedido, autorizado y entregado.
 
 **Acceptance Scenarios**:
 
@@ -230,7 +230,7 @@ Como administrador y responsable de la práctica quiero instalar, actualizar, re
 
 - **FR-001**: El sistema DEBE comprobar pertenencia y permiso vigente antes de consultar u operar pedidos, servicios, accesos, métricas e historiales, por todas las vías habilitadas.
 - **FR-002**: El rol cátedra DEBE limitarse a sus cátedras actuales; una denegación NO DEBE revelar contenido ni producir cambios o transiciones exitosas.
-- **FR-003**: Aprobar, rechazar, corregir/reenviar, cancelar, asignar capacidad y administrar personas, cátedras o plantillas DEBE exigir administración. Las excepciones docentes del dominio son crear pedidos, solicitar renovaciones y operar servicios propios; consultar observaciones no concede mutaciones del ciclo de vida del pedido.
+- **FR-003**: Aprobar, rechazar, cancelar, asignar capacidad y administrar personas, cátedras o plantillas DEBE exigir administración. Las excepciones docentes son crear pedidos, responder/reenviar aclaraciones de pedidos propios únicamente en `requiere_ajuste`, solicitar renovaciones y operar servicios propios. Responder no concede aprobación ni selección de hardware.
 - **FR-004**: El 2FA DEBE ser voluntario para ambos roles. Las cuentas con 2FA desactivado DEBEN poder operar con contraseña válida una vez completado el cambio inicial; las cuentas que lo activen DEBEN completar también el segundo factor antes de obtener acceso operativo. Iniciar su configuración NO DEBE activarlo hasta confirmar un código válido.
 - **FR-005**: El cambio inicial pendiente DEBE limitar el acceso a completar la habilitación propia, consultar la información mínima necesaria para hacerlo o cerrar sesión, aun tras recargas o solicitudes directas.
 - **FR-006**: Cada desafío de segundo factor DEBE vencer a los cinco minutos, finalizar una sola vez y pertenecer al ingreso que lo originó. La sustitución/recuperación del factor DEBE acreditar identidad y quedar registrada.
@@ -256,9 +256,9 @@ Como administrador y responsable de la práctica quiero instalar, actualizar, re
 
 **Solicitudes, oferta y vigencia**
 
-- **FR-023**: Cada solicitud nueva DEBE iniciar coherente entre modelo, plantilla y cátedra, sin valores incompatibles arrastrados de otro formulario.
+- **FR-023**: Cada solicitud nueva DEBE iniciar coherente entre modelo, plantilla y cátedra, sin valores incompatibles arrastrados de otro formulario. DEBE conservar nombre y justificación pedagógica. En PaaS/SaaS, «Otro» permite describir un servicio fuera del catálogo sin plantilla ni reserva inicial; administración prepara y publica la oferta y selecciona su perfil compatible al aprobar el pedido original. IaaS requiere plantilla publicada.
 - **FR-024**: Las nuevas solicitudes DEBEN exigir plantilla disponible y compatible con el modelo, también fuera de la interfaz.
-- **FR-025**: El reenvío administrativo tras ajustes DEBE permitir editar la vigencia pertinente y eliminar o recalcular fechas incompatibles al cambiar la modalidad; el docente conserva consulta del pedido y las observaciones, sin acciones de reenvío o cancelación.
+- **FR-025**: Pedir aclaración DEBE devolver el pedido con observaciones y avisos por portal/correo. Su titular actual DEBE poder responder y reenviar sólo el pedido propio en `requiere_ajuste`, editando la información de solicitud y vigencia sin hardware. Cambiar modalidad elimina o recalcula fechas incompatibles. Administración recibe aviso de la respuesta, conserva la decisión de aprobación y puede corregir/reenviar; cancelar sigue siendo administrativo.
 - **FR-026**: Administración DEBE revisar costo y fechas efectivos tras cambiar la asignación y poder justificar el nuevo costo sin quedar bloqueada por la evaluación anterior.
 - **FR-027**: Guardar por cualquier control DEBE validar campos obligatorios, correo, recursos positivos y fechas, indicando correcciones concretas sin perder datos válidos.
 - **FR-028**: Pedidos/servicios DEBEN conservar identidad, modelo y recursos históricos frente a correcciones o retiros de plantillas.
@@ -309,7 +309,7 @@ Como administrador y responsable de la práctica quiero instalar, actualizar, re
 - **FR-061**: Cada servicio publicable DEBE tener una definición identificada y versionada con producto, preparación reproducible, recursos, parámetros permitidos, dependencias, comprobación funcional, datos persistentes y forma de entregar acceso. Solo una definición validada DEBE habilitarse para nuevas solicitudes.
 - **FR-062**: El despliegue cotidiano de una definición validada DEBE completarse mediante la selección y aprobación en el portal, sin repetir instalaciones manuales ni editar código. La preparación inicial DEBE disponer de instrucciones reproducibles y distinguir los pasos técnicos de las acciones ordinarias del administrador.
 - **FR-063**: Cada instancia DEBE recibir identidad y credenciales propias y comenzar sin datos de otra cátedra ni cuentas predeterminadas utilizables. La plataforma de datos entregada DEBE ser independiente de los datos internos de gestión del portal.
-- **FR-064**: El administrador DEBE poder configurar y corregir fechas inicial/final de los tres períodos académicos por año. El sistema DEBE validar rangos, identificar el año elegido y explicar la ausencia de un período sin reemplazarlo por una duración fija. NO DEBE exigir fechas académicas predefinidas por el desarrollador.
+- **FR-064**: El administrador DEBE poder configurar y corregir fechas inicial/final de los tres períodos académicos para años desde 2026. La selección del año en solicitudes y calendarios DEBE rechazar años anteriores a 2026; los períodos de calendario y los rangos personalizados nuevos NO DEBEN admitir fechas anteriores al 01/01/2026. El sistema DEBE validar rangos, identificar el año elegido y explicar la ausencia de un período sin reemplazarlo por una duración fija. NO DEBE exigir fechas académicas predefinidas por el desarrollador.
 - **FR-065**: La aprobación DEBE conservar las fechas efectivas y la definición de servicio autorizadas. Corregir el calendario o publicar otra versión de una definición NO DEBE modificar pedidos aprobados o servicios existentes sin una nueva decisión explícita y trazable.
 - **FR-066**: Un pedido de alta aprobado para inicio futuro DEBE reservar capacidad desde su aprobación y mantenerla visible durante la espera. El plazo ordinario de veinticuatro horas para concretar el despliegue DEBE comenzar en el momento posterior entre aprobación e inicio autorizado; si antes termina la vigencia, ese fin prevalece. Cancelar/revertir DEBE liberar el compromiso según las reglas comunes, y un despliegue en curso conserva la protección de FR-011. Las renovaciones conservan las reglas diferenciadas de FR-018 y FR-072, sin una segunda reserva de alta.
 - **FR-067**: La documentación DEBE enseñar a preparar, validar, publicar, desplegar, comprobar, mantener y retirar los servicios de referencia y a incorporar otra definición compatible sin reescribir el flujo de solicitudes/aprobaciones. La entrevista posterior sobre libro virtual DEBE registrarse como relevamiento del producto final, sin bloquear el catálogo básico delegado para esta entrega.
@@ -328,6 +328,10 @@ Como administrador y responsable de la práctica quiero instalar, actualizar, re
 **Acceso de alumnos a la aplicación de referencia**
 
 - **FR-073**: En cada instancia BookStack de referencia, el docente DEBE poder crear y revocar cuentas individuales de alumnos con permisos únicamente de lectura mediante la administración de esa aplicación. La entrega DEBE proporcionar al docente acceso para publicar contenido y gestionar esos lectores, limitado a su instancia y sin facultades administrativas sobre NAP o infraestructura. Los alumnos NO DEBEN necesitar cuentas en NAP; la demostración NO DEBE usar una cuenta compartida ni lectura anónima como sustituto de las cuentas individuales. No se exige sincronización de usuarios, inscripción automática ni administración de lectores desde NAP.
+
+**Preparación de pools por cátedra**
+
+- **FR-074**: Antes de crear el primer contenedor de una cátedra, el despliegue DEBE verificar o crear el pool determinista `catedra-{id}`, comprobar los permisos del portal y reutilizarlo en futuros despliegues. La repetición o pérdida de respuesta NO DEBE duplicar pools ni contenedores. Un pool con miembros sin pertenencia comprobada NO DEBE adoptarse ni modificarse. La preparación no establece cuotas ni concede ACL automáticamente. Administración DEBE ver el ID como primera columna de Cátedras y disponer de una consulta sin efectos «Verificar infraestructura», que muestre el estado del pool y sus problemas. Los pools existentes no se eliminan por limpiar la base del portal.
 
 ### Key Entities *(include if feature involves data)*
 

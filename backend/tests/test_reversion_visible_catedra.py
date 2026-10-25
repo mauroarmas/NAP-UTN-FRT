@@ -1,34 +1,31 @@
-"""Lo que ve la cátedra cuando su aprobación se deshace (US2).
+"""Lo que ve la cátedra cuando su aprobación se deshace (US2)."""
 
-Un pedido que estaba aprobado y deja de estarlo en silencio es indistinguible
-de una falla del portal. La cátedra pierde la confianza en los estados que el
-sistema le muestra, que es justamente lo que la máquina de estados existe para
-sostener.
-"""
+from datetime import timedelta
+from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 import pytest
 
 from app.models.pedido import EstadoPedido
+from app.utils.clock import clock
 from tests import factories
-
-NODO = [
-    {
-        "node": "pve1",
-        "status": "online",
-        "cpu": 0.1,
-        "maxcpu": 8,
-        "maxmem": 16 * 1024**3,
-        "maxdisk": 100 * 1024**3,
-    }
-]
+from tests.capacity_helpers import aprobar_http, perfil_capacidad
 
 MOTIVO = "Aprobé el template grande por error; la cátedra había pedido el chico"
 
 
 @pytest.fixture(autouse=True)
-def cluster(proxmox):
-    proxmox.nodos = NODO
+def cluster(proxmox, perfil_capacidad):
     return proxmox
+
+
+def _vigencia():
+    hoy = clock.now().astimezone(ZoneInfo("America/Argentina/Tucuman")).date()
+    return {
+        "tipo": "personalizado",
+        "desde": hoy.isoformat(),
+        "hasta": (hoy + timedelta(days=30)).isoformat(),
+    }
 
 
 async def _aprobado_y_revertido(client, db, catedra, usuario, template, auth_admin):
@@ -40,12 +37,12 @@ async def _aprobado_y_revertido(client, db, catedra, usuario, template, auth_adm
         estado=EstadoPedido.SOLICITADO,
     )
     assert (
-        await client.post(f"/pedidos/{pedido.id}/aprobar", json={}, headers=auth_admin)
+        await aprobar_http(client, pedido, template, auth_admin)
     ).status_code == 200
     r = await client.post(
         f"/pedidos/{pedido.id}/revertir-aprobacion",
         json={"motivo": MOTIVO},
-        headers=auth_admin,
+        headers=auth_admin | {"Idempotency-Key": f"rev-vis-{uuid4()}"},
     )
     assert r.status_code == 200, r.text
     return pedido
@@ -54,9 +51,7 @@ async def _aprobado_y_revertido(client, db, catedra, usuario, template, auth_adm
 async def test_la_catedra_ve_el_pedido_revertido_con_el_motivo_que_escribio_el_admin(
     client, db, catedra, usuario_catedra, template, auth_admin, auth_catedra
 ):
-    """FR-010. El motivo tiene que ser el que escribió la persona, no un texto
-    genérico: sin él, la cátedra no puede saber si rehacer el pedido tiene
-    sentido o si hay algo que corregir de su lado."""
+    """FR-010. El motivo tiene que ser el que escribió la persona, no un texto genérico."""
     pedido = await _aprobado_y_revertido(
         client, db, catedra, usuario_catedra, template, auth_admin
     )
@@ -92,21 +87,23 @@ async def test_la_catedra_ve_la_reversion_en_su_listado(
 async def test_la_catedra_puede_volver_a_pedir_lo_mismo(
     client, db, catedra, usuario_catedra, template, auth_admin, auth_catedra
 ):
-    """FR-011, P6: la reversión no es una sanción.
-
-    Lo más común es que el pedido se rehaga cuando haya capacidad. Bloquearlo
-    castigaría a quien no cometió el error.
-    """
+    """FR-011, P6: la reversión no es una sanción."""
     await _aprobado_y_revertido(client, db, catedra, usuario_catedra, template, auth_admin)
 
     nuevo = await client.post(
-        "/pedidos/", json={"template_id": template.id}, headers=auth_catedra
+        "/pedidos/",
+        json={
+            "template_id": template.id,
+            "modelo_servicio": "iaas",
+            "vigencia": _vigencia(),
+            "catedra_id": catedra.id,
+        },
+        headers=auth_catedra | {"Idempotency-Key": "volver-a-pedir-1"},
     )
 
     assert nuevo.status_code == 201, nuevo.text
     assert nuevo.json()["estado"] == EstadoPedido.SOLICITADO.value
 
-    # Y aparece en la bandeja del administrador, como cualquier otro.
     bandeja = await client.get("/pedidos/?estado=solicitado", headers=auth_admin)
     assert nuevo.json()["id"] in [p["id"] for p in bandeja.json()]
 

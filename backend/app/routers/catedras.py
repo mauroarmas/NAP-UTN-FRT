@@ -135,6 +135,15 @@ async def obtener_catedra(
     )
 
 
+@router.get('/{catedra_id}/infraestructura')
+async def verificar_infraestructura(catedra_id: int, current_user: Usuario = Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    from fastapi.responses import JSONResponse
+    from app.services.acceso_service import requiere_admin_actual
+    from app.services.pool_catedra_service import verificar
+    await requiere_admin_actual(db, current_user)
+    return JSONResponse(await verificar(db, catedra_id), headers={'Cache-Control': 'no-store'})
+
+
 @router.post("/", response_model=CatedraResponse, status_code=status.HTTP_201_CREATED)
 async def crear_catedra(
     data: CatedraCreate,

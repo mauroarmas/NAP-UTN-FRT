@@ -1,7 +1,7 @@
 import { mensajeError } from '../utils/errors.js';
-import { useState, useEffect, useId } from 'react';
-import { Send, Pencil, Building2 } from 'lucide-react';
-import { getCatedras, createCatedra, updateCatedra, getCatedra, getUsuarios } from '../services/api';
+import { useState, useEffect, useId, useRef } from 'react';
+import { Send, Pencil, Building2, ShieldCheck } from 'lucide-react';
+import { getCatedras, createCatedra, updateCatedra, getCatedra, getUsuarios, verificarInfraCatedra } from '../services/api';
 import { PageHead, StatusPill, Empty, Dialog } from '../components/ui';
 
 /**
@@ -25,12 +25,32 @@ export default function Catedras() {
   const [uso, setUso] = useState(null);
   const [revision, setRevision] = useState(null);
   const [pendiente, setPendiente] = useState(null);
+  const [infra, setInfra] = useState({});
+  const [infraDetalle, setInfraDetalle] = useState(null);
+  const infraRequest = useRef(0);
+  const infraLabels = { preparada: ['Preparada', 'ok'], sin_servicios: ['Sin servicios', 'off'], requiere_atencion: ['Requiere atención', 'warn'] };
+  const verificarInfra = async (category) => {
+    const request = ++infraRequest.current;
+    setInfraDetalle({ category, loading: true });
+    try {
+      const { data } = await verificarInfraCatedra(category.id);
+      if (request !== infraRequest.current) return;
+      setInfra((current) => ({ ...current, [category.id]: data }));
+      setInfraDetalle((current) => current?.category.id === category.id ? { category, data } : current);
+    } catch {
+      if (request !== infraRequest.current) return;
+      setInfra((current) => ({ ...current, [category.id]: { estado: 'requiere_atencion' } }));
+      setInfraDetalle((current) => current?.category.id === category.id ? { category,
+        error: 'No se pudo verificar la infraestructura. Volvé a consultar; no se cambió el pool.' } : current);
+    }
+  };
   const registrarPendiente = (response) => { if (response.status === 202) setPendiente(response.data.cambio_consola_id); };
 
   const fetchTodo = async () => {
     try {
       const [c, u] = await Promise.all([getCatedras(), getUsuarios()]);
       setCatedras(c.data);
+      setInfra({});
       setUsuarios(u.data);
     } catch (err) {
       console.error(err);
@@ -124,18 +144,24 @@ export default function Catedras() {
           <div className="table-container">
             <table>
               <thead>
-                <tr><th>Nombre</th><th>Descripción</th><th>Responsable</th><th>Estado</th><th className="right">Acciones</th></tr>
+                <tr><th>ID</th><th>Nombre</th><th>Descripción</th><th>Responsable</th><th>Estado</th><th>Pool de recursos</th><th className="right">Acciones</th></tr>
               </thead>
               <tbody>
                 {catedras.map((c) => (
                   <tr key={c.id}>
+                    <td className="tabnum cell-strong">{c.id}</td>
                     <td className="cell-strong nowrap">{c.nombre}</td>
                     <td style={{ color: 'var(--text-soft)' }}>{c.descripcion || '—'}</td>
                     <td className="nowrap">
                       {c.titular ? c.titular.nombre : <StatusPill kind="warn">Sin responsable</StatusPill>}
                     </td>
                     <td><StatusPill kind={c.activa ? 'ok' : 'off'}>{c.activa ? 'Activa' : 'Inactiva'}</StatusPill></td>
+                    <td>{infra[c.id] ? <StatusPill kind={infraLabels[infra[c.id].estado]?.[1] || 'warn'}>{infraLabels[infra[c.id].estado]?.[0] || 'Requiere atención'}</StatusPill>
+                      : <span className="card-meta">Sin verificar</span>}</td>
                     <td className="right">
+                      <button className="btn btn-ghost btn-sm" onClick={() => verificarInfra(c)} aria-label={`Verificar infraestructura de ${c.nombre}`}>
+                        <ShieldCheck size={13} aria-hidden="true" /> Verificar infraestructura
+                      </button>
                       <button className="btn btn-secondary btn-sm" onClick={() => abrirEdicion(c)}>
                         <Pencil size={13} /> Editar
                       </button>
@@ -149,6 +175,23 @@ export default function Catedras() {
           <Empty icon={<Building2 size={22} />}>{loading ? 'Cargando…' : 'No hay cátedras registradas.'}</Empty>
         )}
       </div>
+
+      {infraDetalle && <Dialog title={`Infraestructura de ${infraDetalle.category.nombre}`} onClose={() => { infraRequest.current += 1; setInfraDetalle(null); }}>
+        <div className="col gap-3">
+          {infraDetalle.loading && <p role="status">Comprobando el pool y los permisos del portal…</p>}
+          {infraDetalle.error && <p role="alert">{infraDetalle.error}</p>}
+          {infraDetalle.data && <>
+            <p>Pool: <strong>{infraDetalle.data.pool}</strong></p>
+            <StatusPill kind={infraLabels[infraDetalle.data.estado]?.[1] || 'warn'}>{infraLabels[infraDetalle.data.estado]?.[0] || 'Requiere atención'}</StatusPill>
+            <p>{infraDetalle.data.mensaje}</p>
+            {infraDetalle.data.permisos_faltantes?.length > 0 && <details><summary>Detalle para administración</summary>
+              <p>Permisos faltantes: {infraDetalle.data.permisos_faltantes.join(', ')}.</p>
+            </details>}
+          </>}
+          <p className="card-meta">Esta consulta no crea pools ni mueve contenedores. El pool se prepara automáticamente al desplegar un servicio y no establece cuotas.</p>
+          {!infraDetalle.loading && <button className="btn btn-secondary" onClick={() => verificarInfra(infraDetalle.category)}>Volver a verificar</button>}
+        </div>
+      </Dialog>}
 
       {showForm && (
         <Dialog

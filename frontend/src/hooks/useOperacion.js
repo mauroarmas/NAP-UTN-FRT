@@ -5,6 +5,9 @@ export const operacionAbierta = (operation) => ['pendiente', 'en_curso', 'incier
 
 export function textoOperacion(operation) {
   if (operation?.error_consulta) return 'No se pudo actualizar la operación. Conservamos el último resultado.';
+  if (operation?.error_codigo?.startsWith('pool_') && ['pendiente', 'en_curso'].includes(operation.estado)) {
+    return `${operation.error_detalle_seguro || 'Falta comprobar el pool de la cátedra.'} Se volverá a comprobar antes de desplegar.`;
+  }
   if (operation?.estado === 'confirmada' && operation.sin_cambios) return 'Orden cerrada sin cambios: se actualizó la cobertura.';
   return {
     pendiente: 'Orden admitida. Resultado pendiente.',

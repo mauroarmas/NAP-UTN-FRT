@@ -73,6 +73,7 @@ export const updateCatedra = (id, data, { confirmar = false } = {}) =>
 export const getProxmoxStatus = () => api.get('/proxmox/status');
 export const getProxmoxNodes = () => api.get('/proxmox/nodes');
 export const getProxmoxResources = () => api.get('/proxmox/resources');
+export const verificarInfraCatedra = (id, options = {}) => api.get(`/catedras/${id}/infraestructura`, options);
 // Espacio por storage. Ojo: no es lo mismo que el disco del nodo (ese es solo
 // su sistema de archivos raíz); los contenedores viven en el storage con
 // contenido rootdir/images.
