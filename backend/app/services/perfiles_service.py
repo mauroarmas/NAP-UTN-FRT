@@ -6,6 +6,7 @@ from app.models.recurso_template import TipoRecurso
 from app.schemas.definicion import digest
 from app.services.catalogo_service import comprobar_evidencia
 from app.utils.errors import error
+from app.schemas.tamanos import tamanos_compatibles, identificar_tamano
 
 
 def compatible(template, definition):
@@ -16,7 +17,7 @@ def compatible(template, definition):
         return False
     minimum = definition.manifest.get('minimum_resources', {})
     image = definition.manifest.get('image', {}).get('volume_id')
-    return bool(image and template.os_template in (None, image) and all(
+    return bool(image and tamanos_compatibles(minimum) and template.os_template in (None, image) and all(
         key in minimum and getattr(template, field) >= minimum[key]
         for field, key in [('default_vcpus', 'vcpus'), ('default_ram_mb', 'ram_mb'), ('default_disk_gb', 'disk_gb')]))
 
@@ -40,5 +41,14 @@ async def anexar_disponibilidad(db, templates):
     ids = {row.definicion_version_id for row in templates if row.definicion_version_id}
     definitions = {row.id: row for row in (await db.scalars(select(DefinicionServicio).where(DefinicionServicio.id.in_(ids)))).all()} if ids else {}
     for row in templates:
-        row.oferta_disponible = compatible(row, definitions.get(row.definicion_version_id))
+        definition = definitions.get(row.definicion_version_id)
+        minimum = (definition.manifest or {}).get('minimum_resources') if definition else None
+        row.codigo_definicion = definition.codigo if definition else None
+        row.minimum_resources = minimum
+        row.tamanos_permitidos = tamanos_compatibles(minimum)
+        preferred = identificar_tamano({key: getattr(row, 'default_' + key) for key in ['vcpus', 'ram_mb', 'disk_gb']})
+        row.tamano_recomendado = preferred if preferred in row.tamanos_permitidos else next(iter(row.tamanos_permitidos), None)
+        row.oferta_disponible = compatible(row, definition)
+        row.origen_biblioteca = bool(definition and definition.incorporacion_id)
+        row.version_ofrecida = definition.version if row.origen_biblioteca else None
     return templates

@@ -200,3 +200,22 @@ async def encolar_aviso_pedido(db, pedido, *, evento, tipo, asunto, texto, desti
                 entry = await db.get(Notificacion, identity)
                 entry.destinatario_email_cifrado = configured_keyring().encrypt(user.email, context=f'email:{entry.id}')
     await db.flush()
+
+
+async def encolar_aviso_ensayo(db,trial):
+    """Aviso previo a quien decidió el ensayo, por portal y correo preferido."""
+    from html import escape
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+    user=await db.get(Usuario,trial.creado_por)
+    if not user or not user.activo:return
+    message=f'El ensayo {trial.id} vence el {db_utc(trial.expires_at).isoformat()}. Completá sus comprobaciones antes de ese momento; se liberarán sus recursos temporales.'
+    payload={'tipo':'ensayo_vencimiento','ensayo_id':str(trial.id),'asunto':'Vencimiento del ensayo de aplicación','texto':message,'html':'<p>'+escape(message)+'</p>'}
+    insert=pg_insert if db.bind.dialect.name=='postgresql' else sqlite_insert
+    for channel in ['portal']+(['email'] if user.email and user.recibir_notificaciones_email else []):
+        identity=await db.scalar(insert(Notificacion).values(evento_clave=f'ensayo:{trial.id}:aviso',
+            destinatario_usuario_id=user.id,destinatario_normalizado=f'usuario:{user.id}',canal=channel,
+            payload=payload,proximo_intento_at=clock.now()).on_conflict_do_nothing(index_elements=['evento_clave','destinatario_normalizado','canal']).returning(Notificacion.id))
+        if identity and channel=='email':
+            entry=await db.get(Notificacion,identity)
+            entry.destinatario_email_cifrado=configured_keyring().encrypt(user.email,context=f'email:{entry.id}')

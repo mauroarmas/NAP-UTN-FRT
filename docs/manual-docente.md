@@ -72,3 +72,9 @@ Un error de consulta se muestra como error o dato anterior con su antigüedad, n
 Al informar un problema, indicá pantalla, identificador del pedido/servicio, instante y mensaje. No compartas contraseñas, códigos, cookies ni claves privadas. Para comprobar usabilidad, el responsable de una cátedra debe poder enviar un pedido y consultar su estado sin ayuda, completando el formulario en hasta tres minutos; la decisión administrativa y la espera de infraestructura no se cuentan.
 
 Referencias: [manual administrativo](manual-administrador.md), [servicios de referencia](../infra/services/README.md) y [estado de aceptación](evidencia/009/cierre.md).
+
+## Draw.io en Software
+
+Solicitar desde **Catálogo** o **Pedidos → Nueva Solicitud → Software**. La oferta muestra su versión; indicar cátedra, propósito y vigencia, sin elegir hardware. Si cambia o se retira una oferta durante el envío, el formulario conserva los datos para revisar la selección. «Otro» permite describir una aplicación todavía no ofrecida.
+
+Administración aprueba con la versión disponible en ese momento y avisa si difiere de la solicitada. Luego la versión autorizada queda fija. Cada cátedra recibe una instancia propia cuando comienza su vigencia y se verifica la entrega. El acceso HTTPS usa una credencial de perímetro de esa instancia; no es una cuenta nativa de Draw.io. Guardar/exportar los diagramas `.drawio` localmente y reabrirlos para continuar; esta oferta no incorpora almacenamiento compartido ni colaboración.

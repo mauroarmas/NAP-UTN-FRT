@@ -1,0 +1,630 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nap:contracts:service-definition:1.1",
+  "title": "Definici\u00f3n validada de servicio LXC para publicaci\u00f3n en el cat\u00e1logo NAP",
+  "description": "Contrato del manifiesto de una definici\u00f3n ya construida y validada. No representa una instancia, no contiene secretos y no admite scripts, comandos o URLs ejecutables. Un borrador incompleto todav\u00eda no satisface este contrato de publicaci\u00f3n.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "definition_key",
+    "definition_version",
+    "product",
+    "service_model",
+    "resource_type",
+    "image",
+    "runtime",
+    "preparation",
+    "minimum_resources",
+    "allowed_parameters",
+    "secret_metadata",
+    "access",
+    "health",
+    "persistent_paths",
+    "network_profile_ids",
+    "validation"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.1"
+    },
+    "definition_key": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{2,63}$"
+    },
+    "definition_version": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]*\\.[0-9]+\\.[0-9]+$"
+    },
+    "product": {
+      "enum": [
+        "drawio"
+      ]
+    },
+    "service_model": {
+      "enum": [
+        "iaas",
+        "paas",
+        "saas"
+      ]
+    },
+    "resource_type": {
+      "const": "lxc"
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "volume_id",
+        "sha256",
+        "architecture",
+        "distribution",
+        "distribution_release",
+        "unprivileged",
+        "nesting",
+        "sanitized"
+      ],
+      "properties": {
+        "volume_id": {
+          "type": "string",
+          "maxLength": 240,
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]*:vztmpl/[A-Za-z0-9][A-Za-z0-9_.-]*\\.tar\\.(zst|xz|gz)$"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "architecture": {
+          "const": "amd64"
+        },
+        "distribution": {
+          "const": "ubuntu"
+        },
+        "distribution_release": {
+          "const": "24.04"
+        },
+        "unprivileged": {
+          "const": true
+        },
+        "nesting": {
+          "const": false
+        },
+        "sanitized": {
+          "const": true
+        }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "packages",
+        "components"
+      ],
+      "properties": {
+        "packages": {
+          "description": "Inventario exacto de paquetes del artefacto construido; no expresiones latest, comodines ni rangos.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "version",
+              "architecture"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9+.-]{0,99}$"
+              },
+              "version": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120,
+                "pattern": "^[0-9][A-Za-z0-9.+:~_-]*$"
+              },
+              "architecture": {
+                "enum": [
+                  "amd64",
+                  "all"
+                ]
+              }
+            }
+          }
+        },
+        "components": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "drawio",
+            "tomcat",
+            "java"
+          ],
+          "properties": {
+            "drawio": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "version",
+                "source_sha256"
+              ],
+              "properties": {
+                "version": {
+                  "type": "string",
+                  "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+                },
+                "source_sha256": {
+                  "$ref": "#/$defs/sha256"
+                }
+              }
+            },
+            "tomcat": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "version",
+                "source_sha256"
+              ],
+              "properties": {
+                "version": {
+                  "type": "string",
+                  "pattern": "^11\\.0\\.[0-9]+$"
+                },
+                "source_sha256": {
+                  "$ref": "#/$defs/sha256"
+                }
+              }
+            },
+            "java": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "version"
+              ],
+              "properties": {
+                "version": {
+                  "type": "string",
+                  "pattern": "^21(?:\\.[0-9A-Za-z.+_-]+)*$"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "preparation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "recipe_id",
+        "recipe_revision",
+        "bundle_sha256",
+        "bootstrap_id",
+        "runner_protocol"
+      ],
+      "properties": {
+        "recipe_id": {
+          "enum": [
+            "drawio-tomcat11-ubuntu-24.04-v1"
+          ]
+        },
+        "recipe_revision": {
+          "$ref": "#/$defs/gitRevision"
+        },
+        "bundle_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "bootstrap_id": {
+          "enum": [
+            "drawio-v1"
+          ]
+        },
+        "runner_protocol": {
+          "const": "nap-guest-runner/1"
+        }
+      }
+    },
+    "minimum_resources": {
+      "description": "M\u00ednimos probados del producto; el perfil de recursos y la reserva aprobada se mantienen separados. No constituye una cuota fija de c\u00e1tedra.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "vcpus",
+        "ram_mb",
+        "disk_gb"
+      ],
+      "properties": {
+        "vcpus": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "ram_mb": {
+          "type": "integer",
+          "minimum": 128
+        },
+        "disk_gb": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "allowed_parameters": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "display_name",
+          "database_name",
+          "teacher_name",
+          "teacher_email",
+          "locale"
+        ]
+      }
+    },
+    "secret_metadata": {
+      "description": "Nombres y destino de secretos, nunca sus valores, hashes de contrase\u00f1as ni referencias que concedan acceso.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "generated_fields",
+        "owner_reveal_fields",
+        "guest_only_fields",
+        "delivery"
+      ],
+      "properties": {
+        "generated_fields": {
+          "$ref": "#/$defs/secretFieldNames"
+        },
+        "owner_reveal_fields": {
+          "$ref": "#/$defs/secretFieldNames"
+        },
+        "guest_only_fields": {
+          "$ref": "#/$defs/secretFieldNames"
+        },
+        "delivery": {
+          "const": "separate_authorized_endpoint"
+        }
+      }
+    },
+    "access": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "port",
+        "endpoint_source",
+        "tls_required"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "portal_console",
+            "postgresql",
+            "https"
+          ]
+        },
+        "port": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "endpoint_source": {
+          "const": "verified_infrastructure_profile"
+        },
+        "tls_required": {
+          "const": true
+        }
+      }
+    },
+    "health": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bootstrap_probe_id",
+        "recurring_probe_id",
+        "timeout_seconds",
+        "student_network_evidence_required"
+      ],
+      "properties": {
+        "bootstrap_probe_id": {
+          "enum": [
+            "drawio-ready-v1"
+          ]
+        },
+        "recurring_probe_id": {
+          "enum": [
+            "drawio-status-v1"
+          ]
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60
+        },
+        "student_network_evidence_required": {
+          "const": true
+        }
+      }
+    },
+    "persistent_paths": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "/"
+        ]
+      }
+    },
+    "network_profile_ids": {
+      "description": "Identificadores de configuraci\u00f3n de infraestructura preexistente y validada; no crea redes, DNS, IPAM, rutas o certificados.",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]{2,63}$"
+      }
+    },
+    "validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result",
+        "validated_at",
+        "evidence_id",
+        "evidence_sha256",
+        "cluster_uuid",
+        "pve_versions",
+        "instances_tested",
+        "checks"
+      ],
+      "properties": {
+        "result": {
+          "const": "passed"
+        },
+        "validated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "evidence_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]{2,199}$"
+        },
+        "evidence_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "cluster_uuid": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "pve_versions": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9]+\\.[0-9]+(?:\\.[0-9]+)?(?:-[A-Za-z0-9.+]+)?$"
+          }
+        },
+        "instances_tested": {
+          "type": "integer",
+          "minimum": 2
+        },
+        "checks": {
+          "type": "array",
+          "minItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "image_digest",
+              "sanitized_image",
+              "repeatable_deployment",
+              "bootstrap_idempotence",
+              "functional_access",
+              "student_network_access",
+              "persistence_after_restart",
+              "cross_instance_isolation",
+              "unique_secrets",
+              "reader_permissions_and_revocation",
+              "external_restore",
+              "editable_diagram_cycle",
+              "authorized_perimeter",
+              "deployment_without_provider",
+              "simple_verification"
+            ]
+          },
+          "allOf": [
+            {
+              "if": {
+                "contains": {
+                  "const": "simple_verification"
+                }
+              },
+              "then": {
+                "allOf": [
+                  {
+                    "contains": {
+                      "const": "image_digest"
+                    }
+                  },
+                  {
+                    "contains": {
+                      "const": "sanitized_image"
+                    }
+                  },
+                  {
+                    "contains": {
+                      "const": "repeatable_deployment"
+                    }
+                  },
+                  {
+                    "contains": {
+                      "const": "functional_access"
+                    }
+                  },
+                  {
+                    "contains": {
+                      "const": "student_network_access"
+                    }
+                  },
+                  {
+                    "contains": {
+                      "const": "unique_secrets"
+                    }
+                  },
+                  {
+                    "contains": {
+                      "const": "authorized_perimeter"
+                    }
+                  },
+                  {
+                    "contains": {
+                      "const": "simple_verification"
+                    }
+                  }
+                ]
+              },
+              "else": {
+                "allOf": [
+                  {
+                    "contains": {
+                      "const": "image_digest"
+                    }
+                  },
+                  {
+                    "contains": {
+                      "const": "sanitized_image"
+                    }
+                  },
+                  {
+                    "contains": {
+                      "const": "repeatable_deployment"
+                    }
+                  },
+                  {
+                    "contains": {
+                      "const": "bootstrap_idempotence"
+                    }
+                  },
+                  {
+                    "contains": {
+                      "const": "functional_access"
+                    }
+                  },
+                  {
+                    "contains": {
+                      "const": "student_network_access"
+                    }
+                  },
+                  {
+                    "contains": {
+                      "const": "persistence_after_restart"
+                    }
+                  },
+                  {
+                    "contains": {
+                      "const": "cross_instance_isolation"
+                    }
+                  },
+                  {
+                    "contains": {
+                      "const": "editable_diagram_cycle"
+                    }
+                  },
+                  {
+                    "contains": {
+                      "const": "authorized_perimeter"
+                    }
+                  },
+                  {
+                    "contains": {
+                      "const": "deployment_without_provider"
+                    }
+                  },
+                  {
+                    "contains": {
+                      "const": "unique_secrets"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "product": {
+          "const": "drawio"
+        },
+        "service_model": {
+          "const": "saas"
+        },
+        "allowed_parameters": {
+          "const": [
+            "display_name"
+          ]
+        },
+        "secret_metadata": {
+          "properties": {
+            "generated_fields": {
+              "const": [
+                "access_password"
+              ]
+            },
+            "owner_reveal_fields": {
+              "const": [
+                "access_password"
+              ]
+            },
+            "guest_only_fields": {
+              "const": []
+            }
+          }
+        },
+        "access": {
+          "properties": {
+            "kind": {
+              "const": "https"
+            },
+            "port": {
+              "const": 443
+            }
+          }
+        },
+        "persistent_paths": {
+          "const": [
+            "/"
+          ]
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "gitRevision": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$"
+    },
+    "secretFieldNames": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "access_password"
+        ]
+      }
+    }
+  }
+}

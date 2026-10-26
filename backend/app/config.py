@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
-from pydantic import Field
+from pydantic import Field, model_validator
+from app.schemas.biblioteca_config import FuenteBiblioteca, BuilderHost, PerfilEnsayo
 from functools import lru_cache
 import json
 import os
@@ -32,9 +33,31 @@ class Settings(BaseSettings):
     trusted_proxy_networks: list[str] = Field(default_factory=list)
     infrastructure_profile: dict = Field(default_factory=dict)
     service_artifacts: dict = Field(default_factory=dict)
+    artifact_registry_directory: str = ""
     network_profiles: dict = Field(default_factory=dict)
     runner_nodes: dict = Field(default_factory=dict, repr=False)
     console_access_profile: dict = Field(default_factory=dict)
+
+    biblioteca_fuente: FuenteBiblioteca = Field(default_factory=FuenteBiblioteca)
+    builder_hosts: dict[str, BuilderHost] = Field(default_factory=dict, repr=False)
+    perfiles_ensayo: dict[str, PerfilEnsayo] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validar_biblioteca(self):
+        if self.artifact_registry_directory and (not Path(self.artifact_registry_directory).is_absolute() or ".." in Path(self.artifact_registry_directory).parts):
+            raise ValueError("El registro de artefactos requiere directorio institucional absoluto")
+        scopes = {}
+        for host in self.builder_hosts.values():
+            if host.job_bytes > host.limit_bytes:
+                raise ValueError("Presupuesto de trabajo superior al scope")
+            signature = (host.revision, host.limit_bytes)
+            if host.scope_id in scopes and scopes[host.scope_id] != signature:
+                raise ValueError("Los hosts de un scope deben compartir presupuesto y revisión")
+            scopes[host.scope_id] = signature
+        for profile in self.perfiles_ensayo.values():
+            if profile.builder_id not in self.builder_hosts or profile.network_profile_id not in self.network_profiles:
+                raise ValueError("Perfil de ensayo sin builder o red institucional")
+        return self
 
     # App
     app_name: str = "Portal de Gestión - Nube Privada UTN FRT"

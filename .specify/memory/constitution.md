@@ -1,4 +1,31 @@
 <!--
+Sync Impact Report — 2026-10-26
+=================================
+Version change: 4.0.0 → 4.1.0
+Bump rationale: MINOR. Se agrega el Principio VII de simplicidad para ambos roles,
+por instrucción del usuario, y se explicita cuándo usar Spec Kit.
+
+Principios modificados: IV, se aclara que el vencimiento corresponde a instancias
+académicas, sin exigirlo a ofertas o preparaciones. Ninguno eliminado ni renombrado.
+Principio agregado: VII. Simplicidad para personas, también para administración.
+Secciones ampliadas: Flujo de Desarrollo y Compuertas de Calidad.
+Secciones removidas: ninguna.
+
+Artefactos sincronizados:
+  ✅ .specify/templates/plan-template.md — gate de simplicidad y configuración inicial.
+  ✅ .specify/templates/spec-template.md — recorrido mínimo y casos concretos.
+  ✅ .specify/templates/tasks-template.md — alcance acotado sin ampliar opciones.
+  ✅ AGENTS.md — memoria del proyecto para próximos chats y cambios directos.
+  ✅ specs/010-integrar-biblioteca-aplicaciones/ — alta simple ya documentada;
+     no se reintroducen TTL, entorno manual ni comprobaciones JSON en la UI.
+  ✅ .claude/skills/speckit-*/SKILL.md — instrucciones genéricas revisadas,
+     sin reglas de producto incompatibles ni necesidad de modificarlas.
+
+Follow-up TODOs: ninguno para esta enmienda. La conexión real de infraestructura
+se comprueba por separado; este documento no acredita despliegues.
+-->
+
+<!--
 Sync Impact Report — 2026-10-18
 =================================
 Version change: 3.1.0 → 4.0.0
@@ -198,8 +225,9 @@ punto donde eso se controla es la aprobación del pedido.
 - Comprometer más capacidad de la disponible MUST ser posible únicamente como acto deliberado del
   administrador, advertido por el sistema y con justificación registrada. MUST NOT ocurrir como
   efecto lateral de decisiones individualmente correctas.
-- La capacidad MUST poder recuperarse sin depender de que alguien se acuerde: todo servicio MUST
-  tener un vencimiento conocido por su cátedra desde que queda disponible.
+- La capacidad de los pedidos académicos MUST poder recuperarse sin depender de que alguien
+  se acuerde: cada instancia desplegada por un pedido MUST tener un vencimiento conocido por
+  su cátedra. Esta regla no impone vencimiento a ofertas del catálogo ni a sus preparaciones.
 - El cómputo de consumo MUST considerar únicamente recursos vigentes: lo dado de baja no ocupa
   capacidad.
 
@@ -263,6 +291,34 @@ adopción por parte de quien menos margen tiene para lidiar con fricción técni
 agrega porque un sistema que recupera capacidad por su cuenta puede apagar el trabajo de alguien: si
 lo hace en silencio, la cátedra no tiene forma de distinguirlo de una falla.
 
+### VII. Simplicidad para personas, también para administración
+
+Las personas de cátedra no son técnicas y administración sólo tiene conocimientos básicos.
+El producto MUST organizarse alrededor de lo que necesitan hacer, con pocos pasos y decisiones.
+
+- Los formularios MUST pedir sólo información necesaria para la tarea. Cada campo obligatorio,
+  opción y confirmación adicional MUST responder a una necesidad concreta acordada; MUST NOT
+  agregarse para cubrir posibilidades hipotéticas.
+- La interfaz MUST usar lenguaje cotidiano, acciones claras y feedback visible de progreso,
+  éxito o error. Los detalles técnicos MUST resolverse automáticamente cuando haya información
+  suficiente; MUST NOT exigir códigos, hashes, versiones, UUID ni documentos JSON en el flujo normal.
+- La configuración de infraestructura MUST hacerse una sola vez por el responsable técnico y
+  reutilizarse. Si falta, el portal MUST informar el impedimento y el siguiente paso comprensible,
+  sin trasladar identificadores internos al administrador en cada operación.
+- Las tareas habituales MUST tener un recorrido principal sencillo. Herramientas técnicas de
+  mantenimiento MUST permanecer fuera de ese recorrido. No se agregan variantes, plazos ni
+  opciones avanzadas sin un caso real autorizado.
+- En el alta de aplicaciones, el recorrido acordado es elegir, preparar, abrir y comprobar,
+  publicar o eliminar. La preparación normal y la oferta publicada MUST NOT tener un ensayo de
+  24 horas ni vencimiento automático. Esto no modifica la vigencia de pedidos académicos.
+- La sencillez MUST conservar autorización, aislamiento, integridad de datos, trazabilidad y
+  recuperación de fallos. NAP registra lo que comprueba; MUST NOT inventar pruebas para ocultar
+  una dependencia técnica o anunciar una operación que no se completó.
+
+**Rationale**: una solución con todas las opciones posibles puede resultar imposible de operar.
+El alcance se decide por necesidades reales, no por anticipar todos los escenarios. La complejidad
+necesaria pertenece a la implementación y a la preparación inicial, no a los formularios diarios.
+
 ## Restricciones Técnicas y de Seguridad
 
 **Stack fijo** (decisiones ya tomadas, no se revisan sin enmienda a esta constitución):
@@ -306,8 +362,12 @@ lo hace en silencio, la cátedra no tiene forma de distinguirlo de una falla.
 ## Flujo de Desarrollo y Compuertas de Calidad
 
 **Metodología**: incremental e iterativa, con desarrollo dirigido por especificación (Spec Kit).
-Toda funcionalidad nueva de entidad significativa MUST atravesar `/speckit-specify` →
-`/speckit-plan` → `/speckit-tasks` antes de implementarse.
+Las mejoras acotadas, correcciones y simplificaciones autorizadas MUST implementarse directamente,
+con validación proporcional y documentación breve donde aporte valor. MUST NOT abrirse una spec
+por rutina. Spec Kit se reserva para funcionalidades significativas con decisiones de alcance o
+contratos pendientes, o cuando el usuario lo solicite; en esos casos se usa `/speckit-specify` →
+`/speckit-plan` → `/speckit-tasks`. Los requisitos vigentes se actualizan sin reconstruir todo el
+proceso cuando la intención ya es clara.
 
 **Compuertas de calidad**:
 
@@ -352,4 +412,4 @@ violación aceptada MUST registrarse en la tabla de Complexity Tracking con su j
 alternativa más simple que se descartó; una violación sin justificación registrada bloquea la
 implementación.
 
-**Version**: 4.0.0 | **Ratified**: 2026-08-07 | **Last Amended**: 2026-10-18
+**Version**: 4.1.0 | **Ratified**: 2026-08-07 | **Last Amended**: 2026-10-26

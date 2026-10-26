@@ -145,6 +145,7 @@ class Pedido(Base):
     revision_decision: Mapped[int] = mapped_column(Integer, default=0, server_default='0')
     anio_lectivo: Mapped[int | None] = mapped_column(Integer)
     definicion_version_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey('definiciones_servicio.id'))
+    seleccion_oferta_snapshot: Mapped[dict | None] = mapped_column(JSON)
     asignacion_snapshot: Mapped[dict | None] = mapped_column(JSON)
     destino_snapshot: Mapped[dict | None] = mapped_column(JSON)
     decision_snapshot: Mapped[dict | None] = mapped_column(JSON)

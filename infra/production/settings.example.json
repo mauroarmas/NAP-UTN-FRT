@@ -33,5 +33,15 @@
   "smtp_password": "",
   "smtp_tls": true,
   "smtp_ssl": false,
-  "console_access_profile": {}
+  "console_access_profile": {},
+  "biblioteca_fuente": {
+    "enabled": true,
+    "cache_seconds": 900,
+    "deadline_seconds": 10,
+    "max_entries": 10000,
+    "max_bytes": 8388608
+  },
+  "builder_hosts": {},
+  "perfiles_ensayo": {},
+  "artifact_registry_directory": ""
 }

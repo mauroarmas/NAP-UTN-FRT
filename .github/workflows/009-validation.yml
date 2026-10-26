@@ -77,7 +77,7 @@ jobs:
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        suite: [infra/runner/tests, infra/services/tests, infra/laboratorio/tests]
+        suite: [infra/builder/tests, infra/runner/tests, infra/services/tests, infra/laboratorio/tests]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

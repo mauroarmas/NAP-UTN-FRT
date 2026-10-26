@@ -11,4 +11,7 @@ SELECT format('REVOKE UPDATE, DELETE ON evidencias, bitacora_cierre, pedidos_his
 SELECT format('REVOKE INSERT, UPDATE, DELETE ON alembic_version FROM %I',:'nap_runtime_role') \gexec
 SELECT format('REVOKE INSERT, UPDATE, DELETE ON restauraciones FROM %I',:'nap_runtime_role') \gexec
 SELECT format('REVOKE INSERT, DELETE ON accesos_iniciales_restaurados FROM %I',:'nap_runtime_role') \gexec
+SELECT format('REVOKE UPDATE, DELETE ON eventos_ensayo, publicaciones_oferta FROM %I',:'nap_runtime_role') \gexec
 COMMIT;
+
+-- 010: aplicar después de la migración, con el mismo rol DML institucional.

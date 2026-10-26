@@ -157,9 +157,22 @@ async def preparar_restauracion(db, *, operador, referencia):
                 await db.execute(update(CompromisoCapacidad).where(
                     CompromisoCapacidad.identidad_infraestructura_id == operation.identidad_infraestructura_id,
                     CompromisoCapacidad.liberado_at.is_(None)).values(estado='incierto', revision=CompromisoCapacidad.revision + 1))
+        # Una copia nunca reanuda builds ni creaciones de ensayo automáticamente.
+        from app.models.ensayo_preparacion import EnsayoPreparacion
+        from app.models.operacion_ensayo import OperacionEnsayo
+        trials=list((await db.scalars(select(EnsayoPreparacion).where(EnsayoPreparacion.limpieza_estado!='confirmada').with_for_update())).all())
+        for trial in trials:
+            trial.cancelada_at=now;trial.execution_generation+=1;trial.revision+=1
+            trial.limpieza_estado='fallida';trial.error_codigo='corte_restaurado'
+            trial.motivo_cierre='Reconciliar builder y PVE del corte antes de reintentar limpieza'
+        trial_operations=list((await db.scalars(select(OperacionEnsayo).where(OperacionEnsayo.estado.in_(OPEN)).with_for_update())).all())
+        for operation in trial_operations:
+            operation.estado='incierta';operation.lease_owner=operation.lease_until=None
+            operation.lease_generation+=1;operation.error_codigo='corte_restaurado'
         row.resumen = {'usuarios': len(users), 'sesiones_revocadas': sessions.rowcount,
             'desafios_revocados': challenges.rowcount, 'codigos_invalidados': codes.rowcount,
             'correos_cancelados': notifications.rowcount, 'accesos_iniciales_pendientes': initial,
+            'ensayos_cerrados':len(trials),'operaciones_ensayo_inciertas':len(trial_operations),
             'operaciones_inciertas': len(operations)}
         await db.flush()
         return _presentar(row)
@@ -188,6 +201,9 @@ async def evaluar_habilitacion(db, referencia, *, pve=None):
                         ('ofertas', preflight_service.inspeccionar_ofertas)]:
         checks[name] = await check(db)
     issues = []
+    from app.models.ensayo_preparacion import EnsayoPreparacion
+    if await db.scalar(select(EnsayoPreparacion.id).where(EnsayoPreparacion.limpieza_estado!='confirmada').limit(1)):
+        issues.append('ensayos_del_corte_sin_limpieza_confirmada')
     if await db.scalar(select(OperacionInfraestructura.id).where(OperacionInfraestructura.estado.in_(OPEN)).limit(1)):
         issues.append('operaciones_abiertas_del_corte')
     if await db.scalar(select(CompromisoCapacidad.id).where(CompromisoCapacidad.estado == 'incierto').limit(1)):
@@ -244,7 +260,10 @@ async def evaluar_habilitacion(db, referencia, *, pve=None):
     digest = {}
     for table in ['usuarios', 'catedras', 'pedidos', 'servicios', 'identidades_infraestructura',
                   'compromisos_capacidad', 'operaciones_infraestructura', 'vigencias_autorizadas',
-                  'cambios_acceso_consola', 'accesos_iniciales_restaurados']:
+                  'cambios_acceso_consola', 'accesos_iniciales_restaurados',
+                  'incorporaciones_aplicacion','ensayos_preparacion','recursos_ensayo','operaciones_ensayo',
+                  'eventos_ensayo','artefactos_preparados','replicas_artefacto','presupuestos_builder',
+                  'reservas_espacio_builder','publicaciones_oferta']:
         definition = Base.metadata.tables[table]
         values = (await db.execute(select(definition).order_by(*definition.primary_key.columns))).mappings().all()
         digest[table] = _sha([dict(value) for value in values])

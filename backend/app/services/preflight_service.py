@@ -1,3 +1,4 @@
+from app.utils.artifact_registry import lookup as artifact_entry, all_entries
 """Inspección sin efectos. Los informes contienen códigos/IDs, nunca valores secretos."""
 from datetime import datetime, timezone
 import ipaddress
@@ -116,7 +117,7 @@ def validar_configuracion(settings):
         issue('smtp_incompleto','Configurar entrega SMTP autenticada y un único modo TLS')
     # La disponibilidad de cada oferta se verifica además contra sus artefactos
     # al inspeccionar DB. Un registro vacío es válido si aún no hay ofertas.
-    for key,entry in settings.service_artifacts.items():
+    for key,entry in all_entries(settings).items():
         try:
             if (not entry['nodes'] or any(n not in settings.runner_nodes for n in entry['nodes'])
                 or entry['network_profile_id'] not in settings.network_profiles): raise ValueError()
@@ -218,6 +219,7 @@ async def inspeccionar_claves(db):
     tables=await connection.run_sync(lambda c:set(inspect(c).get_table_names()))
     groups=[('usuarios','totp_secret_encrypted',lambda r:f"totp:{r['id']}",[]),
         ('servicios','credenciales_encrypted',lambda r:f"servicio:{r['id']}:secretos",[]),
+        ('recursos_ensayo','credenciales_encrypted',lambda r:f"ensayo:{r['id']}:secretos",[]),
         ('identidades_infraestructura','nonce_cifrado',lambda r:f"infra:{UUID(str(r['resource_uuid']))}:nonce",['resource_uuid']),
         ('desafios_autenticacion','secreto_pendiente_cifrado',lambda r:f"totp-pending:{UUID(str(r['id']))}",[]),
         ('notificaciones','destinatario_email_cifrado',lambda r:f"email:{UUID(str(r['id']))}",[]),
@@ -285,7 +287,8 @@ async def inspeccionar_ofertas(db):
             if not entry or entry.id!=definition.evidencia_validacion: raise ValueError()
             document=parse_document(entry.documento_canonico.encode());proof=document['resultado']
             checksum=hashlib.sha256(canonical(document).encode()).hexdigest()
-            required=BASE_CHECKS|({'unique_secrets'} if definition.producto in {'postgresql','bookstack'} else set())
+            required=BASE_CHECKS|({'unique_secrets'} if definition.producto in {'postgresql','bookstack','drawio'} else set())
+            if definition.producto=='drawio': required|={'editable_diagram_cycle','authorized_perimeter','deployment_without_provider'}
             if definition.producto=='bookstack': required|={'reader_permissions_and_revocation'}
             observed=datetime.fromisoformat(document['observado_at'].replace('Z','+00:00'))
             if (entry.tipo!='validacion_definicion' or checksum!=entry.sha256 or checksum!=reference['evidence_sha256']
@@ -303,7 +306,7 @@ async def inspeccionar_ofertas(db):
             issue('definicion_no_verificable','Revisar identidad, digest y evidencia de la versión; no se habilita por inferencia')
             continue
         try:
-            registry=settings.service_artifacts[definition.codigo+':'+definition.version]
+            registry=artifact_entry(settings, definition.codigo+':'+definition.version)
             if registry.get('security_blocked'): raise ValueError()
             for field,expected in [('image_path',value['image']['sha256']),('bundle_path',value['preparation']['bundle_sha256'])]:
                 actual=await infraestructura_io.ejecutar(hash_archivo_controlado,registry[field],timeout=180)

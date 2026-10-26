@@ -176,6 +176,8 @@ def evidence_from_trials(trials, *, definition_id, manifest, operator, reference
         UUID(definition_id); UUID(cluster_uuid)
         validar_manifest(manifest, parcial=True)
         required = BASE_CHECKS | ({'unique_secrets'} if manifest['product'] != 'linux' else set())
+        if manifest['product'] == 'drawio':
+            required.update({'editable_diagram_cycle','authorized_perimeter','deployment_without_provider'})
         if manifest['product'] == 'bookstack':
             required.add('reader_permissions_and_revocation')
         if not isinstance(trials, list) or len(trials) < 2:
@@ -242,7 +244,7 @@ def _recipe_files(product):
 
 def verify_recipe_revision(revision, product):
     files = _recipe_files(product) + [Path(__file__).resolve(), Path(__file__).with_name('sanitize.py'),
-        SOURCE_ROOT / f'infra/services/{product}/build.sh']
+        SOURCE_ROOT / f'infra/services/{product}/build.sh'] + ([SOURCE_ROOT / 'infra/services/drawio/install.py'] if product == 'drawio' else [])
     try:
         for path in files:
             data = subprocess.run(['/usr/bin/git', '-c', f'safe.directory={SOURCE_ROOT}', '-C', str(SOURCE_ROOT),
@@ -327,6 +329,19 @@ def stage_package_cache(root, cache):
         raise ImageError('No se pudo copiar la caché privada de paquetes') from None
 
 
+@contextmanager
+def proc_for_build(root):
+    """JRE y los postinst necesitan proc; sólo dentro del namespace privado del trabajo."""
+    root=workspace_root(root)
+    target=confined(root,'proc');target.mkdir(exist_ok=True)
+    if target.is_symlink() or target.is_mount():raise ImageError('Proc de construcción no controlado')
+    subprocess.run(['/usr/bin/mount','-t','proc','-o','ro,nosuid,nodev,noexec','proc',str(target)],check=True,timeout=10)
+    try:
+        yield
+    finally:
+        subprocess.run(['/usr/bin/umount','--',str(target)],check=True,timeout=10)
+
+
 def install_product(root, plan, *, apt_cache=None):
     """Solo CLI del operador en host de build; nunca se invoca desde la API."""
     import shutil
@@ -347,6 +362,8 @@ def install_product(root, plan, *, apt_cache=None):
     shutil.copyfile(script, stage / 'build.sh')
     for source in _recipe_files(product):
         shutil.copyfile(source, stage / source.name)
+    if product == 'drawio':
+        shutil.copyfile(SOURCE_ROOT / 'infra/services/drawio/install.py', stage / 'install.py')
     devices = []
     try:
         for name, minor in [('null', 3), ('zero', 5), ('random', 8), ('urandom', 9)]:
@@ -362,7 +379,7 @@ def install_product(root, plan, *, apt_cache=None):
             base + ['/usr/bin/apt-get', 'install', '--yes', '--no-install-recommends']
                 + [name + '=' + version for name, version in sorted(plan['package_lock'].items())],
             base + ['/bin/bash', '/opt/nap-build/build.sh']]
-        with resolver_for_build(root):
+        with resolver_for_build(root), proc_for_build(root):
             for command in commands:
                 subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                     timeout=1800, env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LANG': 'C.UTF-8'})
@@ -389,7 +406,7 @@ def build_artifact(plan, base_archive, output_dir, *, installer=None, bundle_fac
             raise ValueError()
         validar_manifest(value, parcial=True)
         product = value['product']
-        if product not in {'linux', 'postgresql', 'bookstack'} or not value['image']['volume_id'].endswith('.tar.gz'):
+        if product not in {'linux', 'postgresql', 'bookstack', 'drawio'} or not value['image']['volume_id'].endswith('.tar.gz'):
             raise ValueError()
         revision = value['preparation']['recipe_revision']
         if not re.fullmatch(r'[a-f0-9]{40}', revision) or not re.fullmatch(r'[a-f0-9]{64}', plan['base_sha256']):
@@ -408,7 +425,7 @@ def build_artifact(plan, base_archive, output_dir, *, installer=None, bundle_fac
         bundle = output_dir / 'recipe.tar.gz'
         (bundle_factory or make_recipe_bundle)(product, bundle)
         value['preparation']['bundle_sha256'] = file_sha256(bundle)
-        with tempfile.TemporaryDirectory(prefix='nap-build-') as workspace:
+        with tempfile.TemporaryDirectory(prefix='nap-build-',dir=output_dir.parent) as workspace:
             root = safe_extract(base_archive, Path(workspace) / 'rootfs', expected_sha256=plan['base_sha256'])
             inspect_rootfs(root)
             if installer is not None:

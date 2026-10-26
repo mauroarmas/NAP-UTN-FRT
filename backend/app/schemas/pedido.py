@@ -25,6 +25,7 @@ class DatosSolicitud(Contrato):
 
 
 class PedidoCreate(Contrato):
+    oferta_revision: StrictInt | None = Field(default=None, ge=1)
     template_id: StrictInt | None = Field(default=None, ge=1)
     modelo_servicio: Literal['iaas', 'paas', 'saas']
     descripcion_requerimientos: str | None = Field(default=None, max_length=5000)
@@ -58,6 +59,7 @@ class PedidoSolicitarAjuste(Contrato):
 
 
 class PedidoReenviar(Contrato):
+    oferta_revision: StrictInt | None = Field(default=None, ge=1)
     template_id: StrictInt | None = Field(default=None, ge=1)
     modelo_servicio: Literal['iaas', 'paas', 'saas'] | None = None
     descripcion_requerimientos: str | None = Field(default=None, max_length=5000)
@@ -112,6 +114,7 @@ class PedidoResponse(BaseModel):
     revision_decision: int = 0
     definicion_version_id: UUID | None = None
     sustituye_vigencia_id: UUID | None = None
+    seleccion_oferta_snapshot: dict | None = None
     asignacion_snapshot: dict | None = None
     destino_snapshot: dict | None = None
     decision_snapshot: dict | None = None

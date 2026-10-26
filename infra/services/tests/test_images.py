@@ -11,6 +11,18 @@ import pytest
 from tests.service_helpers import manifest
 
 
+def test_proc_del_builder_se_desmonta_al_fallar_instalacion(rootfs,monkeypatch):
+    from infra.services import build_image
+    calls=[]
+    monkeypatch.setattr(build_image.subprocess,'run',lambda argv,**kwargs:calls.append(argv))
+    with pytest.raises(RuntimeError):
+        with build_image.proc_for_build(rootfs):
+            raise RuntimeError('Instalación interrumpida')
+    assert calls[0][:6]==['/usr/bin/mount','-t','proc','-o','ro,nosuid,nodev,noexec','proc']
+    assert calls[0][-1]==str(rootfs/'proc')
+    assert calls[1]==['/usr/bin/umount','--',str(rootfs/'proc')]
+
+
 def put(root, relative, content):
     target = root / relative
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -36,7 +48,8 @@ def rootfs(tmp_path):
         'var/lib/postgresql/16/main/private-data', 'var/lib/mysql/private-db',
         'var/lib/nap/bootstrap.key', 'var/lib/nap/bootstrap.json',
         'etc/nap/postgresql/monitor.secret', 'etc/nap/postgresql/server.key',
-        'etc/nap/bookstack/server.key',
+        'etc/nap/bookstack/server.key', 'etc/nap/drawio/server.key', 'opt/nap-drawio/tomcat/logs/previous.log',
+        'opt/nap-drawio/tomcat/temp/private-session', 'opt/nap-drawio/tomcat/work/private-editor',
         'var/cache/apt/archives/old_1.0_amd64.deb', 'var/lib/apt/lists/mirror_Packages',
         'var/www/bookstack/.env', 'var/www/bookstack/public/uploads/private-image.png',
         'var/www/bookstack/storage/uploads/private-attachment', 'var/www/bookstack/storage/logs/app.log']:
@@ -44,7 +57,7 @@ def rootfs(tmp_path):
     return root
 
 
-@pytest.mark.parametrize('product', ['linux', 'postgresql', 'bookstack'])
+@pytest.mark.parametrize('product', ['linux', 'postgresql', 'bookstack', 'drawio'])
 def test_sanitize_removes_previous_identity_credentials_and_app_data(rootfs, product):
     from infra.services.sanitize import sanitize_rootfs
     sanitize_rootfs(rootfs, product)

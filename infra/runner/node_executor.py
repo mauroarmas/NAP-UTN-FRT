@@ -39,7 +39,7 @@ GUEST_CALL = r'''
 import hashlib, io, json, os, pathlib, shutil, subprocess, sys, tarfile, tempfile
 payload = json.loads(sys.stdin.buffer.read(131073))
 request, product = payload['request'], payload['product']
-if product not in {'linux','postgresql','bookstack'}:
+if product not in {'linux','postgresql','bookstack','drawio'}:
     raise SystemExit(1)
 bundle = pathlib.Path('/run/nap-runner/bundle.tar.gz')
 fd = os.open(bundle, os.O_RDONLY | os.O_NOFOLLOW)

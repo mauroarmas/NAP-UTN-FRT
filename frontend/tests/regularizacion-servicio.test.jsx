@@ -12,6 +12,7 @@ beforeEach(() => { vi.clearAllMocks(); api.evaluarRegularizacion.mockResolvedVal
 const show = (props = {}) => render(<RegularizarServicioModal servicio={{ id: 7 }} user={{ rol: 'admin' }} onClose={vi.fn()} {...props} />);
 async function fill(user) {
   await screen.findByText(/Configuración comprobada/);
+  await waitFor(() => expect(screen.getByLabelText('Nombre histórico del servicio')).toHaveValue(preview.nombre));
   fireEvent.change(screen.getByLabelText('Fecha inicial respaldada'), { target: { value: '2026-10-21' } });
   fireEvent.change(screen.getByLabelText('Fecha final respaldada'), { target: { value: '2026-11-21' } });
   await user.type(screen.getByLabelText('Referencia del respaldo'), 'ACTA-009');

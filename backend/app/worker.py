@@ -86,6 +86,9 @@ def registrar_trabajos(*, solo_notificaciones=False):
     scheduler.registrar('evaluar_alertas', alerta_service.evaluar_alertas, cada_minutos=1)
     scheduler.registrar('agregar_y_purgar_metricas', resumen_metricas_service.agregar_y_purgar, cada_minutos=1440, diario=True)
     scheduler.registrar('procesar_operaciones', procesar_operaciones, cada_segundos=5)
+    from app.services.ensayo_cleanup_service import tick as limpiar_ensayos
+    scheduler.registrar('limpiar_ensayos', limpiar_ensayos, cada_minutos=1)
+    scheduler.registrar('procesar_ensayos', procesar_ensayos, cada_segundos=5)
 
 
 async def procesar_operaciones(db):
@@ -95,6 +98,13 @@ async def procesar_operaciones(db):
     await db.commit()
     results = await asyncio.gather(*(procesar_una(sessions) for _ in range(parallel)))
     return {'afectados': sum(results)}
+
+
+async def procesar_ensayos(db):
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+    from app.services.ensayo_worker import procesar_una
+    await db.commit()
+    return {'afectados': int(await procesar_una(async_sessionmaker(db.bind, expire_on_commit=False)))}
 
 
 async def main(*, solo_notificaciones=False):

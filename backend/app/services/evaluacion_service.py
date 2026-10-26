@@ -85,7 +85,12 @@ async def calcular(db, pedido_id, *, actor, payload, pve=None, bloquear=False):
     template = await db.scalar(template_query.execution_options(populate_existing=True))
     if not template or not template.activo or template.tipo != TipoRecurso.LXC or template.modelo_servicio != pedido.modelo_servicio:
         raise error(422, 'plantilla_incompatible', 'Elegí una plantilla LXC vigente del modelo solicitado')
+    from app.models.definicion_servicio import DefinicionServicio
+    offered_definition=await db.get(DefinicionServicio,template.definicion_version_id) if template.definicion_version_id else None
+    library=bool(offered_definition and offered_definition.incorporacion_id)
     if not selection.asignacion.definicion_version_id or selection.asignacion.definicion_version_id != template.definicion_version_id:
+        if library:
+            raise error(409, 'evaluacion_desactualizada', 'La oferta cambió; actualizá el catálogo y volvé a evaluar', definicion_version_id=str(template.definicion_version_id), version=offered_definition.version)
         raise error(422, 'definicion_incompatible', 'La evaluación debe usar la definición vinculada al perfil seleccionado')
     from app.services.perfiles_service import exigir_definicion
     definition = await exigir_definicion(db, template, bloquear=bloquear)
@@ -143,6 +148,10 @@ async def calcular(db, pedido_id, *, actor, payload, pve=None, bloquear=False):
         'libre_despues': {key: capacity['libre'][key] - cost[key] for key in cost},
         'storage_scope': capacity['storage_scope'], 'excede_capacidad': exceeds, 'justificacion_requerida': exceeds,
         'restricciones_fisicas': constraints, 'limites': capacity, 'observado_at': utc_z(clock.now())}
+    if library:
+        original=pedido.seleccion_oferta_snapshot or {}
+        result.update(version_solicitada=original.get('version'), version_efectiva=definition.version,
+            cambio_version=bool(original.get('definicion_id') and original['definicion_id']!=str(definition.id)))
     return result, fingerprint, pedido, template, definition, period, image
 
 

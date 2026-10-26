@@ -39,8 +39,9 @@ async def test_dos_instancias_consumen_pool_preparado_sin_editar_perfiles(db, pr
 
 
 @pytest.mark.parametrize('product', ['postgresql','bookstack'])
+@pytest.mark.parametrize('ip_mode', ['dhcp','static'])
 async def test_despliegue_dos_aplicaciones_con_pool_y_secretos_independientes(db, client, engine,
-        proxmox, perfil_capacidad, catedra, usuario_catedra, template, admin, auth_admin, monkeypatch, product):
+        proxmox, perfil_capacidad, catedra, usuario_catedra, template, admin, auth_admin, monkeypatch, product, ip_mode):
     from sqlalchemy import select
     from sqlalchemy.ext.asyncio import async_sessionmaker
     from app.models.pedido import ModeloServicio, EstadoPedido
@@ -66,6 +67,7 @@ async def test_despliegue_dos_aplicaciones_con_pool_y_secretos_independientes(db
         'mac_address':f'02:00:00:00:00:{i+10:02x}', 'products':[product]} for i,key in enumerate(keys)}
     profile = {'instances':slots, 'bridge':'vmbr0','nodes':['pve1'],
         'allowed_cidrs':['10.20.0.0/24'],'client_cidrs':['10.30.0.0/24']}
+    if ip_mode=='static':profile.update(ip_mode='static',static_cidr='10.20.0.0/24',gateway='10.20.0.1')
     monkeypatch.setattr(settings, 'network_profiles', {'test-network':profile})
     monkeypatch.setattr(settings, 'service_artifacts', {definition['definition_key']+':1.0.0':{
         'nodes':['pve1'],'network_profile_id':'test-network'}})
@@ -120,3 +122,30 @@ async def test_despliegue_dos_aplicaciones_con_pool_y_secretos_independientes(db
     password_field = 'database_password' if product=='postgresql' else 'teacher_password'
     assert secrets[0][password_field]!=secrets[1][password_field]
     assert all('hwaddr=02:' in config['net0'] for config in proxmox.creados)
+    if ip_mode=='static':
+        assert {config['net0'].split(',ip=',1)[1].split(',',1)[0] for config in proxmox.creados}=={'10.20.0.10/24','10.20.0.11/24'}
+        assert all('gw=10.20.0.1' in config['net0'] for config in proxmox.creados)
+
+
+def test_red_estatica_configurada_no_depende_de_dhcp_y_conserva_snapshot():
+    from app.services.reserva_red_service import snapshot,aplicar_asignacion
+    profile={'bridge':'vmbr0','client_cidrs':['172.16.36.1/32'],
+        'allowed_cidrs':['172.16.36.0/24'],'ip_mode':'static','static_cidr':'172.16.36.0/24','gateway':'172.16.36.2'}
+    instance={'host':'drawio1.nap.test','address':'172.16.36.61','mac_address':'02:00:00:00:00:61'}
+    allocation=snapshot(profile,instance)
+    assert aplicar_asignacion('name=eth0,bridge=vmbr0,ip=dhcp,tag=42',allocation)==(
+        'name=eth0,bridge=vmbr0,ip=172.16.36.61/24,gw=172.16.36.2,tag=42,hwaddr=02:00:00:00:00:61')
+    profile['gateway']='172.16.36.3'
+    assert allocation['static_ip']['gateway']=='172.16.36.2'
+    assert aplicar_asignacion('name=eth0,bridge=vmbr0,ip=dhcp',instance).endswith('ip=dhcp,hwaddr=02:00:00:00:00:61')
+
+
+@pytest.mark.parametrize('change',[{'address':'10.0.0.61'},{'address':'172.16.36.2'},{'address':'172.16.36.255'},
+    {'gateway':'10.0.0.1'},{'static_cidr':'172.16.0.0/16'}])
+def test_red_estatica_rechaza_direcciones_fuera_de_alcance(change):
+    from app.services.reserva_red_service import snapshot
+    profile={'bridge':'vmbr0','client_cidrs':['172.16.36.1/32'],'allowed_cidrs':['172.16.36.0/24'],
+        'ip_mode':'static','static_cidr':'172.16.36.0/24','gateway':'172.16.36.2'}
+    instance={'host':'drawio1.nap.test','address':'172.16.36.61','mac_address':'02:00:00:00:00:61'}
+    profile.update({k:v for k,v in change.items() if k!='address'});instance.update({k:v for k,v in change.items() if k=='address'})
+    with pytest.raises(ValueError):snapshot(profile,instance)

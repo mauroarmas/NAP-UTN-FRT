@@ -12,10 +12,12 @@ class IdentidadInfraestructura(UUIDPrimaryKey, Base):
     __tablename__ = 'identidades_infraestructura'
     __table_args__ = (
         CheckConstraint('vmid > 0'),
+        CheckConstraint('recurso_ensayo_id IS NULL OR (pedido_alta_id IS NULL AND servicio_id IS NULL)', name='ck_identidad_propietario_ensayo'),
         CheckConstraint("estado IN ('reclamada','materializada','incierta','retirada')"),
         Index('uq_identidad_vmid_retenido', 'cluster_id', 'vmid', unique=True,
               postgresql_where=text('ausencia_confirmada_at IS NULL'), sqlite_where=text('ausencia_confirmada_at IS NULL')),
     )
+    recurso_ensayo_id: Mapped[UUID | None] = mapped_column(ForeignKey('recursos_ensayo.id', use_alter=True, name='fk_identidad_recurso_ensayo'), unique=True)
     cluster_id: Mapped[str] = mapped_column(String(80))
     vmid: Mapped[int] = mapped_column(Integer)
     nodo: Mapped[str] = mapped_column(String(100))

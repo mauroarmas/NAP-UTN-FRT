@@ -66,12 +66,20 @@ export default function NuevoPedidoModal({ open, onClose, onCreated, user, initi
     const payload = { modelo_servicio: model, template_id: isOther ? null : Number(templateId), catedra_id: Number(categoryId),
       descripcion_requerimientos: description.trim(), vigencia: dates,
       parametros_extra: { titulo: title.trim(), software_solicitado: isOther ? otherName.trim() : null } };
+    const chosen = templates.find(t => String(t.id) === templateId);
+    if (chosen?.origen_biblioteca) payload.oferta_revision = chosen.revision;
     try {
       const response = await createPedido(payload, key.current);
       onCreated?.(response.data); onClose();
     } catch (err) {
       setError(mensajeError(err, 'No se pudo confirmar la solicitud. Conservamos los datos.'));
       setFields(err.response?.data?.detail?.campos || {});
+      if (err.response?.status === 409) {
+        try { const {data} = await getTemplates(); setTemplates(data);
+          if (!data.some(t => String(t.id) === templateId && t.oferta_disponible !== false && t.activo !== false)) setTemplateId('');
+          if (data.find(t => String(t.id) === templateId)?.revision !== templates.find(t => String(t.id) === templateId)?.revision) key.current = crypto.randomUUID();
+        } catch { /* El mensaje original y los campos quedan disponibles. */ }
+      }
     } finally { submitting.current = false; setBusy(false); }
   };
   return <Dialog wide title="Nueva solicitud de servicio" onClose={onClose} closeDisabled={busy}>
@@ -105,7 +113,7 @@ export default function NuevoPedidoModal({ open, onClose, onCreated, user, initi
           <label htmlFor="request-template">{model === 'iaas' ? 'Plantilla' : 'Servicio'}</label>
           <select id="request-template" className="input" value={templateId} onChange={(e) => { edit(setTemplateId, e.target.value); setOtherName(''); }} disabled={loading || busy} required>
             <option value="">Seleccioná {model === 'iaas' ? 'una plantilla' : 'un servicio'}</option>
-            {available.map((t) => <option key={t.id} value={String(t.id)}>{t.nombre}</option>)}
+            {available.map((t) => <option key={t.id} value={String(t.id)}>{t.nombre}{t.version_ofrecida ? ` · versión ${t.version_ofrecida}` : ''}</option>)}
             {model !== 'iaas' && <option value="otro">Otro</option>}
           </select>
           {available.length === 0 && !loading && <p className="request-hint">{model === 'iaas' ? 'No hay plantillas disponibles. Consultá a administración.' : 'Podés elegir «Otro» y contarnos qué servicio necesitás.'}</p>}

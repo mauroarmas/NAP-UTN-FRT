@@ -1,6 +1,8 @@
 # Guía de validación: biblioteca y Draw.io
 
-Esta guía se ejecuta después de implementar las tareas de 010. Hoy describe resultados esperados: no acredita endpoints, imagen ni ensayos realizados. Los comandos de suites existentes son utilizables en el checkout; los casos nuevos deben agregarse durante implementación y no pueden darse por cubiertos por pasar sólo pruebas anteriores.
+> Ajuste vigente del 25/10/2026: el alta normal es **elegir → preparar → comprobar funcionamiento → publicar o eliminar**, sin TTL de 24 horas ni parámetros técnicos en el formulario. La configuración institucional se resuelve una sola vez. El [contrato de alta simple](contracts/alta-simple-api.md) sustituye los pasos avanzados/TTL de este documento; los ensayos reales y mediciones pendientes no se consideran ejecutados. Ver [guía actual](../../docs/administracion-servicios.md).
+
+La implementación local y sus pruebas están registradas en `docs/evidencia/010/`. Esta guía conserva los pasos de aceptación real pendientes; pasar pruebas con dobles no acredita una imagen instalada ni entregas reales. Consultar `cierre.md` antes de declarar el piloto aceptado.
 
 ## 1. Prerrequisitos
 
@@ -30,13 +32,13 @@ Desde `backend/`, ejecutar contratos/dobles y regresión existente sin PostgreSQ
 ./venv/bin/python -m pytest -q tests --ignore=tests/postgres
 ```
 
-Desde la raíz, ejecutar suites de infraestructura; añadir los tests del builder nuevo en la misma ejecución cuando existan:
+Desde la raíz, ejecutar explícitamente las cuatro suites de infraestructura:
 
 ```bash
-backend/venv/bin/python -m pytest -c infra/pytest.ini -q infra/runner/tests infra/services/tests infra/laboratorio/tests
+backend/venv/bin/python -m pytest -c infra/pytest.ini -q infra/builder/tests infra/runner/tests infra/services/tests infra/laboratorio/tests
 ```
 
-La implementación agregará `infra/builder/tests` y lo incluirá en configuración de pruebas/CI; debe recolectar y ejecutar casos reales, sin omitir la carpeta faltante ni aceptar cero pruebas. No usar una ejecución de backend como evidencia de estas suites.
+CI ejecuta `infra/builder/tests` como suite propia; no omitirla ni aceptar cero pruebas. No usar una ejecución de backend como evidencia de estas suites.
 
 Para PostgreSQL, iniciar exclusivamente el servicio de pruebas existente:
 
@@ -61,19 +63,20 @@ docker compose -f docker-compose.test.yml down
 
 | Caso | Resultado esperado |
 |---|---|
-| Búsqueda con tres alias, categoría y datos desconocidos | Draw.io localizado; origen de datos explícito, sin inventar versión |
+| Búsqueda con tres alias, sólo categoría y datos desconocidos | Draw.io localizado; origen de datos explícito, sin inventar versión |
 | Búsqueda vacía, timeout, 429 y árbol truncado | Distinguir sin resultados/fallo/cache, límites y reintento; nunca ejecutar shell |
 | Incorporación repetida con misma u otra clave | Mismo borrador para misma identidad/version, sin perder edición |
 | Otro producto encontrado | Importable como ficha, no instalable/publicable sin adaptador |
 | Ensayo sin builder/red o sin capacidad | Rechazo sin contenedores ni reservas huérfanas |
-| Dos admisiones simultáneas: ensayo vs aprobación | Ledger y lock comunes impiden sobrecompromiso accidental |
+| Dos admisiones simultáneas: ensayo vs aprobación y primera reserva builder | Ledger/lock PVE y upsert/lock de scope builder impiden sobrecompromiso, incluso sin fila previa de presupuesto |
 | Build confirmado con entradas exactas | Descargas/paquetes fijados, imagen y bundle verificados; ninguna publicación automática |
 | Confirmación de builder/PVE perdida | Reconciliar mismo trabajo/UUID/UPID, sin segundo recurso |
 | Artefacto con secreto/estado del ensayo | Saneamiento/publicación fallan; ninguna oferta docente |
 | Borrador, evidencia fallida o réplica faltante | Publicación rechazada con motivo |
 | Ensayo vence durante build/crear/bootstrap | Fencing impide resurrección; limpieza pendiente durable |
 | Limpieza falla o elimina sólo un recurso | Capacidad restante retenida; reintento seguro, evidencia/imagen conservadas |
-| Dos workers y lease vencido | Worker antiguo no confirma, publica ni vuelve a crear |
+| Dos workers, lease vencido y mensajes builder fuera de orden | cancel/cierre durable impide build/stage tardíos tras cleanup o reinicio; worker antiguo no confirma ni reabre |
+| Segunda versión NAP desde la misma incorporación/comando | Nueva definición/ensayo sin sobrescribir la primera; repetir código/versión devuelve la misma revisión |
 | Publicar nueva versión entre evaluación y aprobación | 409 y nueva evaluación administrativa; sin confirmación docente |
 | Actualización antes/después de aprobar | Antes usa vigente y avisa; después conserva snapshot original |
 | Retirar mientras docente completa pedido | Datos conservados, selección a revisar; aprobados mantienen referencia |
@@ -87,7 +90,7 @@ La nueva suite debe usar dobles que hagan fallar llamadas no previstas; guardar 
 1. Entrar como administrador en Definiciones. Buscar `drawio`, `draw.io` y `diagramas`. Medir el tiempo desde buscar hasta incorporar (<2 min con proveedor disponible). Confirmar que sólo se incorporó una ficha, con comando/origen y faltantes; no se creó un LXC.
 2. Editar datos administrativos y volver a incorporar: mismo borrador, sin sobrescribir la edición. Completar Draw.io y elegir código/versión NAP; diferenciarla de la versión externa.
 3. Iniciar preparación desde NAP. Ver plazo/vencimiento, capacidad de dos recursos y estado consultable. Revisar resolución con versiones exactas, hashes y revisión de receta; confirmar entradas. No ejecutar manualmente el comando externo.
-4. Esperar imagen/bundle y dos LXC creados desde el mismo paquete. Recargar navegador durante el trabajo: conserva estado, recursos e historial. Repetir envío/pérdida de confirmación en entorno controlado: no duplica.
+4. Antes de iniciar los despliegues de ensayo, bloquear en el entorno controlado las URLs de Community Scripts (sitio y rutas de su repositorio/API/raw), conservando acceso a los repositorios independientes de runtime/base y almacenamiento institucional. El bloqueo puede aplicarse tras incorporar y antes de iniciar el ensayo: la receta NAP resuelve fuentes propias, no vuelve al proveedor. Esperar imagen/bundle y dos LXC creados desde el mismo paquete retenido con ese bloqueo vigente; registrar tráfico seguro y check `deployment_without_provider` con identidades/digests antes de comprobar/publicar. Recargar navegador durante el trabajo: conserva estado, recursos e historial. Repetir envío/pérdida de confirmación en entorno controlado: no duplica.
 5. Revelar acceso de ensayo mediante acción auditada. Desde la red prevista, crear diagrama con texto identificable, editarlo, exportar archivo editable `.drawio` y reabrirlo conservando nodos/contenido. Registrar hash del archivo y resultados. Reiniciar y repetir acceso/edición; los archivos permanecen en el equipo del usuario, no en un almacenamiento central prometido.
 6. Probar instancia B con credenciales de A y acceso anónimo: denegados. Verificar puerto Tomcat inaccesible desde la red cliente y TLS válido. Inspeccionar artefacto limpio para ausencia de contraseñas/diagramas/identidades/TLS de ensayo. Conservar evidencia de saneamiento y de despliegue repetible de ambas instancias.
 7. Importar evidencia real por el mecanismo institucional; vincular a ensayo/definición/digests, validar y publicar la oferta con su perfil. Antes de comprobar, un intento de publicar debe fallar. Registrar usuario y fecha de cada decisión.
@@ -97,7 +100,7 @@ La nueva suite debe usar dobles que hagan fallar llamadas no previstas; guardar 
 ## 5. Entrega a dos cátedras — US3
 
 1. Responsable A solicita Draw.io desde Catálogo: selección conservada. Responsable B lo elige desde Nuevo pedido → Software. Completar cátedra, nombre, justificación y fechas, sin hardware, en <3 min por recorrido. «Otro» sigue disponible.
-2. Mantener una alta pendiente, publicar una segunda versión comprobada sobre el mismo perfil y evaluar/aprobar. Debe usar versión vigente, reservar sus requisitos, conservar la solicitada y registrar/avisar diferencia sin confirmación docente. Publicar otra versión después de aprobar no cambia el snapshot.
+2. Mantener una alta pendiente. Desde la misma incorporación, elegir «Nueva versión», indicar versión NAP mayor y antecedente, sin reimportar ni cambiar el comando fuente; repetir petición conserva la nueva revisión. Preparar/comprobar esa revisión en otro ensayo y publicar la segunda versión sobre el mismo perfil y evaluar/aprobar. Debe usar versión vigente, reservar sus requisitos, conservar la solicitada y registrar/avisar diferencia sin confirmación docente. Publicar otra versión después de aprobar no cambia el snapshot.
 3. Administrador aprueba con evaluación vigente y despliega desde fecha inicial. Ambas instancias tienen identidad, pool/red, credenciales y acceso propios. Una fecha futura no crea anticipadamente recursos; no hay autoaprobación.
 4. Cumplir comprobación externa por servicio antes de activación/revelado al responsable, como en el flujo vigente. En ambas instancias repetir ciclo editable; consultar/operar recurso de B como A devuelve denegación. Credencial HTTPS de A no sirve en B.
 5. Bloquear acceso a Community Scripts/GitHub del proveedor en un entorno controlado después de publicar (sin bloquear almacenamiento institucional). Confirmar falla/aviso de búsqueda y catálogo interno disponible. Crear, aprobar y desplegar un tercer pedido nuevo desde la versión preparada; comprobar el editor. Inspeccionar tráfico/logs: ninguna consulta/descarga a Community Scripts durante despliegue ni bootstrap. El ensayo no prueba que todas las funciones cloud de Draw.io funcionen offline.

@@ -1,0 +1,9 @@
+# Cuenta dedicada sin sesión interactiva; limitar por origen del worker.
+Match User nap-builder
+    AuthenticationMethods publickey
+    PasswordAuthentication no
+    KbdInteractiveAuthentication no
+    PermitTTY no
+    DisableForwarding yes
+    PermitUserEnvironment no
+    ForceCommand sudo -n /usr/local/sbin/nap-build-runner

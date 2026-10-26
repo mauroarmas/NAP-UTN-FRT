@@ -154,7 +154,8 @@ async def _prepare(sessions, lease, *, pve, runner):
             identity = await identities.reclamar(db, op, pve=pve)
             allocation = op.contexto_seguro.get('red_reservada')
             if allocation:
-                net0 += ',hwaddr=' + allocation['instance']['mac_address']
+                from app.services.reserva_red_service import aplicar_asignacion
+                net0 = aplicar_asignacion(net0, allocation['instance'])
             ledger.identidad_infraestructura_id = identity.id
             await _cas(db, lease, identidad_infraestructura_id=identity.id, fase='lista',
                 contexto_seguro={**op.contexto_seguro, 'red_preparada': net0,
@@ -390,7 +391,8 @@ async def procesar_lease(sessions, lease, *, pve=None, runner=None, after_dispat
                     return
                 observation = await identities.observar(identity, pve=pve)
                 exitstatus = task.valor.get('exitstatus', '')
-                if exitstatus != 'OK' and not (isinstance(exitstatus, str) and exitstatus.startswith('WARNINGS:')):
+                from app.services.proxmox_client import tarea_exitosa
+                if not tarea_exitosa(exitstatus):
                     if op.tipo == 'eliminar' and op.contexto_seguro['accion_externa'] == 'eliminar' and observation.estado == 'ausente':
                         await _confirmed(sessions, lease, observation)
                         return

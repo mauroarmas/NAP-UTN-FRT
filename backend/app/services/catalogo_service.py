@@ -1,3 +1,4 @@
+from app.utils.artifact_registry import lookup as artifact_entry
 """Catálogo de versiones inmutables; publicar requiere evidencia y artefactos."""
 from copy import deepcopy
 from datetime import datetime
@@ -28,6 +29,7 @@ from app.utils.errors import error
 def presentar(row, *, tecnico=False):
     result = {key: getattr(row, key) for key in ['codigo', 'version', 'producto', 'modelo_servicio', 'estado']}
     result['id'] = str(row.id)
+    result['revision'] = row.revision
     result['minimum_resources'] = (row.manifest or {}).get('minimum_resources')
     result['allowed_parameters'] = (row.manifest or {}).get('allowed_parameters', [])
     if tecnico:
@@ -95,6 +97,7 @@ async def guardar_manifest(db, identity, *, actor, manifest, clave):
             if name in manifest and manifest[name] != expected:
                 raise error(422, 'manifiesto_incompatible', 'El manifiesto corresponde a otro producto o versión')
         row.manifest = deepcopy(manifest)
+        row.revision += 1
         await session.flush()
         return ResultadoDecision(200, presentar(row, tecnico=True))
     return await ejecutar(db, actor_id=actor.id, clave=clave, metodo='PUT', ruta=f'/definiciones/{identity}/manifest', payload={'manifest': manifest}, decidir=decide)
@@ -156,7 +159,7 @@ async def comprobar_disponibilidad(manifest, *, pve=None):
     comprueban sus archivos, perfiles y disponibilidad PVE antes de habilitar.
     """
     settings = get_settings()
-    registry = settings.service_artifacts.get(manifest['definition_key'] + ':' + manifest['definition_version'])
+    registry = artifact_entry(settings, manifest['definition_key'] + ':' + manifest['definition_version'])
     profiles = settings.network_profiles
     if (not registry or settings.infrastructure_profile.get('cluster_id') != manifest['validation']['cluster_uuid']
         or not registry.get('nodes') or any(node not in settings.runner_nodes for node in registry['nodes'])
@@ -195,6 +198,8 @@ async def transicionar(db, identity, *, actor, accion, payload, clave):
     actor = await requiere_admin_actual(db, actor)
     async def decide(session):
         row = await _locked(session, identity)
+        if row.producto == 'drawio' and accion == 'publicar':
+            raise error(409, 'publicacion_oferta_requerida', 'Publicá Draw.io mediante su ensayo y perfil comprobados')
         allowed = {'validar': {'borrador'}, 'publicar': {'validada'}, 'retirar': {'validada', 'publicada'}}
         if accion not in allowed or row.estado not in allowed[accion]:
             raise error(409, 'estado_incompatible', 'La versión no admite esa transición')
@@ -204,6 +209,7 @@ async def transicionar(db, identity, *, actor, accion, payload, clave):
             if accion == 'validar':
                 row.manifest_sha256, row.evidencia_validacion = digest(row.manifest), entry.id
                 row.validada_at, row.validada_por = clock.now(), actor.id
+                row.revision += 1
             row.estado = 'validada' if accion == 'validar' else 'publicada'
         else:
             row.estado, row.retirada_at = 'retirada', clock.now()
@@ -212,3 +218,54 @@ async def transicionar(db, identity, *, actor, accion, payload, clave):
         await session.flush()
         return ResultadoDecision(200, presentar(row, tecnico=True))
     return await ejecutar(db, actor_id=actor.id, clave=clave, metodo='POST', ruta=f'/definiciones/{identity}/{accion}', payload=payload, decidir=decide)
+
+
+async def publicar_oferta(db,identity,*,actor,data,clave):
+    from app.models.ensayo_preparacion import EnsayoPreparacion
+    from app.models.artefacto_preparado import ArtefactoPreparado,ReplicaArtefacto
+    from app.models.publicacion_oferta import PublicacionOferta
+    from app.models.recurso_template import RecursoTemplate,TipoRecurso
+    from app.models.pedido import ModeloServicio
+    from app.services import capacidad_service,ensayo_cleanup_service
+    actor=await requiere_admin_actual(db,actor)
+    async def decide(session):
+        async with capacidad_service.bloqueo_capacidad(session):
+            template=None
+            if data.perfil.template_id:
+                template=await session.scalar(select(RecursoTemplate).where(RecursoTemplate.id==data.perfil.template_id).with_for_update().execution_options(populate_existing=True))
+                if not template or template.revision!=data.perfil.revision_esperada:raise error(409,'revision_desactualizada','El perfil cambió; revisá su versión')
+            definition=await _locked(session,identity)
+            trial=await session.scalar(select(EnsayoPreparacion).where(EnsayoPreparacion.id==data.ensayo_id).with_for_update().execution_options(populate_existing=True))
+            if (definition.revision!=data.revision_esperada or definition.producto!='drawio' or definition.estado!='validada'
+                or not trial or trial.definicion_id!=definition.id or trial.estado!='comprobada' or trial.cancelada_at
+                or trial.publicacion_id or (trial.expires_at and db_utc(trial.expires_at)<=clock.now())):
+                raise error(409,'oferta_no_comprobada','Se requiere una definición validada y un ensayo comprobado vigente')
+            artifact=await session.get(ArtefactoPreparado,trial.artefacto_id)
+            if not artifact or artifact.estado!='disponible':raise error(409,'artefacto_no_disponible','Falta artefacto institucional')
+            replicas=(await session.scalars(select(ReplicaArtefacto).where(ReplicaArtefacto.artefacto_id==artifact.id))).all()
+            if not replicas or any(r.registro_revision!=definition.manifest_sha256 for r in replicas):raise error(409,'registro_no_actualizado','Esperá la distribución del manifiesto validado')
+            await comprobar_evidencia(session,definition)
+            await comprobar_disponibilidad(definition.manifest)
+            minimum=definition.manifest['minimum_resources']
+            if any(getattr(data.perfil,field)<minimum[key] for field,key in [('default_vcpus','vcpus'),('default_ram_mb','ram_mb'),('default_disk_gb','disk_gb')]):
+                raise error(422,'recursos_inferiores_minimos','El perfil no alcanza los mínimos comprobados')
+            if template:
+                previous=await session.get(DefinicionServicio,template.definicion_version_id)
+                if not previous or previous.codigo!=definition.codigo or previous.producto!='drawio' or tuple(map(int,previous.version.split('.')))>=tuple(map(int,definition.version.split('.'))):
+                    raise error(409,'perfil_incompatible','Elegí un perfil anterior de la misma aplicación')
+                template.revision+=1
+            else:
+                template=RecursoTemplate(modelo_servicio=ModeloServicio.SAAS,tipo=TipoRecurso.LXC,nombre=data.perfil.nombre,revision=1)
+                session.add(template)
+            for field in ['nombre','descripcion','default_vcpus','default_ram_mb','default_disk_gb']:setattr(template,field,getattr(data.perfil,field))
+            template.activo=True;template.definicion_version_id=definition.id;template.os_template=definition.manifest['image']['volume_id']
+            definition.estado='publicada';definition.revision+=1
+            await session.flush()
+            publication=PublicacionOferta(template_id=template.id,definicion_id=definition.id,ensayo_id=trial.id,
+                revision=template.revision,snapshot=data.perfil.model_dump(),creado_por=actor.id)
+            session.add(publication);await session.flush();trial.publicacion_id=publication.id
+            await ensayo_cleanup_service.solicitar(session,trial,motivo='Oferta publicada; conservar artefactos e historia')
+            session.add(EventoSeguridad(actor_usuario_id=actor.id,accion='publicar_oferta',resultado='completado',referencia=str(publication.id)))
+            return ResultadoDecision(201 if not data.perfil.template_id else 200,{'definicion_id':str(definition.id),
+                'template_id':template.id,'template_revision':template.revision,'publicacion_id':str(publication.id),'limpieza_estado':trial.limpieza_estado})
+    return await ejecutar(db,actor_id=actor.id,clave=clave,metodo='POST',ruta=f'/definiciones/{identity}/publicar-oferta',payload=data.model_dump(mode='json'),decidir=decide)

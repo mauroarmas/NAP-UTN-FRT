@@ -49,10 +49,20 @@ export default function ReenviarPedidoModal({ open, pedido, user, onClose, onRee
     submitting.current = true; setBusy(true); setError('');
     try {
       const { data } = await reenviarPedido(pedido.id, { template_id: isOther ? null : Number(templateId), modelo_servicio: model,
+        ...(templates.find(t => String(t.id) === templateId)?.origen_biblioteca ? {oferta_revision: templates.find(t => String(t.id) === templateId).revision} : {}),
         descripcion_requerimientos: description.trim(), vigencia: dates,
         parametros_extra: { titulo: title.trim(), software_solicitado: isOther ? otherName.trim() : null } }, key.current);
       onReenviado?.(data); onClose();
-    } catch (err) { setError(err); }
+    } catch (err) {
+      setError(err);
+      if (err?.response?.status === 409) {
+        try {
+          const { data } = await getTemplates(); setTemplates(data);
+          if (!data.some(t => String(t.id) === templateId && t.activo !== false && t.oferta_disponible !== false) && !isOther && !renewal) setTemplateId('');
+          if (data.find(t => String(t.id) === templateId)?.revision !== templates.find(t => String(t.id) === templateId)?.revision) key.current = crypto.randomUUID();
+        } catch { /* El error original conserva el formulario. */ }
+      }
+    }
     finally { submitting.current = false; setBusy(false); }
   };
   return <Dialog wide title={`${admin ? 'Corregir y reenviar' : 'Responder aclaración del'} pedido #${pedido.id}`} onClose={onClose} closeDisabled={busy}>
@@ -66,7 +76,7 @@ export default function ReenviarPedidoModal({ open, pedido, user, onClose, onRee
       <div className="request-field"><label htmlFor="resend-template">{model === 'iaas' ? 'Plantilla' : 'Servicio'}</label>
       <select id="resend-template" className="input" value={templateId} onChange={(e) => { edit(setTemplateId, e.target.value); setOtherName(''); }} required disabled={busy || renewal}>
         <option value="">Seleccioná una plantilla compatible</option>
-        {available.map((t) => <option key={t.id} value={String(t.id)}>{t.nombre}</option>)}
+        {available.map((t) => <option key={t.id} value={String(t.id)}>{t.nombre}{t.version_ofrecida ? ` · versión ${t.version_ofrecida}` : ''}</option>)}
         {!renewal && model !== 'iaas' && <option value="otro">Otro</option>}
         {renewal && !available.length && <option value={String(pedido.template_id)}>{pedido.asignacion_snapshot?.nombre || 'Asignación histórica'}</option>}
       </select></div>

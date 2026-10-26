@@ -8,6 +8,10 @@
 
 **Input**: User description: "$ARGUMENTS"
 
+<!-- Principio VII: describir primero el recorrido más corto útil para personas no técnicas,
+     incluida administración. Pedir sólo datos necesarios, reutilizar configuración inicial y
+     exigir feedback claro. No agregar variantes o campos para casos hipotéticos. -->
+
 ## User Scenarios & Testing *(mandatory)*
 
 <!--
@@ -72,7 +76,7 @@
 
 <!--
   ACTION REQUIRED: The content in this section represents placeholders.
-  Fill them out with the right edge cases.
+  Incluir sólo casos reales relevantes para el alcance; no ampliar el producto por hipótesis.
 -->
 
 - What happens when [boundary condition]?

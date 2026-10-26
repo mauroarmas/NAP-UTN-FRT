@@ -45,3 +45,14 @@ __all__ = [
     "SesionAutenticacion", "DesafioAutenticacion", "CodigoRecuperacion", "IntentoAutenticacion", "EventoSeguridad",
     "Notificacion", "Incidente", "MetricaResumenDiario", "BitacoraCierre", "Restauracion", "AccesoInicialRestaurado",
 ]
+
+from app.models.incorporacion_aplicacion import IncorporacionAplicacion
+
+from app.models.ensayo_preparacion import EnsayoPreparacion
+from app.models.recurso_ensayo import RecursoEnsayo
+from app.models.operacion_ensayo import OperacionEnsayo
+from app.models.evento_ensayo import EventoEnsayo
+from app.models.artefacto_preparado import ArtefactoPreparado, ReplicaArtefacto
+from app.models.presupuesto_builder import PresupuestoBuilder
+from app.models.reserva_espacio_builder import ReservaEspacioBuilder
+from app.models.publicacion_oferta import PublicacionOferta

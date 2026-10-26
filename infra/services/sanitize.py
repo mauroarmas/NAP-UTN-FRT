@@ -12,7 +12,8 @@ class ImageError(Exception):
 MARKER = 'nap-image-builder/1\n'
 CLEAR = ['root', 'home', 'tmp', 'var/tmp', 'run', 'var/log', 'var/lib/cloud',
     'var/cache/apt', 'var/lib/apt/lists',
-    'var/lib/nap', 'etc/nap/postgresql', 'etc/nap/bookstack',
+    'var/lib/nap', 'etc/nap/postgresql', 'etc/nap/bookstack', 'etc/nap/drawio',
+    'opt/nap-drawio/tomcat/work', 'opt/nap-drawio/tomcat/temp', 'opt/nap-drawio/tomcat/logs',
     'var/lib/postgresql/16', 'etc/postgresql/16', 'var/lib/mysql',
     'etc/ssl/private', 'etc/apt/auth.conf.d', 'etc/sudoers.d',
     'var/www/bookstack/public/uploads', 'var/www/bookstack/storage/uploads',
@@ -73,7 +74,7 @@ def _write(path, content, mode):
 
 
 def sanitize_rootfs(root, product):
-    if product not in {'linux', 'postgresql', 'bookstack'}:
+    if product not in {'linux', 'postgresql', 'bookstack', 'drawio'}:
         raise ImageError('Producto no permitido')
     root = workspace_root(root)
     # Comprobar todo antes de cambiar cuentas o eliminar datos. El workspace

@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, JSON, String, UniqueConstraint, Uuid, event, inspect
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, JSON, String, UniqueConstraint, Uuid, event, inspect
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -16,6 +16,9 @@ class DefinicionServicio(UUIDPrimaryKey, Base):
         CheckConstraint("tipo_recurso = 'lxc'"),
         CheckConstraint("modelo_servicio IN ('iaas','paas','saas')"),
     )
+    incorporacion_id: Mapped[UUID | None] = mapped_column(ForeignKey('incorporaciones_aplicacion.id'))
+    base_definicion_id: Mapped[UUID | None] = mapped_column(ForeignKey('definiciones_servicio.id'))
+    revision: Mapped[int] = mapped_column(Integer, default=1, server_default='1')
     codigo: Mapped[str] = mapped_column(String(100))
     version: Mapped[str] = mapped_column(String(80))
     modelo_servicio: Mapped[str] = mapped_column(String(10))
@@ -37,7 +40,7 @@ def immutable_validated_definition(mapper, connection, target):
     history = state.attrs.estado.history
     previous = history.deleted[0] if history.deleted else target.estado
     if previous != 'borrador':
-        immutable = ['codigo', 'version', 'modelo_servicio', 'tipo_recurso', 'producto', 'manifest',
+        immutable = ['incorporacion_id', 'base_definicion_id', 'codigo', 'version', 'modelo_servicio', 'tipo_recurso', 'producto', 'manifest',
             'manifest_sha256', 'validada_at', 'validada_por', 'evidencia_validacion']
         if any(state.attrs[field].history.has_changes() for field in immutable):
             raise ValueError('El contenido de una versión validada es inmutable')

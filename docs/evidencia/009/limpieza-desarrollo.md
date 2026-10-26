@@ -24,3 +24,9 @@ El flujo nuevo crea cada contenedor con el pool `catedra-{id}` y comprueba su pe
 Administración solicita una aclaración; el titular actual puede responder exclusivamente un pedido propio en `requiere_ajuste` y devolverlo a `solicitado`, sin asignación de hardware. Se conserva la decisión de aprobación/reserva en administración. Los avisos utilizan portal y outbox de correo según preferencias; la respuesta avisa a administración.
 
 Se añadió el servicio de desarrollo `notificaciones`, que ejecuta `python -m app.worker --solo-notificaciones`. Despacha la cola cada minuto y no registra trabajos de métricas, despliegue, vencimientos o reconciliación. Se verificó su ejecución separada; no sustituye al worker completo de infraestructura.
+
+## Actualización: limpieza de Proxmox completada
+
+Posteriormente, el 25/10/2026, ante el reclamo del usuario se completó la eliminación de los ocho contenedores ficticios 100–107 y de los seis pools indicados arriba. Se verificaron identidad, configuración sin cambios, estado detenido y ausencia de referencias operativas antes de borrar; cada tarea y ausencia se confirmaron. El resultado es cero invitados, cero pools y cero permisos residuales asociados. El inventario previo de esta acta describe el estado antes de esa intervención.
+
+La reparación de migraciones 010, preservación de los datos y comprobaciones están en [reparación del entorno y limpieza](../010/reparacion-entorno-y-limpieza.md).

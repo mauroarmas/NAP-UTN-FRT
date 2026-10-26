@@ -81,3 +81,15 @@ Cada concesión identifica un usuario NAP inventariado, su revisión administrat
 6. Completar SMTP, restore separado de portal+keyring y aplicaciones, comparación de datos y tiempos observados. Registrar responsables/destino externo cuando se acuerden.
 
 Aceptación pendiente: T102, T119, T131 y T133. Las regresiones locales no las marcan completadas. La revisión de manuales por una persona ajena al desarrollo se coordina junto al recorrido de T119.
+
+## Builder y ensayos de biblioteca
+
+El builder 010 usa SSH con hostkeys fijas, cuenta dedicada y `nap-build-runner/1`; su host se mantiene separado de PVE operativo. Instalación, formato del registro y montajes están en [infra/services/README.md](../infra/services/README.md#instalar-el-builder). No habilitar perfiles de ensayo hasta disponer de pool institucional, almacenamiento, dos asignaciones de red/certificados y presupuesto de disco coherente por scope. Community Scripts sólo se consulta para buscar/incorporar; construir y desplegar usan entradas fijadas y artefactos retenidos.
+
+## Laboratorio local de biblioteca
+
+La preparación de la VM y el constructor separado en esta PC se documentan en
+[laboratorio de biblioteca](laboratorio-biblioteca.md). Es una configuración local, con identidades,
+certificados y acceso desde esta PC; no sustituye la entrega de valores del clúster universitario.
+El perfil local permite IP estática fijada por Proxmox (`ip_mode: static`, `static_cidr`, `gateway`)
+y congela esa configuración al reclamar la identidad. Sin esos campos se conserva DHCP.

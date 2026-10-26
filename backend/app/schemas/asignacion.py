@@ -6,6 +6,7 @@ import re
 from pydantic import Field, StrictInt, StrictBool, field_validator, model_validator
 from app.schemas.common import Contrato, Recursos, Destino
 from app.schemas.calendario import ANIO_LECTIVO_MINIMO, FECHA_MINIMA
+from app.schemas.tamanos import Tamano, validar_tamano
 
 
 class VigenciaSolicitud(Contrato):
@@ -34,6 +35,12 @@ class VigenciaSolicitud(Contrato):
 class AsignacionEfectiva(Recursos):
     template_id: StrictInt = Field(ge=1)
     definicion_version_id: UUID | None = None
+    tamano: Tamano | None = None
+
+    @model_validator(mode='after')
+    def tamano_coherente(self):
+        validar_tamano(self.tamano, self.model_dump())
+        return self
 
 
 class SeleccionEvaluacion(Contrato):

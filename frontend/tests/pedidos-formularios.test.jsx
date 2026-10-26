@@ -4,21 +4,23 @@ import { beforeEach, expect, test, vi } from 'vitest';
 import NuevoPedidoModal from '../src/components/NuevoPedidoModal.jsx';
 import AprobarPedidoModal from '../src/components/AprobarPedidoModal.jsx';
 import * as api from '../src/services/api.js';
+import { sizes } from './fixtures/tamanos';
 
 vi.mock('../src/services/api.js', () => ({
-  getTemplates: vi.fn(), getCatedras: vi.fn(), getCatedrasMias: vi.fn(), createPedido: vi.fn(),
+  getTemplates: vi.fn(), getTamanos: vi.fn(), getCatedras: vi.fn(), getCatedrasMias: vi.fn(), createPedido: vi.fn(),
   getCalendario: vi.fn(), getPeriodosCalendario: vi.fn(), evaluarPedido: vi.fn(), aprobarPedido: vi.fn(), getCapacidad: vi.fn(),
 }));
 
 const templates = [
-  { id: 1, nombre: 'Linux', modelo_servicio: 'iaas', tipo: 'lxc', activo: true, default_vcpus: 1, default_ram_mb: 512, default_disk_gb: 4 },
-  { id: 2, nombre: 'PostgreSQL', modelo_servicio: 'paas', tipo: 'lxc', activo: true, default_vcpus: 2, default_ram_mb: 1024, default_disk_gb: 10 },
+  { id: 1, nombre: 'Linux', modelo_servicio: 'iaas', tipo: 'lxc', activo: true, default_vcpus: 1, default_ram_mb: 512, default_disk_gb: 4, minimum_resources: { vcpus: 1, ram_mb: 512, disk_gb: 4 } },
+  { id: 2, nombre: 'PostgreSQL', modelo_servicio: 'paas', tipo: 'lxc', activo: true, default_vcpus: 2, default_ram_mb: 1024, default_disk_gb: 10, minimum_resources: { vcpus: 1, ram_mb: 512, disk_gb: 4 } },
 ];
 const teacher = { rol: 'catedra_admin' };
 const dates = { tipo: 'personalizado', desde: '2027-03-01', hasta: '2027-06-30' };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  api.getTamanos.mockResolvedValue({ data: sizes });
   api.getTemplates.mockResolvedValue({ data: templates });
   api.getCatedras.mockResolvedValue({ data: [{ id: 1, nombre: 'Propia' }] });
   api.getCatedrasMias.mockResolvedValue({ data: [{ id: 1, nombre: 'Propia' }] });
@@ -68,24 +70,25 @@ test('un año sin calendario explica el faltante sin inventar fechas', async () 
 test('editar costo invalida la evaluación y el token hasta volver a evaluar', async () => {
   const user = userEvent.setup();
   api.evaluarPedido.mockImplementation(async (_id, payload) => ({ data: {
-    pedido_id: 1, seleccion: payload, capacidad_token: 'token-' + payload.asignacion.ram_mb,
+    pedido_id: 1, seleccion: payload, version_solicitada: '1.0.0', version_efectiva: '2.0.0', cambio_version: true, capacidad_token: 'token-' + payload.asignacion.ram_mb,
     justificacion_requerida: payload.asignacion.ram_mb > 512, restricciones_fisicas: [],
     costo_incremental: payload.asignacion, destino: payload.destino,
     vigencia_efectiva: { inicio_at: '2027-03-01T03:00:00Z', fin_exclusivo_at: '2027-07-01T03:00:00Z' },
   } }));
   render(<AprobarPedidoModal open pedido={{ id: 1, template_id: 1, modelo_servicio: 'iaas', vigencia: dates }} templates={templates} onClose={vi.fn()} />);
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Evaluar asignación' })).toBeEnabled());
   await user.click(screen.getByRole('button', { name: 'Evaluar asignación' }));
+  expect(await screen.findByText(/Versión solicitada: 1.0.0. Versión a autorizar: 2.0.0/)).toBeVisible();
   await waitFor(() => expect(api.evaluarPedido).toHaveBeenCalledTimes(1));
-  const ram = screen.getByLabelText('RAM (MiB)');
-  await user.clear(ram);
-  await user.type(ram, '1024');
+  await user.click(screen.getByRole('radio', { name: /^Medium/ }));
   expect(screen.getByRole('button', { name: /^Aprobar/ })).toBeDisabled();
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Evaluar asignación' })).toBeEnabled());
   await user.click(screen.getByRole('button', { name: 'Evaluar asignación' }));
   await user.type(await screen.findByLabelText(/Justificación/), 'Capacidad deliberada para la práctica');
   await user.click(screen.getByRole('button', { name: /^Aprobar/ }));
   await waitFor(() => expect(api.aprobarPedido).toHaveBeenCalled());
   const payload = api.aprobarPedido.mock.calls[0][1];
-  expect(payload.asignacion.ram_mb).toBe(1024);
+  expect(payload.asignacion).toMatchObject({ ram_mb: 1024, vcpus: 2, disk_gb: 8, tamano: 'medium' });
   expect(payload.capacidad_token).toBe('token-1024');
 });
 
@@ -99,14 +102,16 @@ test('409 conserva recursos, fechas y motivo pero exige reevaluar', async () => 
     codigo: 'token_desactualizado', mensaje: 'La capacidad cambió. Volvé a evaluar.',
   } } } });
   render(<AprobarPedidoModal open pedido={{ id: 1, template_id: 1, modelo_servicio: 'iaas', vigencia: dates }} templates={templates} onClose={vi.fn()} />);
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Evaluar asignación' })).toBeEnabled());
   await user.click(screen.getByRole('button', { name: 'Evaluar asignación' }));
   await user.type(await screen.findByLabelText(/Justificación/), 'Motivo que debe conservarse');
   await user.click(screen.getByRole('button', { name: /^Aprobar/ }));
   expect(await screen.findByRole('alert')).toHaveTextContent('La capacidad cambió');
-  expect(screen.getByLabelText('RAM (MiB)')).toHaveValue(512);
+  expect(screen.getByRole('radio', { name: /^Small/ })).toBeChecked();
   expect(screen.getByLabelText('Fecha desde')).toHaveValue('2027-03-01');
   expect(screen.getByLabelText('Fecha hasta')).toHaveValue('2027-06-30');
   expect(screen.getByRole('button', { name: /^Aprobar/ })).toBeDisabled();
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Evaluar asignación' })).toBeEnabled());
   await user.click(screen.getByRole('button', { name: 'Evaluar asignación' }));
   expect(await screen.findByLabelText(/Justificación/)).toHaveValue('Motivo que debe conservarse');
 });

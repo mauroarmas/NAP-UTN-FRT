@@ -114,6 +114,12 @@ export const getPeriodosCalendario = (anio) => api.get(`/calendarios/${anio}/per
 export const guardarCalendario = (anio, data, clave = crypto.randomUUID()) => api.put(`/calendarios/${anio}`, data, ordenHeaders(clave));
 
 // Templates
+export const consultarPreparacion = (id) => api.get(`/biblioteca/incorporaciones/${id}/preparacion`);
+export const prepararAplicacion = (id, data, clave) => api.post(`/biblioteca/incorporaciones/${id}/preparar`, data, ordenHeaders(clave));
+export const confirmarFuncionamiento = (id, funciona, clave) => api.post(`/biblioteca/incorporaciones/${id}/confirmar-funcionamiento`, { funciona }, ordenHeaders(clave));
+export const publicarAplicacion = (id, data, clave) => api.post(`/biblioteca/incorporaciones/${id}/publicar`, data, ordenHeaders(clave));
+export const eliminarPreparacion = (id, clave) => api.post(`/biblioteca/incorporaciones/${id}/eliminar`, {}, ordenHeaders(clave));
+export const getTamanos = () => api.get('/templates/tamanos');
 export const getTemplates = (incluirRetiradas = false, modeloServicio = null, options = {}) =>
   api.get('/templates/', {
     ...options,
@@ -220,3 +226,17 @@ export default api;
 export const getAlertas = (params = {}, options = {}) => api.get('/alertas', { ...options, params });
 export const getAvisos = (params = {}, options = {}) => api.get('/alertas/avisos', { ...options, params });
 export const getEstadoCorreo = (params = {}, options = {}) => api.get('/alertas/correo', { ...options, params });
+
+// Biblioteca: sólo descubrimiento e incorporación administrativa.
+export const buscarAplicaciones = (params) => api.get('/biblioteca/aplicaciones', { params });
+export const listarIncorporaciones = (params = {}) => api.get('/biblioteca/incorporaciones', { params });
+export const incorporarAplicacion = (body, key) => api.post('/biblioteca/incorporaciones', body, { headers: { 'Idempotency-Key': key } });
+export const editarIncorporacion = (id, body, key) => api.patch(`/biblioteca/incorporaciones/${id}`, body, { headers: { 'Idempotency-Key': key } });
+export const obtenerIncorporacion = (id) => api.get(`/biblioteca/incorporaciones/${id}`);
+export const crearRevisionBiblioteca = (id, body, key) => api.post(`/biblioteca/incorporaciones/${id}/definicion`, body, { headers: { 'Idempotency-Key': key } });
+export const listarEnsayos = (definitionId) => api.get(`/definiciones/${definitionId}/ensayos`);
+export const obtenerEnsayo = (id) => api.get(`/ensayos/${id}`);
+export const iniciarEnsayo = (id, body, key) => api.post(`/definiciones/${id}/ensayos`, body, { headers: { 'Idempotency-Key': key } });
+export const accionEnsayo = (id, action, body, key) => api.post(`/ensayos/${id}/${action}`, body, { headers: { 'Idempotency-Key': key } });
+export const revelarAccesoEnsayo = (id, resourceId, key) => api.post(`/ensayos/${id}/recursos/${resourceId}/revelar-acceso`, {}, { headers: { 'Idempotency-Key': key } });
+export const publicarOferta = (id, body, key) => api.post(`/definiciones/${id}/publicar-oferta`, body, { headers: { 'Idempotency-Key': key } });

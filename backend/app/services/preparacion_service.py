@@ -1,3 +1,4 @@
+from app.utils.artifact_registry import lookup as artifact_entry
 """Preparación de snapshots aprobados, credenciales persistidas antes del envío."""
 import base64
 import hashlib
@@ -41,7 +42,7 @@ async def _definition(db, assignment):
 
 def _profile(manifest, destination, *, frozen=None):
     settings = get_settings()
-    registry = settings.service_artifacts.get(manifest['definition_key'] + ':' + manifest['definition_version'])
+    registry = artifact_entry(settings, manifest['definition_key'] + ':' + manifest['definition_version'])
     try:
         if not registry or registry.get('security_blocked') or destination['nodo'] not in registry['nodes']:
             raise ValueError()
@@ -80,6 +81,8 @@ async def validar_preparacion(*, sessions, asignacion, destino, runner=None, pve
 
 
 def _generate(product):
+    if product == 'drawio':
+        return {'access_password': secrets.token_urlsafe(32)}
     if product == 'linux':
         return {'guest_password': secrets.token_urlsafe(32)}
     if product == 'postgresql':
@@ -108,7 +111,7 @@ async def preparar(*, sessions, servicio_id, operacion_id, identidad_id, lease, 
             raise error(409, 'red_no_preparada', 'La operación no conserva el perfil validado antes de crear')
         selected, profile, _ = _profile(definition.manifest, op.contexto_seguro['destino'], frozen=frozen)
         allocation = op.contexto_seguro.get('red_reservada')
-        if definition.producto in {'postgresql', 'bookstack'}:
+        if definition.producto in {'postgresql', 'bookstack', 'drawio'}:
             from app.services.reserva_red_service import snapshot
             try:
                 if (not allocation or allocation['network_profile_id'] != selected

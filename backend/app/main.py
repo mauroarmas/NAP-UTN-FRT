@@ -20,6 +20,8 @@ from app.routers import (
     calendarios,
     definiciones,
     alertas,
+    biblioteca,
+    ensayos,
 )
 import logging
 from app.worker import registrar_trabajos
@@ -81,6 +83,8 @@ app.include_router(operaciones.router, prefix="/api/v1")
 app.include_router(calendarios.router, prefix="/api/v1")
 app.include_router(definiciones.router, prefix="/api/v1")
 app.include_router(alertas.router, prefix="/api/v1")
+app.include_router(biblioteca.router, prefix="/api/v1")
+app.include_router(ensayos.router, prefix="/api/v1")
 
 
 @app.get("/")

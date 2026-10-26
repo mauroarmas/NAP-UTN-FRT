@@ -6,7 +6,6 @@ const Pedidos = lazy(() => import('./pages/Pedidos'));
 const Catalogo = lazy(() => import('./pages/Catalogo'));
 const Servicios = lazy(() => import('./pages/Servicios'));
 const Catedras = lazy(() => import('./pages/Catedras'));
-const Templates = lazy(() => import('./pages/Templates'));
 const Usuarios = lazy(() => import('./pages/Usuarios'));
 const CambiosConsola = lazy(() => import('./pages/CambiosConsola'));
 const Calendario = lazy(() => import('./pages/Calendario'));
@@ -41,17 +40,18 @@ function ProtectedLayout({ user, onRefresh, onLogout }) {
           <RouteErrorBoundary key={location.pathname}><Suspense fallback={<p role="status">Cargando vista…</p>}><Routes>
             <Route path="/" element={<Dashboard user={user} />} />
             <Route path="/pedidos" element={<Pedidos user={user} />} />
-            <Route path="/catalogo" element={<Catalogo user={user} />} />
+            <Route path="/catalogo" element={user?.rol === 'admin' ? <Definiciones user={user} /> : <Catalogo user={user} />} />
             <Route path="/servicios" element={<Servicios user={user} />} />
             <Route path="/metricas" element={<Metricas user={user} />} />
             <Route path="/seguridad" element={<Seguridad key={String(user?.totp_habilitado)} user={user} onRefresh={onRefresh} />} />
             {user?.rol === 'admin' && (
               <>
-                <Route path="/definiciones" element={<Definiciones />} />
+                <Route path="/admin/servicios" element={<Navigate to="/catalogo" replace />} />
+                <Route path="/definiciones" element={<Navigate to="/catalogo?vista=preparacion" replace />} />
                 <Route path="/catedras" element={<Catedras />} />
                 <Route path="/calendario" element={<Calendario />} />
-                <Route path="/templates" element={<Templates />} />
-                <Route path="/admin/templates" element={<Templates />} />
+                <Route path="/templates" element={<Navigate to="/catalogo" replace />} />
+                <Route path="/admin/templates" element={<Navigate to="/catalogo" replace />} />
                 <Route path="/usuarios" element={<Usuarios user={user} />} />
                 <Route path="/admin/cambios-consola" element={<CambiosConsola user={user} />} />
               </>

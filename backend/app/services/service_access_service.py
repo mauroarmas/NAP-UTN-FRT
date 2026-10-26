@@ -38,7 +38,7 @@ async def _context(db, actor, service_id):
     definition = await db.get(DefinicionServicio, service.definicion_version_id) if service.definicion_version_id else None
     metadata = service.acceso_metadata or {}
     product = definition.producto if definition else None
-    method = {'linux': 'consola', 'postgresql': 'postgresql', 'bookstack': 'https'}.get(product)
+    method = {'linux': 'consola', 'postgresql': 'postgresql', 'bookstack': 'https', 'drawio': 'https'}.get(product)
     preparation = await preparacion_confirmada(db, service)
     covered = resumir_cobertura(await periodos_vigentes(db, service.id), clock.now())['cubierto']
     prepared = bool(preparation and product and metadata.get('metodo') == method and metadata.get('endpoint') and service.credenciales_encrypted)
@@ -58,6 +58,8 @@ async def _context(db, actor, service_id):
     else:
         state = 'solo_validacion' if actor.rol == RolUsuario.ADMIN else 'pendiente_verificacion'
         instructions = 'Falta comprobar acceso desde la red prevista. Administración puede revelar el acceso inicial solo para esa validación.'
+    if product == 'drawio' and deliverable:
+        instructions = 'Acceso HTTPS de esta instancia. Guardá los diagramas como archivos editables en tu equipo; NAP no ofrece guardado centralizado ni cuentas de Draw.io.'
     result = {'servicio_id': service.id, 'modelo_servicio': service.modelo_servicio, 'producto': product,
         'disponibilidad': service.disponibilidad_aplicacion, 'verificado_at': service.acceso_red_verificado_at,
         'metodo': method, 'direccion': metadata.get('endpoint'), 'puerto': metadata.get('port'),
@@ -80,7 +82,7 @@ async def revelar(db, *, actor, servicio_id):
         raise error(409, 'acceso_no_preparado', 'El acceso inicial no está habilitado para este estado y usuario')
     try:
         values = configured_keyring().decrypt(service.credenciales_encrypted, context=f'servicio:{service.id}:secretos')
-        field = {'linux': 'guest_password', 'postgresql': 'database_password', 'bookstack': 'teacher_password'}[result['producto']]
+        field = {'linux': 'guest_password', 'postgresql': 'database_password', 'bookstack': 'teacher_password', 'drawio': 'access_password'}[result['producto']]
         password = values[field]
         username = (service.acceso_metadata or {})['username']
         if not isinstance(password, str) or not password or not isinstance(username, str) or not username:

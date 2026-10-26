@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   Activity, Building2, ChevronDown, ClipboardCheck, Home, LogOut,
-  Moon, Package, Server, Settings, Sun, Users, CalendarDays, Shield,
+  Moon, Package, Server, Settings, Sun, Users, CalendarDays, Shield, Menu, X,
 } from 'lucide-react';
 import useTheme from '../hooks/useTheme';
 import { iniciales } from './ui';
@@ -21,10 +21,8 @@ const CATEDRA_LINKS = [
 ];
 
 const ADMIN_LINKS = [
-  { to: '/definiciones', label: 'Definiciones', icon: Package },
   { to: '/calendario', label: 'Calendario', icon: CalendarDays },
   { to: '/catedras', label: 'Cátedras', icon: Building2 },
-  { to: '/templates', label: 'Perfiles', icon: Package },
   { to: '/usuarios', label: 'Usuarios', icon: Users },
   { to: '/admin/cambios-consola', label: 'Accesos a consola', icon: Settings },
 ];
@@ -35,9 +33,11 @@ export default function TopNav({ user, onLogout }) {
   const { theme, toggle: toggleTheme } = useTheme();
   const [adminOpen, setAdminOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const [hidden, setHidden] = useState(false);
   const adminRef = useRef(null);
   const menuRef = useRef(null);
+  const mobileTrigger = useRef(null);
   const lastY = useRef(0);
 
   const isAdmin = user?.rol === 'admin';
@@ -59,7 +59,18 @@ export default function TopNav({ user, onLogout }) {
   useEffect(() => {
     setAdminOpen(false);
     setMenuOpen(false);
+    setMobileOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    const onKey = (event) => {
+      if (event.key === 'Escape' && mobileOpen) {
+        setMobileOpen(false); setAdminOpen(false); mobileTrigger.current?.focus();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [mobileOpen]);
 
   useEffect(() => {
     const onClick = (e) => {
@@ -96,7 +107,7 @@ export default function TopNav({ user, onLogout }) {
 
         <div className="topnav-divider" />
 
-        <nav className="topnav-links">
+        <nav id="portal-navigation" aria-label="Navegación principal" className={`topnav-links ${mobileOpen ? 'is-mobile-open' : ''}`}>
           {(isAdmin ? LINKS : CATEDRA_LINKS).map(({ to, label, icon: Icon }) => (
             <NavLink key={to} to={to} className={({ isActive }) => `topnav-link ${isActive ? 'active' : ''}`}>
               <Icon size={16} />
@@ -105,10 +116,11 @@ export default function TopNav({ user, onLogout }) {
           ))}
 
           {isAdmin && (
-            <div className="menu" ref={adminRef} style={{ marginLeft: 6 }}>
+            <div className="menu topnav-admin" ref={adminRef}>
               <button
                 className={`topnav-menu-trigger ${ADMIN_LINKS.some((l) => location.pathname.startsWith(l.to)) ? 'active' : ''}`}
                 onClick={() => setAdminOpen((v) => !v)}
+                aria-expanded={adminOpen}
               >
                 <Settings size={16} />
                 Administración
@@ -129,6 +141,10 @@ export default function TopNav({ user, onLogout }) {
         </nav>
 
         <div className="topnav-right" style={{ marginLeft: 'auto' }}>
+          <button ref={mobileTrigger} className="btn-icon topnav-mobile-trigger" aria-label={mobileOpen ? 'Cerrar navegación' : 'Abrir navegación'}
+            aria-expanded={mobileOpen} aria-controls="portal-navigation" onClick={() => { setMobileOpen((value) => !value); setMenuOpen(false); }}>
+            {mobileOpen ? <X size={19} /> : <Menu size={19} />}
+          </button>
           <div className="menu" ref={menuRef}>
             <button
               className="avatar"

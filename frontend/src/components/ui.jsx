@@ -70,7 +70,7 @@ export function Empty({ icon, children, hint }) {
 }
 
 // Modal compartido: semántica, foco, fondo inerte y cierre deliberado.
-export function Dialog({ title, onClose, children, actions, wide = false, closeDisabled = false, dismissible = true }) {
+export function Dialog({ title, onClose, children, actions, wide = false, closeDisabled = false, dismissible = true, className = '', headerContent }) {
   const titleId = useId();
   const panel = useRef(null);
   const layer = useRef(null);
@@ -89,11 +89,12 @@ export function Dialog({ title, onClose, children, actions, wide = false, closeD
   return createPortal(
     <div ref={layer} className="dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) dismiss(); }}>
       <div ref={panel} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-busy={closeDisabled || undefined}
-        tabIndex={-1} className={`dialog ${wide ? 'wide' : ''}`}>
+        tabIndex={-1} className={`dialog ${wide ? 'wide' : ''} ${className}`}>
         <div className="dialog-head">
           <h2 id={titleId} className="dialog-title">{title}</h2>
           {dismissible && onClose && <button className="btn-icon" onClick={dismiss} disabled={closeDisabled} aria-label="Cerrar"><X size={16} /></button>}
         </div>
+        {headerContent && <div className="dialog-header-content">{headerContent}</div>}
         <div className="dialog-body">{children}</div>
         {actions && <div className="dialog-actions">{actions}</div>}
       </div>

@@ -18,9 +18,9 @@ Borrador administrativo independiente del manifiesto técnico.
 | datos_origen | Snapshot de datos observados, acotado, sin secretos |
 | faltantes | Lista calculada de información requerida, no flags de validación ficticios |
 | revision / creado_por / created_at | Control optimista, autor y fecha |
-| definicion_id | FK opcional a definición técnica del piloto |
+| definiciones | Relación 1:N derivada de `DefinicionServicio.incorporacion_id`; ninguna FK singular que impida versiones posteriores |
 
-Unique `(proveedor, identidad_externa, origen_clave)`. Reimportar devuelve el registro existente incluso con otra Idempotency-Key y no sobrescribe ediciones. Con versión conocida, otra revisión de fuente no crea otra incorporación de esa misma versión ni sobrescribe la procedencia original; puede registrarse como observación histórica. Con versión desconocida, otra revisión crea una candidata vinculada al antecedente, sin afirmar que sea otra release. No hay garantía de identidad de release si el proveedor sólo entrega un comando móvil; la versión efectiva se determina durante resolución y se fija antes de construir.
+Unique `(proveedor, identidad_externa, origen_clave)`. Reimportar devuelve el registro existente incluso con otra Idempotency-Key y no sobrescribe ediciones. Con versión conocida, otra revisión de fuente no crea otra incorporación de esa misma versión ni sobrescribe la procedencia original; puede registrarse como observación histórica. Con versión desconocida, otra revisión crea una candidata vinculada al antecedente, sin afirmar que sea otra release. No hay garantía de identidad de release si el proveedor sólo entrega un comando móvil; la versión efectiva se determina durante resolución y se fija antes de construir. La misma incorporación puede originar varias revisiones NAP, aun sin cambio del comando externo; reimportar no crea revisiones técnicas automáticamente.
 
 ## EnsayoPreparacion — nueva
 
@@ -31,6 +31,7 @@ Un intento durable de preparar una definición, con resultado independiente de l
 | id / incorporacion_id / definicion_id | UUID PK y FKs; definición `borrador` para iniciar |
 | estado | `pendiente`, `resolviendo`, `esperando_confirmacion`, `construyendo`, `ensayando`, `lista_para_comprobar`, `comprobada`, `fallida`, `incierta`, `descartada`, `vencida` |
 | revision / creado_por / creado_at | CAS y auditoría |
+| execution_generation / cancelada_at / cierre_remoto_confirmado_at | Generación monotónica por ensayo, cierre irreversible y constancia de cancelación remota; independientes de la generación del lease por operación |
 | expires_at / aviso_at / avisado_at | Plazo configurado; se persiste al admitir |
 | entradas_resueltas / entradas_sha256 | Versiones exactas, paquetes, base, WAR/Tomcat, receta/revisión; ninguna credencial |
 | confirmada_por / confirmada_at | Aprobación de entradas fijadas antes del build |
@@ -55,7 +56,7 @@ Dos filas por ensayo, roles `funcional_a` y `funcional_b`, para despliegue repet
 
 ## OperacionEnsayo — nueva
 
-Separada de `OperacionInfraestructura` académica; reutiliza sus primitivas, no su vínculo obligatorio de negocio. Campos: UUID, ensayo/recurso opcional, `tipo` (`resolver`, `construir`, `distribuir`, `crear`, `bootstrap`, `inspeccionar`, `eliminar`, `limpiar_builder`), `estado` (`pendiente`, `en_curso`, `confirmada`, `fallida`, `incierta`), fase, actor usuario/sistema, clave/hash de petición, identificador remoto/UPID, `dispatch_started_at`, lease owner/until/generation, intento, next_poll/deadline, resultado seguro. Índice de una operación abierta por recurso y por trabajo de construcción; Idempotency-Key por actor y acción. Persistir intención/identidad antes del I/O; commit del resultado sólo si coincide la generación de lease.
+Separada de `OperacionInfraestructura` académica; reutiliza sus primitivas, no su vínculo obligatorio de negocio. Campos: UUID, ensayo/recurso opcional, `tipo` (`resolver`, `construir`, `distribuir`, `crear`, `bootstrap`, `inspeccionar`, `eliminar`, `cancelar_builder`, `limpiar_builder`), `estado` (`pendiente`, `en_curso`, `confirmada`, `fallida`, `incierta`), fase, actor usuario/sistema, clave/hash de petición, identificador remoto/UPID, `dispatch_started_at`, lease owner/until/generation, intento, next_poll/deadline, resultado seguro. Índice de una operación abierta por recurso y por trabajo de construcción; Idempotency-Key por actor y acción. Persistir intención/identidad antes del I/O; commit del resultado sólo si coinciden la generación de lease y `execution_generation` del ensayo. Al reclamar ejecución/reintento, incrementar la generación de ensayo bajo lock; una cancelación la incrementa y cierra el ensayo antes del dispatch remoto. No confirmar limpieza PVE mientras haya dispatch/tarea de creación o bootstrap de estado incierto: conciliar tareas en vuelo, preservar reservas y evitar otro envío de creación. Para builder, confirmar primero el cierre durable remoto y la terminación de procesos; un worker antiguo nunca reabre un ensayo cerrado.
 
 `EventoEnsayo`: ensayo, operación, secuencia, anterior/nuevo, actor, motivo, timestamp y metadata segura. Unique `(ensayo_id, evento_clave)`, append-only. Expiración/limpieza identifican al sistema como autor.
 
@@ -65,15 +66,21 @@ Campos: UUID, definición, entradas_sha256, estado (`construyendo`, `disponible`
 
 El registro es independiente del ensayo y de sus LXC. Después de validar, contenido inmutable. Mantener original mientras haya publicaciones, pedidos aprobados o servicios referenciándolo, aunque la publicación se retire. Artefactos fallidos/quarantena conservan trazabilidad; la limpieza de temporales nunca apunta al directorio de artefactos final. No hay borrado automático de artefactos históricos en el piloto.
 
+## PresupuestoBuilder — nueva
+
+Fila durable con PK `scope_id` (disco físico institucional canónico), `revision_config`, `limite_bytes`, `habilitado` y fecha de actualización. Los hosts configurados apuntan a un scope; hosts que comparten builder/registro o disco comparten esta fila, no presupuestos independientes. La capacidad libre se observa, no se toma de la ficha externa. No almacenar secretos.
+
+Antes de la primera reserva, ejecutar `INSERT ... ON CONFLICT DO NOTHING` desde configuración institucional validada y después `SELECT ... FOR UPDATE` en la misma transacción. Así dos primeras admisiones bloquean la misma fila existente incluso cuando la tabla estaba vacía. Revalidar revisión/límite configurado bajo lock; un cambio incompatible no reinicia ni elimina reservas. Para varios scopes, bloquear por ID ordenado; si se combina con capacidad PVE, adquirir primero lock 4001 y después scopes en ese orden. Todos los caminos de admisión/ajuste/liberación usan la misma fila.
+
 ## ReservaEspacioBuilder — nueva
 
-UUID, ensayo_id, host_id institucional, bytes_temporales, bytes_finales_previstos, estado y fecha de liberación. Admitir trabajos bajo bloqueo de fila por host, contra presupuesto configurado y espacio físico observado; persistir reserva antes del dispatch. Tamaños máximos por trabajo y por host se configuran, no provienen de la ficha externa. Al producir artefacto, convertir su tamaño real en ocupación retenida del registro, sin sumarlo de nuevo como temporal. Sólo confirmar liberación temporal tras cleanup del builder; trabajo incierto mantiene presupuesto. Los bytes finales siguen ocupados mientras exista el artefacto, independientemente de limpiar el ensayo. Si builder y registro comparten disco, usar un mismo scope físico para no admitir dos veces el espacio libre.
+UUID, ensayo_id, host_id institucional, scope_id FK a `PresupuestoBuilder`, bytes_temporales, bytes_finales_previstos, estado y fecha de liberación; cantidades no negativas e índice de reservas retenidas por scope. Admitir trabajos bajo bloqueo de fila por scope, contra presupuesto configurado y espacio físico observado; persistir reserva antes del dispatch. Tamaños máximos por trabajo y por host se configuran, no provienen de la ficha externa. Al producir artefacto, convertir su tamaño real en ocupación retenida del registro, sin sumarlo de nuevo como temporal. Sólo confirmar liberación temporal tras cleanup del builder; trabajo incierto mantiene presupuesto. Los bytes finales siguen ocupados mientras exista el artefacto, independientemente de limpiar el ensayo. Si builder y registro comparten disco, usar un mismo scope físico para no admitir dos veces el espacio libre.
 
 ## Entidades existentes ampliadas
 
 ### DefinicionServicio
 
-Conservar `(codigo, version)` e inmutabilidad tras validación. `version` es revisión NAP semver, distinta de versión externa observada. Nuevo producto `drawio`, modelo `saas`; ampliar esquema 1.1 con componentes y receta/probes cerrados. Incorporación/ensayo/artefacto se relacionan por FK externas al manifiesto, que sigue sin comandos/URLs ejecutables ni secretos.
+Agregar `incorporacion_id` FK nullable para origen 1:N y `base_definicion_id` FK nullable al antecedente; no alterar definiciones anteriores ajenas a biblioteca. Una revisión posterior mantiene incorporación/código/producto del antecedente y aumenta versión NAP por comparación semántica. Conservar `(codigo, version)` e inmutabilidad tras validación. `version` es revisión NAP semver, distinta de versión externa observada. Nuevo producto `drawio`, modelo `saas`; ampliar esquema 1.1 con componentes y receta/probes cerrados. Incorporación/ensayo/artefacto se relacionan por FK externas al manifiesto, que sigue sin comandos/URLs ejecutables ni secretos.
 
 ### RecursoTemplate y PublicacionOferta
 

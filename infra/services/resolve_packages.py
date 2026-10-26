@@ -23,10 +23,15 @@ def inventory():
 
 
 def main():
-    if len(sys.argv) != 2 or sys.argv[1] not in {'linux', 'postgresql', 'bookstack'}:
+    if len(sys.argv) != 2 or sys.argv[1] not in {'linux', 'postgresql', 'bookstack', 'drawio'}:
         raise SystemExit('Producto cerrado requerido')
     product = sys.argv[1]
     packages, components = inventory(), {}
+    if product == 'drawio':
+        java = subprocess.check_output(['/usr/bin/java', '-version'], stderr=subprocess.STDOUT, text=True)
+        match = re.search(r'"(21(?:\.[0-9A-Za-z.+_-]+)*)"', java)
+        if not match: raise ValueError('JRE 21 no confirmado')
+        components['java'] = {'version': match[1]}
     if product == 'postgresql':
         version = subprocess.check_output(['/usr/lib/postgresql/16/bin/postgres', '--version'], text=True)
         match = re.search(r'\b(16\.[0-9]+)\b', version)

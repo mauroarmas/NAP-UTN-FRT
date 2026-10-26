@@ -58,3 +58,9 @@ Se verificaron el control de restauración/revocación en [restauracion-control.
 - [Guía de Despliegue Docker](../DOCKER.md)
 - [Preparador de Restauración](preparar-restauracion.md)
 - [pg_dump PostgreSQL 16](https://www.postgresql.org/docs/16/app-pgdump.html), [pg_dumpall y roles](https://www.postgresql.org/docs/16/app-pg-dumpall.html), [respaldo BookStack](https://www.bookstackapp.com/docs/admin/backup-restore/) y [mariadb-dump](https://mariadb.com/kb/en/mariadb-dump/). Los scripts/recetas de servicio fijan versiones; confirmar las opciones de la herramienta de esa versión antes de ejecutar el corte.
+
+## Datos de biblioteca (010)
+
+Incluir en el respaldo las incorporaciones, revisiones técnicas, ensayos/operaciones/eventos, recursos e identidades, artefactos/réplicas, presupuesto/reservas builder y publicaciones. Conservar además los paquetes finales, registros dinámicos root, locks de inputs y el estado durable del builder (incluidos tombstones de cancelación fuera de `work`). Respaldar el keyring externamente: cifra también las credenciales de recursos de ensayo.
+
+Preparar una restauración cerca ensayos del corte, incrementa generaciones y deja limpieza fallida para conciliación, sin liberar reservas ni reanudar builds automáticamente. Confirmar estado remoto de trabajos y tareas PVE antes de reintentar limpieza; no borrar sus registros para forzar reenvíos. La habilitación comprueba nuevas tablas e impide un corte con ensayos sin limpieza confirmada. Los artefactos/versiones históricos se conservan incluso si ya no se ofrecen a docentes.

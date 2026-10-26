@@ -12,7 +12,7 @@ Errores conservan formato institucional `detail.codigo`, mensaje y datos seguros
 
 `GET /biblioteca/aplicaciones?q=draw.io&categoria=diagramas&cursor=...&limit=20`
 
-- `q`: 1–100 caracteres, comparación normalizada de nombre/alias; categoría opcional validada contra índice NAP. `limit` 1–50, cursor opaco ligado a revisión de índice/filtros.
+- `q`: opcional, 1–100 caracteres cuando se informa, comparación normalizada de nombre/alias; categoría opcional validada contra índice NAP. Exigir al menos uno de `q` o `categoria`; permitir categoría sin texto y rechazar ambos ausentes/vacíos con 422. Si se informan ambos, combinar filtros con AND. `limit` 1–50, cursor opaco ligado a revisión de índice/filtros.
 - Resultado: `{items, next_cursor, fuente: {proveedor, revision, consultada_at, cache, estado}}`.
 - Item: `{identidad_externa, nombre, descripcion?, categorias, procedencia_datos, comando_origen, url_origen, revision_fuente, version_externa?, requisitos?, compatibilidad, faltantes}`. Compatibilidad es `sin_comprobar`, `no_soportada` o `adaptador_disponible`; la última no equivale a comprobada/publicada.
 - Sin coincidencias: 200 y `items: []`. Fallo externo sin cache utilizable: 502 `proveedor_no_disponible`. Con cache previa: 200, `fuente.estado: desactualizada`, fecha y aviso explícitos; no presentar la cache como respuesta actual sin advertencia. 403/429 del proveedor se mapean a indisponibilidad con `reintentar_desde` si se conoce.
@@ -27,9 +27,9 @@ Errores conservan formato institucional `detail.codigo`, mensaje y datos seguros
 | `GET /biblioteca/incorporaciones` | Filtros y paginación | Borradores administrativos |
 | `GET /biblioteca/incorporaciones/{id}` | — | Datos de origen, ediciones, vínculo a definición y ensayos |
 | `PATCH /biblioteca/incorporaciones/{id}` | revision_esperada y campos administrativos permitidos | 200 actualizado |
-| `POST /biblioteca/incorporaciones/{id}/definicion` | revision_esperada, codigo y version NAP | 201 borrador técnico Draw.io o 200 vínculo existente; rechazar otro producto sin adaptador |
+| `POST /biblioteca/incorporaciones/{id}/definicion` | revision_esperada, codigo, version NAP y base_definicion_id opcional | 201 nueva revisión técnica Draw.io o 200 de la misma revisión ya vinculada; 409 si pertenece a otra incorporación; rechazar otro producto sin adaptador |
 
-El servidor valida el snapshot contra su índice/registro, no confía en un comando enviado por el navegador. Modificar descripción no cambia fuente. Incorporar no crea definición técnica ficticia, reserva, instalación ni publicación. Repetir identidad/versión externa conocida (o identidad/revisión si la versión es desconocida) devuelve borrador anterior sin sobreescribirlo. Completar el piloto permite elegir código/versión NAP y crea/vincula una `DefinicionServicio` borrador mediante el servicio existente; aplicaciones sin adaptador conservan ficha editable y limitación explícita.
+El servidor valida el snapshot contra su índice/registro, no confía en un comando enviado por el navegador. Modificar descripción no cambia fuente. Incorporar no crea definición técnica ficticia, reserva, instalación ni publicación. Repetir identidad/versión externa conocida (o identidad/revisión si la versión es desconocida) devuelve borrador anterior sin sobreescribirlo. Completar el piloto permite elegir código/versión NAP y crea/vincula una `DefinicionServicio` borrador mediante el servicio existente; aplicaciones sin adaptador conservan ficha editable y limitación explícita. Una incorporación admite múltiples revisiones técnicas, listadas en su detalle. La primera no exige antecedente; las siguientes indican `base_definicion_id` de esa incorporación, conservan código/producto y usan una versión NAP semánticamente mayor. El mismo código/versión devuelve la revisión existente sin sobrescribirla. Una nueva versión no cambia la definición publicada ni el perfil hasta superar otro ensayo y publicación explícita, incluso si comando/revisión fuente no cambiaron. No es necesario reimportar ni falsificar un cambio externo.
 
 ## Ensayo
 
@@ -46,6 +46,8 @@ El servidor valida el snapshot contra su índice/registro, no confía en un coma
 | `POST /ensayos/{id}/recursos/{recurso_id}/revelar-acceso` | Acción explícita, sin datos de credenciales | Acceso sensible de ensayo, auditado y no cacheable |
 
 `plazo_horas`: 1–168, predeterminado configurado 24. Antes de confirmar se muestra vencimiento estimado; al admitir se fija `expires_at` con reloj servidor. Aviso a 1 h del vencimiento o al inicio de plazo 1 h. Perfil de ensayo institucional determina nodo/storage/red/pool y límites; no recibe hostname/VMID/URL/shell libres. Recursos insuficientes: 409 con evaluación segura; en piloto no hay sobreasignación para ensayos. Si no existe host builder, base, receta instalada o red elegible: 409 `ensayo_no_preparado` sin crear recursos.
+
+La admisión inicializa atómicamente la fila `PresupuestoBuilder` por scope configurado si aún no existe y la bloquea antes de reservar espacio; la primera admisión concurrente usa el mismo bloqueo que las posteriores.
 
 La resolución produce entradas concretas que administración confirma dentro del mismo flujo NAP. Completar construcción no significa comprobación funcional. Fallos y trabajo vencido no pueden continuar creando LXC por un lease antiguo.
 

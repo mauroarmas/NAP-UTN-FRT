@@ -9,6 +9,7 @@ COPY resolve_packages.py /opt/nap-resolution/resolve_packages.py
 RUN set -eu; \
     case "$PRODUCT" in \
       linux) extra="" ;; \
+      drawio) extra="openjdk-21-jre-headless nginx" ;; \
       postgresql) extra="postgresql-16 postgresql-client-16" ;; \
       bookstack) extra="mariadb-server nginx php8.3-fpm php8.3-cli php8.3-mysql php8.3-gd php8.3-curl php8.3-mbstring php8.3-xml php8.3-zip php8.3-intl php8.3-bcmath php8.3-ldap composer unzip" ;; \
       *) exit 1 ;; \

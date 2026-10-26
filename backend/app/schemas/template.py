@@ -1,8 +1,9 @@
-from pydantic import BaseModel, Field, StrictInt, ConfigDict, field_validator
+from pydantic import BaseModel, Field, StrictInt, ConfigDict, field_validator, model_validator
 from typing import Literal
 import re
 from uuid import UUID
 from app.schemas.common import Contrato
+from app.schemas.tamanos import Tamano, validar_tamano
 
 
 class TemplateBase(BaseModel):
@@ -19,6 +20,7 @@ class TemplateBase(BaseModel):
 
 
 class TemplateCreate(TemplateBase, Contrato):
+    tamano: Tamano | None = None
     definicion_version_id: UUID
     nombre: str = Field(min_length=1, max_length=100)
     descripcion: str | None = Field(default=None, max_length=2000)
@@ -27,6 +29,11 @@ class TemplateCreate(TemplateBase, Contrato):
     default_vcpus: StrictInt = Field(default=1, ge=1, le=2**31-1)
     default_ram_mb: StrictInt = Field(default=256, ge=1, le=2**31-1)
     default_disk_gb: StrictInt = Field(default=2, ge=1, le=2**31-1)
+
+    @model_validator(mode='after')
+    def tamano_coherente(self):
+        validar_tamano(self.tamano, {key: getattr(self, 'default_' + key) for key in ['vcpus', 'ram_mb', 'disk_gb']})
+        return self
 
     @field_validator('nombre', mode='before')
     @classmethod
@@ -58,6 +65,7 @@ class TemplateUpdate(BaseModel):
     """
 
     model_config = ConfigDict(extra='forbid')
+    tamano: Tamano | None = None
     definicion_version_id: UUID | None = None
     nombre: str | None = Field(default=None, min_length=1, max_length=100)
     descripcion: str | None = Field(default=None, max_length=2000)
@@ -105,6 +113,13 @@ class AlcanceDelCambio(BaseModel):
 
 
 class TemplateResponse(TemplateBase):
+    codigo_definicion: str | None = None
+    revision: int = 1
+    minimum_resources: dict[str, int] | None = None
+    tamanos_permitidos: list[Tamano] = Field(default_factory=list)
+    tamano_recomendado: Tamano | None = None
+    origen_biblioteca: bool = False
+    version_ofrecida: str | None = None
     definicion_version_id: UUID | None = None
     oferta_disponible: bool = False
     id: int

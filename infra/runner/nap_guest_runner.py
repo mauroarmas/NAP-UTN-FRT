@@ -110,7 +110,7 @@ class Runner:
             raise RunnerError('DEFINITION_MISMATCH')
         if not set(request['parameters']) <= PRODUCT_PARAMETERS[entry['product']]:
             raise RunnerError('INVALID_REQUEST')
-        secret_fields = {'linux': {'guest_password'}, 'postgresql': {'database_password'},
+        secret_fields = {'drawio': {'access_password'}, 'linux': {'guest_password'}, 'postgresql': {'database_password'},
             'bookstack': {'teacher_password', 'database_password', 'app_key'}}[entry['product']]
         if request['action'] == 'bootstrap' and set(request['secrets']) != secret_fields:
             raise RunnerError('INVALID_REQUEST')
@@ -229,6 +229,15 @@ def main():
     signal.alarm(0)
     try:
         registry = parse_json(trusted_file('/etc/nap/runner/registry.json'), limit=2097152)
+        # Entradas nuevas distribuidas por el builder en directorio institucional.
+        from registry_entries import read_private_json
+        directory = Path('/etc/nap/runner/registry.d')
+        if directory.exists():
+            for path in sorted(directory.glob('*.json')):
+                value = read_private_json(path)
+                if value['key'] in registry:
+                    raise ValueError('Registro estático/dinámico duplicado')
+                registry[value['key']] = value['runner']
         from node_executor import NodeExecutor
         executor = NodeExecutor(registry=registry)
         runner = Runner(state_dir='/var/lib/nap-runner', registry=registry, executor=executor)

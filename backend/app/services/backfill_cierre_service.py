@@ -5,7 +5,8 @@ import hashlib
 import re
 from uuid import UUID,uuid4
 
-from sqlalchemy import select
+from sqlalchemy import select, insert
+from sqlalchemy.orm import defer
 
 from app.models.bitacora_cierre import BitacoraCierre
 from app.models.compromiso_capacidad import CompromisoCapacidad
@@ -110,6 +111,12 @@ def _known_decision(request,history):
 async def _collect(db,*,sondear=False,pve=None,locked=False):
     def query(model):
         q=select(model).order_by(model.id)
+        # Este ejecutor debe poder trabajar antes de aplicar 010. Los campos
+        # nuevos no participan del backfill 009 ni se infieren del estado actual.
+        if model in {CompromisoCapacidad, IdentidadInfraestructura}:
+            q=q.options(defer(model.recurso_ensayo_id))
+        if model is Pedido and hasattr(Pedido, "seleccion_oferta_snapshot"):
+            q=q.options(defer(Pedido.seleccion_oferta_snapshot))
         return q.with_for_update().execution_options(populate_existing=True) if locked else q
     # Cantidades de servicios/pedidos, nunca millones de snapshots de métricas.
     users=list((await db.scalars(query(Usuario))).all())
@@ -284,7 +291,16 @@ async def aplicar(db,plan,*,operador,referencia,pve=None):
                         storage_id=observation['storage'],storage_scope=observation['scope'],
                         vcpus_retenidos=quantities[0],ram_mb_retenida=quantities[1],
                         disk_bytes_retenidos=quantities[2],estado='incierto')
-                    db.add(commitment);ledgers[row.id]=commitment
+                    # Core explicita únicamente columnas 009; no emitir columnas
+                    # nullable nuevas del ORM sobre una copia todavía sin migrar.
+                    values={key:getattr(commitment,key) for key in ['pedido_id','servicio_id',
+                        'identidad_infraestructura_id','nodo','storage_id','storage_scope',
+                        'vcpus_retenidos','ram_mb_retenida','disk_bytes_retenidos','estado']}
+                    values.update(id=uuid4(),revision=1,creado_at=clock.now())
+                    await db.execute(insert(CompromisoCapacidad.__table__).values(**values))
+                    commitment=await db.scalar(select(CompromisoCapacidad).where(CompromisoCapacidad.id==values['id'])
+                        .options(defer(CompromisoCapacidad.recurso_ensayo_id)))
+                    ledgers[row.id]=commitment
                     actions.append('crear_ledger_conservador_incierto')
                     pending=[p for p in pending if p!='ledger_requiere_inventario']+['capacidad_retenida_hasta_regularizacion']
             token=keyring.encrypt(quarantine,context=f'cierre:{identity}:legado') if quarantine else None

@@ -1,3 +1,4 @@
+import { sizes } from '../fixtures/tamanos';
 import { test, expect } from './fixtures';
 
 test('administración configura desde 2026, corrige solapamientos y guarda sólo los períodos completos', async ({ page }) => {
@@ -137,11 +138,11 @@ test('receso conserva períodos y permite solicitar fechas sin encender', async 
 test('administración evalúa la selección explícita y conserva datos ante 409', async ({ page }) => {
   const dates = { tipo: 'personalizado', desde: '2027-03-01', hasta: '2027-06-30' };
   const request = { id: 12, catedra_id: 1, template_id: 1, modelo_servicio: 'iaas', estado: 'solicitado', vigencia: dates, historial: [] };
-  const templates = [{ id: 1, nombre: 'Linux', tipo: 'lxc', modelo_servicio: 'iaas', activo: true, default_vcpus: 1, default_ram_mb: 512, default_disk_gb: 4 }];
+  const templates = [{ id: 1, nombre: 'Linux', tipo: 'lxc', modelo_servicio: 'iaas', activo: true, default_vcpus: 1, default_ram_mb: 512, default_disk_gb: 4, minimum_resources: { vcpus: 1, ram_mb: 512, disk_gb: 4 } }];
   await page.route('**/api/v1/auth/me', (route) => route.fulfill({ json: { estado: 'operativo', usuario: { id: 1, nombre: 'Admin', rol: 'admin' } } }));
   await page.route('**/api/v1/auth/csrf', (route) => route.fulfill({ json: { csrf_token: 'test-csrf' } }));
   await page.route('**/api/v1/pedidos/**', (route) => route.fulfill({ json: route.request().url().endsWith('/12') ? request : [request] }));
-  await page.route('**/api/v1/templates/**', (route) => route.fulfill({ json: templates }));
+  await page.route('**/api/v1/templates/**', (route) => route.fulfill({ json: route.request().url().endsWith('/tamanos') ? sizes : templates }));
   await page.route('**/api/v1/catedras/**', (route) => route.fulfill({ json: [{ id: 1, nombre: 'Propia' }] }));
   await page.route('**/api/v1/capacidad/', (route) => route.fulfill({ json: { destinos: [] } }));
   let evaluations = 0;
@@ -162,12 +163,12 @@ test('administración evalúa la selección explícita y conserva datos ante 409
   expect(evaluations).toBe(0);
   await page.getByRole('button', { name: 'Revisar y aprobar…' }).click();
   await expect(page.locator('.dialog')).toHaveCount(1);
-  await page.getByLabel('RAM (MiB)').fill('1024');
+  await page.getByRole('radio', { name: /^Medium/ }).check();
   await page.getByRole('button', { name: 'Evaluar asignación' }).click();
   await page.getByLabel('Justificación de sobreasignación').fill('Justificación de la práctica');
   await page.getByRole('button', { name: 'Aprobar asignación' }).click();
   await expect(page.getByRole('alert')).toContainText('La capacidad cambió');
-  await expect(page.getByLabel('RAM (MiB)')).toHaveValue('1024');
+  await expect(page.getByRole('radio', { name: /^Medium/ })).toBeChecked();
   await expect(page.getByLabel('Fecha hasta')).toHaveValue('2027-06-30');
   await expect(page.getByRole('button', { name: 'Aprobar asignación' })).toBeDisabled();
   await page.getByRole('button', { name: 'Evaluar asignación' }).click();

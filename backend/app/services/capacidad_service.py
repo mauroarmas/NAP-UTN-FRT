@@ -116,7 +116,7 @@ async def panorama(db, pve=None, *, destino=None, inventario=None):
             'libre': _vector(hardware['vcpus'] - hardware['margen_vcpus'] - cpu,
                 hardware['ram_mb'] - hardware['margen_ram_mb'] - ram, min(logical_free, physical_free)),
             'storage_logico_libre_bytes': logical_free, 'storage_fisico_libre_bytes': physical_free})
-    ledger_snapshot = [{key: str(getattr(row, key)) for key in ['id', 'pedido_id', 'servicio_id', 'identidad_infraestructura_id',
+    ledger_snapshot = [{key: str(getattr(row, key)) for key in ['id', 'pedido_id', 'recurso_ensayo_id', 'servicio_id', 'identidad_infraestructura_id',
         'nodo', 'storage_scope', 'vcpus_retenidos', 'ram_mb_retenida', 'disk_bytes_retenidos', 'estado', 'revision', 'expira_at']}
         for row in sorted(commitments, key=lambda row: str(row.id))]
     fingerprint = inventario_service.fingerprint({'inventario': inventory, 'compromisos': ledger_snapshot})
@@ -171,7 +171,7 @@ async def expirar_reservas(db):
     from fastapi import HTTPException
     from app.services.admision_service import liberar
     ids = list((await db.scalars(select(CompromisoCapacidad.pedido_id).where(
-        CompromisoCapacidad.estado == 'reservado', CompromisoCapacidad.liberado_at.is_(None),
+        CompromisoCapacidad.pedido_id.is_not(None), CompromisoCapacidad.estado == 'reservado', CompromisoCapacidad.liberado_at.is_(None),
         CompromisoCapacidad.expira_at <= clock.now()).order_by(CompromisoCapacidad.pedido_id))).all())
     await db.commit()
     affected = []

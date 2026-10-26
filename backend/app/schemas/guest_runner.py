@@ -13,8 +13,8 @@ FIELDS = {'protocol', 'operation_id', 'action', 'cluster_uuid', 'resource_uuid',
 IDENTITY_FIELDS = ['cluster_uuid', 'resource_uuid', 'node', 'vmid', 'pool', 'nonce', 'definition_sha256', 'bundle_sha256']
 RESULT_FIELDS = {'ready', 'bootstrap_completed', 'host', 'address', 'addresses', 'endpoint', 'port',
     'username', 'database', 'checks', 'version', 'definition_sha256', 'bundle_sha256'}
-SECRET_SETS = [{'guest_password'}, {'database_password'}, {'teacher_password', 'database_password', 'app_key'}]
-PRODUCT_PARAMETERS = {'linux': {'display_name'}, 'postgresql': {'display_name', 'database_name'},
+SECRET_SETS = [{'access_password'}, {'guest_password'}, {'database_password'}, {'teacher_password', 'database_password', 'app_key'}]
+PRODUCT_PARAMETERS = {'drawio': {'display_name'}, 'linux': {'display_name'}, 'postgresql': {'display_name', 'database_name'},
     'bookstack': {'display_name', 'teacher_name', 'teacher_email', 'locale'}}
 
 

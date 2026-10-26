@@ -22,7 +22,7 @@ La oferta es el perfil actual `RecursoTemplate`, no una entrada paralela de cat�
 
 En `Definiciones.jsx`, añadir búsqueda de aplicaciones y ficha con comando de origen en sólo lectura, procedencia, datos disponibles/faltantes y compatibilidad. Diferenciar «sin coincidencias», «fuente inaccesible», cache desactualizada y «incorporada anteriormente». Buscar/incorporar nunca instala. Botón de preparación sólo con adaptador Draw.io y campos necesarios. Otras aplicaciones explican su limitación.
 
-La ficha importada es editable sin exigir al administrador escribir un manifiesto JSON desde cero. La edición técnica avanzada existente se conserva para productos previos. Completar datos → iniciar ensayo con plazo visible → revisar entradas fijadas → construir y consultar estado → comprobar desde la red → validar y publicar oferta. Ninguna etapa aprueba la siguiente automáticamente.
+La ficha importada es editable sin exigir al administrador escribir un manifiesto JSON desde cero. La edición técnica avanzada existente se conserva para productos previos. El detalle lista las revisiones NAP originadas por la incorporación. «Nueva versión» conserva la procedencia y el antecedente, pide una versión NAP mayor y crea otro borrador sin editar la publicación anterior; repetir esa intención devuelve el mismo borrador. No exige que el comando externo haya cambiado. Completar datos → iniciar ensayo con plazo visible → revisar entradas fijadas → construir y consultar estado → comprobar desde la red → validar y publicar oferta. Ninguna etapa aprueba la siguiente automáticamente.
 
 ## Estado, errores y accesibilidad
 

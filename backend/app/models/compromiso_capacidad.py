@@ -11,6 +11,8 @@ from app.models.cierre_base import UUIDPrimaryKey, utc_now
 class CompromisoCapacidad(UUIDPrimaryKey, Base):
     __tablename__ = 'compromisos_capacidad'
     __table_args__ = (
+        CheckConstraint('(pedido_id IS NOT NULL AND recurso_ensayo_id IS NULL) OR (pedido_id IS NULL AND recurso_ensayo_id IS NOT NULL)', name='ck_compromiso_propietario'),
+        Index('uq_compromiso_ensayo_abierto', 'recurso_ensayo_id', unique=True, postgresql_where=text('liberado_at IS NULL'), sqlite_where=text('liberado_at IS NULL')),
         CheckConstraint('vcpus_retenidos >= 0 AND ram_mb_retenida >= 0 AND disk_bytes_retenidos >= 0'),
         CheckConstraint("estado IN ('reservado','materializado','incierto','liberado')"),
         CheckConstraint("estado != 'liberado' OR (vcpus_retenidos = 0 AND ram_mb_retenida = 0 AND disk_bytes_retenidos = 0 AND liberado_at IS NOT NULL)"),
@@ -22,7 +24,8 @@ class CompromisoCapacidad(UUIDPrimaryKey, Base):
               postgresql_where=text('liberado_at IS NULL'), sqlite_where=text('liberado_at IS NULL')),
         Index('ix_compromiso_destino', 'estado', 'nodo', 'storage_scope'),
     )
-    pedido_id: Mapped[int] = mapped_column(ForeignKey('pedidos.id'))
+    pedido_id: Mapped[int | None] = mapped_column(ForeignKey('pedidos.id'))
+    recurso_ensayo_id: Mapped[UUID | None] = mapped_column(ForeignKey('recursos_ensayo.id'))
     servicio_id: Mapped[int | None] = mapped_column(ForeignKey('servicios.id'))
     identidad_infraestructura_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey('identidades_infraestructura.id'))
     nodo: Mapped[str] = mapped_column(String(100))

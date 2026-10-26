@@ -60,7 +60,7 @@ async def reclamar(db, operation, *, pve=None):
             raise InfraNoVerificable()
         resource_uuid, nonce = uuid4(), secrets.token_urlsafe(32)
         product = operation.contexto_seguro['asignacion'].get('product')
-        if product in {'postgresql', 'bookstack'}:
+        if product in {'postgresql', 'bookstack', 'drawio'}:
             from app.services.reserva_red_service import reservar
             network_id = operation.contexto_seguro.get('preparacion_validada', {}).get('network_profile_id')
             resource_uuid, allocation = await reservar(db, network_id=network_id, product=product, node=destination['nodo'])
@@ -134,3 +134,41 @@ def retirar(identity, observation):
     if observation.estado != 'ausente' or observation.resource_uuid != str(identity.resource_uuid):
         raise ValueError('Retirar requiere ausencia confirmada de la misma identidad')
     identity.estado, identity.ausencia_confirmada_at = 'retirada', clock.now()
+
+
+async def reclamar_ensayo(db,resource,artifact,*,pve=None):
+    """Misma unicidad global que producción, con dueño institucional distinto."""
+    from app.models.compromiso_capacidad import CompromisoCapacidad
+    from app.services.capacidad_service import bloqueo_capacidad
+    async with bloqueo_capacidad(db):
+        if resource.identidad_infraestructura_id:
+            identity=await db.get(IdentidadInfraestructura,resource.identidad_infraestructura_id)
+            if not identity or identity.ausencia_confirmada_at:raise error(409,'identidad_retirada','El recurso requiere otra decisión')
+            return identity
+        destination=resource.destino_snapshot;cluster=get_settings().infrastructure_profile.get('cluster_id')
+        if not cluster:raise error(409,'cluster_no_preparado','Falta identidad institucional del clúster')
+        pools=await consultar('list_pools',pve=pve)
+        if pools.estado!='presente' or destination['pool'] not in {p['poolid'] for p in pools.valor}:
+            raise error(409,'pool_ensayo_no_preparado','Prepará el pool institucional de ensayos')
+        observed=await consultar('get_cluster_resources','vm',pve=pve)
+        proposed=await consultar('get_next_vmid',pve=pve)
+        if observed.estado!='presente' or proposed.estado!='presente':raise InfraNoVerificable()
+        busy={integer(r['vmid'],minimum=1) for r in observed.valor}
+        busy.update((await db.scalars(select(IdentidadInfraestructura.vmid).where(IdentidadInfraestructura.cluster_id==cluster,IdentidadInfraestructura.ausencia_confirmada_at.is_(None)))).all())
+        vmid=integer(proposed.valor,minimum=100)
+        while vmid in busy and vmid<999999999:vmid+=1
+        if vmid in busy:raise InfraNoVerificable()
+        from app.services.reserva_red_service import reservar
+        from app.schemas.definicion import digest
+        uid,allocation=await reservar(db,network_id=destination['network_profile_id'],product='drawio',node=destination['nodo'])
+        nonce=secrets.token_urlsafe(32)
+        identity=IdentidadInfraestructura(cluster_id=cluster,vmid=vmid,nodo=destination['nodo'],pool_catedra=destination['pool'],
+            recurso_ensayo_id=resource.id,resource_uuid=uid,nonce_cifrado=configured_keyring().encrypt(nonce,context=f'infra:{uid}:nonce'),
+            definition_sha256=digest(artifact.manifest),bundle_sha256=artifact.bundle_sha256)
+        db.add(identity);await db.flush()
+        resource.identidad_infraestructura_id=identity.id
+        resource.destino_snapshot={**destination,'red_reservada':allocation}
+        ledger=await db.scalar(select(CompromisoCapacidad).where(CompromisoCapacidad.recurso_ensayo_id==resource.id,CompromisoCapacidad.liberado_at.is_(None)).with_for_update())
+        if not ledger:raise error(409,'reserva_no_disponible','Falta reserva del recurso de ensayo')
+        ledger.identidad_infraestructura_id=identity.id
+        return identity

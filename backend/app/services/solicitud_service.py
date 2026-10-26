@@ -27,7 +27,9 @@ async def validar(db, data, *, historical=False):
             raise error(422, 'plantilla_incompatible', 'Elegí una plantilla LXC vigente del modelo solicitado')
         if not historical:
             from app.services.perfiles_service import exigir_definicion
-            await exigir_definicion(db, template, bloquear=True)
+            definition = await exigir_definicion(db, template, bloquear=True)
+            if definition.incorporacion_id and data.oferta_revision is not None and data.oferta_revision != template.revision:
+                raise error(409, 'oferta_actualizada', 'La oferta cambió; revisá la versión vigente antes de enviar', oferta_revision=template.revision, version=definition.version)
     elif historical:
         raise error(422, 'plantilla_requerida', 'La renovación requiere el recurso asignado originalmente')
     period = await vigencia_service.resolver_solicitud(db, data.vigencia.model_dump(mode='json', exclude_none=True),
@@ -79,6 +81,7 @@ async def crear(db, *, actor, payload, clave):
             created_at=clock.now().replace(tzinfo=None), updated_at=clock.now().replace(tzinfo=None))
         if data.template_id is not None:
             request.definicion_version_id = (await session.get(RecursoTemplate, data.template_id)).definicion_version_id
+        request.seleccion_oferta_snapshot = await snapshot_oferta(session, data.template_id)
         asignar_vigencia(request, data.vigencia, period)
         session.add(request)
         await session.flush()
@@ -137,7 +140,7 @@ async def resolver(db, pedido_id, *, actor, tipo, payload, clave):
             if tipo == 'reenviar':
                 data = PedidoReenviar.model_validate(normalized)
                 try:
-                    effective = PedidoCreate(template_id=data.template_id if 'template_id' in data.model_fields_set else request.template_id,
+                    effective = PedidoCreate(oferta_revision=data.oferta_revision, template_id=data.template_id if 'template_id' in data.model_fields_set else request.template_id,
                         modelo_servicio=data.modelo_servicio or request.modelo_servicio.value,
                         descripcion_requerimientos=data.descripcion_requerimientos if data.descripcion_requerimientos is not None else request.descripcion_requerimientos,
                         parametros_extra=data.parametros_extra or {key: value for key, value in (request.parametros_extra or {}).items()
@@ -157,6 +160,8 @@ async def resolver(db, pedido_id, *, actor, tipo, payload, clave):
                     request.parametros_extra = data.parametros_extra.model_dump(exclude_none=True)
                 if data.descripcion_requerimientos is not None:
                     request.descripcion_requerimientos = data.descripcion_requerimientos
+                if request.tipo == TipoPedido.ALTA:
+                    request.seleccion_oferta_snapshot = await snapshot_oferta(session, effective.template_id)
                 asignar_vigencia(request, data.vigencia, period)
                 request.observaciones_ajuste = None
                 state, reason = EstadoPedido.SOLICITADO, ('Solicitud corregida y reenviada por administración'
@@ -187,3 +192,13 @@ async def resolver(db, pedido_id, *, actor, tipo, payload, clave):
             return ResultadoDecision(200, await presentar(session, request))
     return await ejecutar(db, actor_id=actor.id, clave=clave, metodo='POST', ruta=f'/pedidos/{pedido_id}/{tipo}',
         payload=normalized, decidir=decide, target_tipo='pedido', target_id=pedido_id)
+
+
+async def snapshot_oferta(db,template_id):
+    if template_id is None: return None
+    from app.models.definicion_servicio import DefinicionServicio
+    template=await db.get(RecursoTemplate,template_id)
+    definition=await db.get(DefinicionServicio,template.definicion_version_id) if template and template.definicion_version_id else None
+    if not definition or definition.incorporacion_id is None: return None
+    return {'template_id':template.id,'revision':template.revision,'definicion_id':str(definition.id),
+        'version':definition.version,'nombre':template.nombre}

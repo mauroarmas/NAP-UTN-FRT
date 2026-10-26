@@ -15,6 +15,11 @@ TASK_TIMEOUT_ACCION_SEGUNDOS = 60
 TASK_POLL_SEGUNDOS = 1.0
 
 
+def tarea_exitosa(exitstatus):
+    """PVE distingue advertencias de un error; el caller confirma tarea detenida y propiedad."""
+    return exitstatus == 'OK' or (isinstance(exitstatus, str) and exitstatus.startswith('WARNINGS:'))
+
+
 class ProxmoxClient:
     """Wrapper sobre proxmoxer para interactuar con la API de Proxmox VE."""
 
@@ -42,6 +47,9 @@ class ProxmoxClient:
     def get_nodes(self) -> list[dict]:
         """Obtiene la lista de nodos del clúster."""
         return self.api.nodes.get()
+
+    def get_version(self):
+        return self.api.version.get()
 
     def get_node_status(self, node: str) -> dict:
         """Obtiene el estado de un nodo específico."""
@@ -81,7 +89,7 @@ class ProxmoxClient:
                 # Proxmox usa "OK" para el éxito limpio y "WARNINGS: n" para el
                 # éxito con advertencias (típico al arrancar un contenedor sin
                 # algunas features del host). Ninguna de las dos es un fallo.
-                if salida == "OK" or salida.startswith("WARNINGS"):
+                if tarea_exitosa(salida):
                     return
                 raise RuntimeError(f"La tarea de Proxmox falló: {salida}")
 

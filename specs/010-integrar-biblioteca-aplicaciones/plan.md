@@ -1,5 +1,7 @@
 # Implementation Plan: Biblioteca de aplicaciones reutilizables
 
+> Ajuste vigente del 25/10/2026: el alta normal es **elegir → preparar → comprobar funcionamiento → publicar o eliminar**, sin TTL de 24 horas ni parámetros técnicos en el formulario. La configuración institucional se resuelve una sola vez. El [contrato de alta simple](contracts/alta-simple-api.md) sustituye los pasos avanzados/TTL de este documento; los ensayos reales y mediciones pendientes no se consideran ejecutados. Ver [guía actual](../../docs/administracion-servicios.md).
+
 **Branch**: `010-integrar-biblioteca-aplicaciones` | **Date**: 2026-10-25 | **Spec**: [spec.md](spec.md)
 
 **Input**: `specs/010-integrar-biblioteca-aplicaciones/spec.md`, incluidas las cuatro aclaraciones de 2026-10-25.
@@ -40,8 +42,8 @@ Constitución 4.0.0. Evaluación inicial realizada sobre spec y arquitectura exi
 |---|---|---|
 | I. Portal único de gestión | Compatible: acciones administrativas propias | Pasa: servicios NAP crean/controlan recursos; comando externo sólo procedencia; sin nueva derivación a Proxmox |
 | II. Estados centrales e historial | Compatible: conservar estados de pedido | Pasa: `pedido_service.transicionar` sigue siendo único escritor; ensayo tiene máquina propia central y bitácora con autor sistema/usuario |
-| III. Recuperación | Requiere diseño durable de ensayo | Pasa en diseño: intención antes de I/O, leases/fencing, consulta de trabajos/UPID, ownership y conciliación antes de reintentar; fallos 502/409/403 diferenciados |
-| IV. Aislamiento/capacidad | Requiere incluir recursos de ensayo | Pasa en diseño: ledger común y lock 4001, pool de ensayo separado, dos reservas atómicas; limpieza incierta retiene capacidad; sin cupo docente |
+| III. Recuperación | Requiere diseño durable de ensayo | Pasa en diseño: intención antes de I/O, leases y generación/cierre durable remoto por ensayo, consulta de trabajos/UPID, ownership y conciliación antes de reintentar; fallos 502/409/403 diferenciados |
+| IV. Aislamiento/capacidad | Requiere incluir recursos de ensayo | Pasa en diseño: ledger común y lock 4001, fila PresupuestoBuilder por scope con upsert/lock desde primera admisión, pool de ensayo separado, dos reservas atómicas; limpieza incierta retiene capacidad; sin cupo docente |
 | V. Historia preservada | Compatible: artefacto/referencia por versión | Pasa: snapshots originales, bitácoras append-only, retiro lógico, retención de artefactos referenciados |
 | VI. Cátedra pide/observa | Compatible: oferta Software sin hardware | Pasa: selección en Catálogo y Nuevo pedido, avisos, ninguna pantalla de build para docentes |
 | Stack, secretos y migraciones | Compatible con stack fijo | Pasa: Alembic aditivo, keyring y rutas de revelado auditadas; credenciales infra fuera del repo |
@@ -134,6 +136,13 @@ infra/
 
 El bootstrap de ensayo no puede llamar sin cambios a `_definition()` actual, que exige definición publicada/retirada: crear validación específica de artefacto de ensayo con dueño institucional y permitir sólo imagen/receta verificadas de ese ensayo. Mantener intacto el gate de publicación de los servicios académicos. Las pruebas impiden usar un borrador por el camino de producción.
 
+### Precisiones de ejecución
+
+- El contrato builder incluye `generation`, `cancel` y registro durable de cierre fuera de temporales. Cancelar cierra primero y termina procesos antes de limpiar; mensajes build/stage atrasados nunca reabren el ensayo. La generación remota complementa, no sustituye, CAS/lease en DB y conciliación de tareas PVE inciertas antes de confirmar ausencia.
+- El presupuesto builder tiene fila propia por scope físico, compartida por hosts con el mismo disco; upsert y lock transaccionales serializan también la primera admisión. Capacidad PVE se bloquea antes de scopes ordenados.
+- La incorporación origina múltiples versiones NAP mediante FK desde definición y antecedente explícito. Nueva versión no exige cambio del comando externo ni modifica una publicación previa.
+- Buscar sólo por categoría es válido; exigir texto o categoría y combinar ambos con AND cuando se proporcionen.
+
 ### Entidades e interfaces
 
 [Modelo de datos](data-model.md); [API de biblioteca/ensayos](contracts/biblioteca-api.md); [builder/artefactos/runner](contracts/preparacion-runner.md); [ofertas/pedidos/UI](contracts/catalogo-pedidos-ui.md). Manifiestos previos siguen válidos; Draw.io usa esquema 1.1 y registros cerrados. La configuración de builder/artefactos es recargable y versionada para API y worker, sin escritura de configuración libre desde el navegador.
@@ -152,7 +161,7 @@ Ejecutar las suites descritas en [quickstart.md](quickstart.md) durante implemen
 
 Logs/metricas: IDs de incorporación/ensayo/operación/definición/recurso, fase, duración, clase de fallo, reintentos y limpieza pendiente; excluir comando crudo, credenciales y headers Authorization. Auditar acciones administrativas, revelados y acciones automáticas. Backups del portal incluyen nuevas tablas; conservar paquete institucional fuera de LXC de ensayo y referenciar su revisión en la evidencia.
 
-Gates manuales de aceptación: dos instancias reales, saneamiento, red/HTTPS/acceso cruzado, ciclo editable, reinicio y despliegue durante bloqueo de Community Scripts. Sin esos resultados no publicar Draw.io como comprobado. La planificación no declara que existan imagen, certificados, builder o aceptación real.
+Gates previos a validar/publicar: dos instancias reales de ensayo desde artefacto retenido con Community Scripts bloqueado, saneamiento, red/HTTPS/acceso cruzado, ciclo editable y reinicio. Registrar `deployment_without_provider` en su evidencia antes de publicar. Gate posterior de SC-006: enviar/aprobar/desplegar un pedido nuevo durante bloqueo del proveedor; verifica el recorrido completo, pero no es prerrequisito circular para la primera publicación. Sin los gates previos no publicar Draw.io como comprobado. La planificación no declara que existan imagen, certificados, builder o aceptación real.
 
 ## Complexity Tracking
 

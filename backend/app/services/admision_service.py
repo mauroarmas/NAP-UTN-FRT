@@ -130,6 +130,15 @@ async def aprobar(db, pedido_id, *, actor, payload, clave, pve=None):
             pedido.vigencia_hasta = period.fin_exclusivo_at.replace(tzinfo=None)
             pedido.decision_snapshot = {'revision_decision': pedido.revision_decision, 'asignacion': assignment,
                 'destino': destination, 'vigencia': evaluation['vigencia_efectiva'], 'template_revision': template.revision}
+            if definition and definition.incorporacion_id:
+                pedido.decision_snapshot={**pedido.decision_snapshot,'versiones':{
+                    'solicitada':evaluation.get('version_solicitada'),'autorizada':definition.version,
+                    'seleccion_original':pedido.seleccion_oferta_snapshot}}
+                if evaluation.get('cambio_version'):
+                    from app.services.notificacion_service import encolar_aviso_pedido
+                    await encolar_aviso_pedido(session,pedido,evento=f'pedido:{pedido.id}:version:{pedido.revision_decision}',
+                        tipo='version_oferta_actualizada',asunto='Versión de aplicación autorizada',
+                        texto=f'El pedido #{pedido.id} se aprobó con la versión {definition.version}; la solicitada era {evaluation["version_solicitada"]}. La versión autorizada queda registrada en el portal.')
             period_entry = VigenciaAutorizada(id=uuid4(), pedido_id=pedido.id, revision_decision=pedido.revision_decision,
                 servicio_id=service.id if service else None, modalidad=body.vigencia.tipo, anio_lectivo=body.vigencia.anio_lectivo,
                 calendario_id=period.calendario_id, calendario_revision=period.calendario_revision,

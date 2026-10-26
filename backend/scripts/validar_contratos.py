@@ -16,6 +16,9 @@ def main():
         if packaged.exists() and packaged.read_bytes() != path.read_bytes():
             raise ValueError('Schema de runtime desactualizado: ' + path.name)
         print(f'Schema OK: {path.name}')
+    for path in sorted((root/'backend/app/schemas').glob('service-definition-*.schema.json')):
+        Draft202012Validator.check_schema(json.loads(path.read_text()))
+        print(f'Schema OK: {path.name}')
     count = 0
     for path in sorted(contracts.glob('*.md')):
         for value in re.findall(r'(?:```|~~~)json\s*\n(.*?)\n(?:```|~~~)', path.read_text(), re.S):

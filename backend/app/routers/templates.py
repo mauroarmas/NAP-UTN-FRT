@@ -18,8 +18,14 @@ from app.schemas.template import (
 )
 from app.services.perfiles_service import exigir_definicion, anexar_disponibilidad
 from app.utils.errors import error
+from app.schemas.tamanos import TAMANOS, validar_tamano
 
 router = APIRouter(prefix="/templates", tags=["Templates"])
+
+
+@router.get('/tamanos')
+async def listar_tamanos(current_user: Usuario = Depends(require_admin)):
+    return [{'id': name, 'nombre': name.title(), **resources} for name, resources in TAMANOS.items()]
 
 
 @router.get("/", response_model=list[TemplateResponse])
@@ -180,6 +186,13 @@ async def actualizar_template(
         raise HTTPException(status_code=404, detail="Template no encontrado")
 
     cambios = data.model_dump(exclude_unset=True)
+    tamano = cambios.pop('tamano', None)
+    if tamano:
+        try:
+            validar_tamano(tamano, {key: cambios.get('default_' + key, getattr(template, 'default_' + key))
+                                   for key in ['vcpus', 'ram_mb', 'disk_gb']})
+        except ValueError as exc:
+            raise error(422, 'tamano_incompatible', str(exc)) from None
     if template.tipo == TipoRecurso.QEMU and cambios != {'activo': False}:
         raise error(422, 'tipo_historico', 'La plantilla QEMU histórica admite lectura o retiro')
 

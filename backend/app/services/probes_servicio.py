@@ -49,6 +49,13 @@ def confirmar(response, request, *, product, profile, service_id, preparation_id
                     raise ValueError()
                 metadata.update(metodo='postgresql', host=host, port=5432, database=database, username=result['username'],
                     endpoint=f'postgresql://{host}:5432/{database}', sslmode='verify-full')
+            elif product == 'drawio':
+                from uuid import UUID
+                if (result.get('port') != 443 or result.get('endpoint') != 'https://' + host
+                    or result.get('username') != 'nap_' + UUID(request['resource_uuid']).hex
+                    or 'drawio-status-v1' not in result.get('checks', [])):
+                    raise ValueError()
+                metadata.update(metodo='https', host=host, port=443, username=result['username'], endpoint='https://' + host)
             elif product == 'bookstack':
                 if (result.get('port') != 443 or result.get('endpoint') != 'https://' + host
                     or result.get('username') != request['parameters']['teacher_email']

@@ -15,8 +15,36 @@ from app.utils.errors import error
 
 
 def snapshot(profile, instance):
-    return {key:deepcopy(instance[key]) for key in ['host','address','mac_address']} | {
+    value = {key:deepcopy(instance[key]) for key in ['host','address','mac_address']} | {
         'bridge':profile['bridge'], 'client_cidrs':deepcopy(profile['client_cidrs'])}
+    if profile.get('ip_mode','dhcp') == 'static':
+        address=ipaddress.ip_address(instance['address'])
+        network=ipaddress.ip_network(profile['static_cidr'])
+        gateway=ipaddress.ip_address(profile['gateway'])
+        if (network.version!=4 or address not in network or gateway not in network
+            or address in {network.network_address,network.broadcast_address,gateway}
+            or gateway in {network.network_address,network.broadcast_address}
+            or not any(network.subnet_of(ipaddress.ip_network(cidr)) for cidr in profile['allowed_cidrs']
+                       if ipaddress.ip_network(cidr).version==4)):
+            raise ValueError('Red estática fuera del alcance autorizado')
+        value['static_ip']={'cidr':f'{address}/{network.prefixlen}','gateway':str(gateway)}
+    elif profile.get('ip_mode','dhcp') != 'dhcp':
+        raise ValueError('Modo de red no admitido')
+    return value
+
+
+def aplicar_asignacion(net0, instance):
+    """Sólo una asignación persistida puede agregar MAC/IP; nunca datos del formulario."""
+    mac=instance['mac_address']
+    if not re.fullmatch(r'02(?::[0-9a-fA-F]{2}){5}',mac):raise ValueError('MAC no autorizada')
+    if 'static_ip' in instance:
+        value=instance['static_ip'];address=ipaddress.ip_interface(value['cidr'])
+        gateway=ipaddress.ip_address(value['gateway'])
+        if address.version!=4 or str(address.ip)!=instance['address'] or gateway not in address.network:
+            raise ValueError('Dirección estática incoherente')
+        if ',ip=dhcp' not in net0:raise ValueError('Configuración base no validada')
+        net0=net0.replace(',ip=dhcp',f',ip={address},gw={gateway}',1)
+    return net0+',hwaddr='+mac
 
 
 async def reservar(db, *, network_id, product, node):

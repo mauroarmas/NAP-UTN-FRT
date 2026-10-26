@@ -4,7 +4,7 @@ Fecha: 2026-10-25. Base: [spec.md](spec.md), constitución 4.0.0 y árbol de tra
 
 ## 1. Descubrimiento y comando de Community Scripts
 
-**Decisión:** adaptador de lectura del repositorio oficial `community-scripts/ProxmoxVE`, usando una revisión resuelta y los scripts `ct/*.sh` como identidad externa. Índice NAP de alias/categorías; `drawio`, `draw.io` y `diagramas` apuntan a `ct/drawio.sh`. El comando se deriva de ruta/revisión validadas y se muestra como procedencia. No se interpreta shell para obtener metadatos ni para instalar.
+**Decisión:** adaptador de lectura del repositorio oficial `community-scripts/ProxmoxVE`, usando una revisión resuelta y los scripts `ct/*.sh` como identidad externa. Búsqueda por texto, sólo categoría o ambos (AND); al menos un filtro no vacío. Índice NAP de alias/categorías; `drawio`, `draw.io` y `diagramas` apuntan a `ct/drawio.sh`. El comando se deriva de ruta/revisión validadas y se muestra como procedencia. No se interpreta shell para obtener metadatos ni para instalar.
 
 **Motivo:** la búsqueda sólo debe aportar el comando y los datos efectivamente disponibles. La antigua ruta `main/json/drawio.json` devolvió 404 durante esta investigación; no se presupone una API JSON del catálogo web. Listar rutas públicas es una interfaz verificable. Categorías y alias añadidos por NAP se identifican como tales; otros datos pueden ser desconocidos.
 
@@ -34,7 +34,7 @@ Fecha: 2026-10-25. Base: [spec.md](spec.md), constitución 4.0.0 y árbol de tra
 
 ## 4. Preparación automatizada desde NAP
 
-**Decisión:** nuevo `ensayo_service` y worker durable de ensayos; transporte cerrado a un host de construcción separado. Reutilizar builder, registro institucional, distribución de artefactos y guest runner. Construir primero una imagen limpia y luego crear dos LXC de ensayo desde esa misma imagen. Administración registra comprobación funcional/red y valida/publica por separado.
+**Decisión:** nuevo `ensayo_service` y worker durable de ensayos; transporte cerrado a un host de construcción separado. Reutilizar builder, registro institucional, distribución de artefactos y guest runner. Construir primero una imagen limpia y luego crear dos LXC de ensayo desde esa misma imagen. Administración registra comprobación funcional/red y valida/publica por separado. Los despliegues de ensayo prueban independencia del proveedor antes de publicar; después SC-006 comprueba también el recorrido con un pedido nuevo. El builder persiste generación máxima/cierre por ensayo y rechaza órdenes atrasadas aun después de reiniciar o limpiar temporales; cancel precede a cleanup.
 
 **Motivo:** `preparacion_service.py` actual hace bootstrap de servicios aprobados; no es un constructor. El orquestador de pedidos está acoplado a pedidos/servicios. Extraer/reutilizar primitivas de ownership, leases y tareas sin crear pedidos o cátedras ficticios. La imagen maestra no se captura desde los ensayos con diagramas o contraseñas.
 
@@ -44,13 +44,13 @@ Fecha: 2026-10-25. Base: [spec.md](spec.md), constitución 4.0.0 y árbol de tra
 
 **Decisión:** extender el ledger existente para propietario académico o recurso de ensayo, exclusivos. Reservar ambos LXC de forma atómica bajo el advisory lock de capacidad existente `4001`. Mantener identidad global de VMID y pool institucional de ensayo. Plazo predeterminado de diseño: 24 h, configurable entre 1 y 168 h; aviso 1 h antes o al iniciar si el plazo es 1 h. El vencimiento cuenta desde que se admite la preparación y se muestra antes de confirmarla.
 
-**Motivo:** el ledger actual exige `pedido_id`; un contador separado permitiría sobreasignar entre ensayos y aprobaciones. Reserva y recurso observado se unen por identidad, sin sumarlos dos veces. Limpieza fallida o resultado incierto retienen capacidad hasta confirmar ausencia. Artefactos conservados siguen ocupando almacenamiento: no se liberan al eliminar LXC. Reservar también el almacenamiento temporal y final del host builder, con presupuesto por trabajo y cuotas de almacenamiento institucional; no confundirlo con CPU/RAM de PVE.
+**Motivo:** el ledger actual exige `pedido_id`; un contador separado permitiría sobreasignar entre ensayos y aprobaciones. Reserva y recurso observado se unen por identidad, sin sumarlos dos veces. Limpieza fallida o resultado incierto retienen capacidad hasta confirmar ausencia. Artefactos conservados siguen ocupando almacenamiento: no se liberan al eliminar LXC. Reservar también el almacenamiento temporal y final del host builder, con presupuesto por trabajo y fila durable `PresupuestoBuilder` por scope físico, inicializada con upsert y bloqueada con SELECT FOR UPDATE incluso en la primera admisión concurrente; no confundirlo con CPU/RAM de PVE.
 
 **Alternativas:** ensayos sin reserva (carrera); limpieza manual exclusiva (contradice aclaración 3); TTL sin aviso (sorpresa operativa).
 
 ## 6. Incorporación, publicación y versión vigente
 
-**Decisión:** incorporación separada, capaz de contener datos incompletos, vinculada posteriormente a `DefinicionServicio`. Reutilizar estados e inmutabilidad existentes. Una oferta es el perfil `RecursoTemplate` estable: publicar cambia atómicamente su referencia a una definición validada e incrementa su revisión, con una bitácora de publicaciones. No seleccionar la versión por orden lexicográfico ni buscar la máxima entre perfiles distintos.
+**Decisión:** incorporación separada, capaz de contener datos incompletos, con relación 1:N hacia revisiones de `DefinicionServicio`. Crear otra versión NAP desde la misma incorporación exige antecedente y versión semánticamente mayor, sin reimportar ni modificar la definición previa. Reutilizar estados e inmutabilidad existentes. Una oferta es el perfil `RecursoTemplate` estable: publicar cambia atómicamente su referencia a una definición validada e incrementa su revisión, con una bitácora de publicaciones. No seleccionar la versión por orden lexicográfico ni buscar la máxima entre perfiles distintos.
 
 La selección original del pedido se conserva en snapshot separado; sólo altas pendientes resuelven la versión vigente al evaluar/aprobar. Incluir revisión del perfil, definición, artefactos y capacidad en el token actual. Una publicación concurrente invalida la evaluación con 409 y exige reevaluación administrativa, sin confirmación docente. La aprobación fija snapshot y notificación; renovación y servicios ya aprobados mantienen su versión.
 

@@ -421,6 +421,7 @@ export default function Pedidos({ user }) {
                       <span className="section-count">#{p.id}</span>
                       <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 'var(--font-heading-weight)', fontSize: 19 }}>
                         {p.asignacion_snapshot?.nombre || (!p.template_id && parseDescripcionPedido(p).software) || templateNombre(p.template_id)}
+                        {p.asignacion_snapshot?.definition_version && <small className="block">Versión autorizada: {p.asignacion_snapshot.definition_version}</small>}
                       </span>
                       {(() => {
                         const mb = modeloServicioBadge(p.modelo_servicio);
