@@ -1,0 +1,42 @@
+{
+  "schema_version": "nap-application-candidates/1",
+  "environment": "laboratorio_local",
+  "node": "proxmox",
+  "host": "172.16.36.100",
+  "bridge": "vmbr0",
+  "sizes": {
+    "small": {"vcpus": 1, "ram_mb": 512, "disk_gb": 4},
+    "medium": {"vcpus": 2, "ram_mb": 1024, "disk_gb": 8}
+  },
+  "max_active_jobs": 2,
+  "profiles": [
+    {
+      "id": "docker-ubuntu24",
+      "state": "pendiente_validacion",
+      "base": "ubuntu-24.04-standard_24.04-2_amd64.tar.zst",
+      "base_sha256": null,
+      "initial_size": "medium",
+      "features": ["nesting=1", "keyctl=1"]
+    },
+    {
+      "id": "community-mariadb",
+      "state": "pendiente_validacion",
+      "base": "debian-13-standard_13.6-1_amd64.tar.zst",
+      "base_sha256": null,
+      "initial_size": "medium",
+      "source_commit": "5d477b0b6efb4141da0b90cadcec32f8641a815c",
+      "core_commit": "81a2e2ae7d42dea39fd5dd7903b266b5e607c811",
+      "answers": {"var_mariadb_phpmyadmin": "no"}
+    },
+    {
+      "id": "community-caddy",
+      "state": "pendiente_validacion",
+      "base": "debian-13-standard_13.6-1_amd64.tar.zst",
+      "base_sha256": null,
+      "initial_size": "medium",
+      "source_commit": "5d477b0b6efb4141da0b90cadcec32f8641a815c",
+      "core_commit": "81a2e2ae7d42dea39fd5dd7903b266b5e607c811",
+      "answers": {"var_caddy_xcaddy": "no"}
+    }
+  ]
+}

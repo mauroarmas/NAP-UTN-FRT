@@ -29,6 +29,8 @@ from tests.fakes import FakeProxmoxClient
 from tests.network import block_network
 from app.services.email_service import despachar_email as REAL_EMAIL_SENDER
 
+pytest_plugins = ('tests.fixtures.despliegue_011',)
+
 
 def pytest_addoption(parser):
     parser.addoption('--require-postgres', action='store_true', help='Exigir TEST_DATABASE_URL explícita')

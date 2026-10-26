@@ -22,9 +22,9 @@
 
 **Objetivo**: disponer de fixtures y detectar incompatibilidades físicas antes de desarrollar sobre una suposición falsa. Reutilizar el entorno existente; no reinicializar el proyecto ni actualizar dependencias sin necesidad.
 
-- [ ] T001 Crear fixtures compartidas de PVE, registry, runner durable, reloj y dos cátedras en `backend/tests/fixtures/despliegue_011.py`; integrarlas en `backend/tests/conftest.py` y reutilizar el aislamiento de `backend/tests/postgres/conftest.py`, sin conectarse a la base operativa.
-- [ ] T002 [P] Crear la imagen de ensayo propia con salud y lectura/escritura persistente en `infra/applications/fixtures/campus-demo/Dockerfile`, `infra/applications/fixtures/campus-demo/app.py` y `infra/applications/fixtures/campus-demo/README.md`; documentar publicación en registry de ensayo sin incorporar un build al portal.
-- [ ] T003 [P] Preparar el manifiesto de candidatos y el preflight de sólo lectura en `infra/laboratorio/011/candidatos.json` e `infra/laboratorio/011/preflight.py`: versiones/base/hashes, recursos, systemd, red, registry/CA y permisos; parámetros privados fuera del repositorio y perfiles inicialmente pendientes.
+- [X] T001 Crear fixtures compartidas de PVE, registry, runner durable, reloj y dos cátedras en `backend/tests/fixtures/despliegue_011.py`; integrarlas en `backend/tests/conftest.py` y reutilizar el aislamiento de `backend/tests/postgres/conftest.py`, sin conectarse a la base operativa.
+- [X] T002 [P] Crear la imagen de ensayo propia con salud y lectura/escritura persistente en `infra/applications/fixtures/campus-demo/Dockerfile`, `infra/applications/fixtures/campus-demo/app.py` y `infra/applications/fixtures/campus-demo/README.md`; documentar publicación en registry de ensayo sin incorporar un build al portal.
+- [X] T003 [P] Preparar el manifiesto de candidatos y el preflight de sólo lectura en `infra/laboratorio/011/candidatos.json` e `infra/laboratorio/011/preflight.py`: versiones/base/hashes, recursos, systemd, red, registry/CA y permisos; parámetros privados fuera del repositorio y perfiles inicialmente pendientes.
 - [ ] T004 Tras T003, crear y ejecutar el bootstrap técnico en `infra/laboratorio/011/preparar_entorno.py`: preparar registry de ensayo TLS/acceso privado, CA/DNS/slots disjuntos/firewall, bases candidatas y permisos de ensayo con respaldo e idempotencia; verificar con `infra/laboratorio/011/preflight.py` antes de los spikes, sin habilitar perfiles ni modificar servicios existentes. No depender de paquetes definitivos aún no construidos; instalarlos después en T028/T050/T061 y conservar parámetros privados fuera del repositorio.
 - [ ] T005 Tras T004, construir y ejecutar el spike controlado Docker en `infra/laboratorio/011/spike_docker.py`; verificar LXC no privilegiado, nesting/keyctl cerrados, AppArmor/seccomp activos, filesystem, pull público/privado, retirada del login y encaje en Medium; registrar resultado seguro en `docs/evidencia/011/factibilidad-docker.md`, sin fallback privilegiado o unconfined.
 - [ ] T006 Tras T004, construir y ejecutar el spike del instalador guest/Core fijado en `infra/laboratorio/011/spike_community.py`; comprobar carga local, dependencias cerradas, ausencia de prompts/logs crudos/telemetría/autologin y de efectos en el nodo para MariaDB/Caddy; registrar límites y recursos en `docs/evidencia/011/factibilidad-community.md`.
@@ -306,3 +306,11 @@ Pausas cómodas: después de T007, T036 y cada checkpoint de historia. Registrar
 ## Criterio de finalización
 
 Todas las tareas comienzan pendientes. Marcar una tarea sólo después de implementar y verificar su resultado; un impedimento real se documenta y conserva pendiente. Una aceptación parcial o simulada no cierra SC que exigen infraestructura real. No incluir secretos en commits de evidencia. El autocommit de Spec Kit registra avances del comando; no reemplaza ninguna comprobación anterior.
+
+## Avance de implementación — 2026-10-26
+
+T001–T003 completadas. T004 en curso: registry TLS local preparado y verificado en sólo lectura;
+bootstrap del nodo construido y probado, pendiente de ejecución root del operador y revisión del
+recibo. Ver `docs/evidencia/011/setup-inicial.md` y `docs/evidencia/011/bootstrap-inicial.md`.
+No se habilitó ningún perfil nuevo ni se ejecutaron T005/T006. La implementación restante y sus
+aceptaciones continúan pendientes. El lanzador y los datos privados están en nap011 fuera de Git.
