@@ -2,7 +2,7 @@
 
 Fecha: 2026-10-26. Laboratorio local; no acredita el clúster universitario.
 
-**Estado: primer ensayo real fallido durante la creación; nuevo intento pendiente. T005 continúa abierta.**
+**Estado: extracción de Ubuntu confirmada en el segundo intento; recuperación y prueba del runtime pendientes. T005 continúa abierta.**
 
 ## Preparado y verificado sin Proxmox
 
@@ -49,6 +49,32 @@ Verificación posterior: **44 pruebas aprobadas**, con `NAP_INFRA_INTEGRATION=1`
 `infra/laboratorio/011/tests`. Incluye diez pruebas del spike, entre ellas el subproceso local
 de permisos y la recuperación de directorios vacíos. No se ejecutaron pruebas reales de PVE
 mediante pytest. La sonda ahora registra filesystem, driver y versiones Docker/containerd/runc.
+
+## Segundo intento real
+
+La tarea PVE `vzcreate` terminó con `WARNINGS: 1`: Ubuntu se extrajo y el único aviso fue la
+recomendación de nesting para systemd 255. La API mostró el VMID 900011 detenido, no privilegiado,
+rootfs de 8 GB y la identidad del ensayo; Draw.io (VMID 100) seguía corriendo. No se arrancó el
+invitado ni se instaló Docker. El recibo devolvió `cleanup_pending` en fase `creating`.
+
+Se encontró un error del adaptador del prototipo: `pct config` aplica `encode_text` a description
+([fuente de pct](https://github.com/proxmox/pve-container/blob/master/src/PVE/CLI/pct.pm)), mientras
+el prototipo intentaba interpretar ese texto directamente como JSON. Al no reconocer su marcador,
+rechazó tanto el avance como la eliminación. Se corrigió para leer la configuración JSON nativa
+mediante pvesh. La prueba de regresión usa una descripción JSON con el salto de línea observado
+y comprueba también el rechazo de una descripción dañada. No se modificó el control de pertenencia.
+
+El paquete nuevo calcula la huella exacta del programa anterior desde su archivo respaldado.
+Sólo el modo de limpieza permite aceptar explícitamente esa huella previa, junto al mismo
+journal y marcador. La ejecución normal mantiene el rechazo de una petición cambiada.
+El lanzador recupera primero el ensayo anterior y exige ausencia confirmada antes de crear
+otro; si la limpieza falla se detiene. Ambas acciones requieren la terminal root del operador.
+El recibo filtrado del segundo intento está en [docker-segundo-intento.json](docker-segundo-intento.json).
+
+Verificación posterior: **47 pruebas locales aprobadas**, trece del spike; incluyen el adaptador
+JSON y recuperación con huella anterior exacta, sin autorizar recreaciones ni recursos ajenos.
+El paquete coincide con las fuentes y pasó el modo de plan sin cambios. La recuperación real
+y la factibilidad de Docker permanecen pendientes; ningún perfil fue habilitado.
 
 ## Resultado real requerido
 

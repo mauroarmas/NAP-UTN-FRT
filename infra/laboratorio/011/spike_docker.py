@@ -105,10 +105,14 @@ def read_private_state(journal):
     return json.loads(journal.read_text())
 
 
-def read_state(node, marker, journal):
+def read_state(node, marker, journal, *, accepted_prior_fingerprint=None):
     validate_marker(marker)
+    if accepted_prior_fingerprint is not None and not re.fullmatch(r'[0-9a-f]{64}', accepted_prior_fingerprint):
+        raise ValueError('INVALID_PRIOR_FINGERPRINT')
     previous = read_private_state(journal)
-    if previous['marker'] != marker or previous['fingerprint'] != getattr(node, 'fingerprint', None):
+    allowed = {getattr(node, 'fingerprint', None)}
+    if accepted_prior_fingerprint is not None: allowed.add(accepted_prior_fingerprint)
+    if previous['marker'] != marker or previous.get('vmid') != VMID or previous['fingerprint'] not in allowed:
         raise ValueError('PROBE_REQUEST_CHANGED')
     return previous
 
@@ -140,9 +144,9 @@ def retire_failed_workspace(node, marker, journal, *, root=Path('/')):
         if path.exists(): path.rmdir()
 
 
-def reconcile_probe(node, marker, journal):
+def reconcile_probe(node, marker, journal, *, accepted_prior_fingerprint=None):
     """Sólo retirar recursos propios de una operación existente; nunca crear/arrancar."""
-    previous = read_state(node, marker, journal)
+    previous = read_state(node, marker, journal, accepted_prior_fingerprint=accepted_prior_fingerprint)
     if previous.get('result', {}).get('resource_absent') is True:
         return previous['result']
     try:
@@ -287,10 +291,11 @@ class Node:
     def config(self):
         guests = pvesh('/nodes/proxmox/lxc')
         if not any(int(g['vmid']) == VMID for g in guests): return None
-        raw = command(['/usr/sbin/pct', 'config', str(VMID)], capture=True).decode()
-        fields = dict(line.split(': ', 1) for line in raw.splitlines() if ': ' in line)
+        # pct config codifica description para mostrarla; JSON nativo conserva el marcador.
+        fields = pvesh(f'/nodes/proxmox/lxc/{VMID}/config')
+        if not isinstance(fields, dict): raise ValueError('INVALID_PVE_CONFIGURATION')
         try: marker = json.loads(fields.get('description', '{}'))
-        except ValueError: marker = None
+        except (ValueError, TypeError): marker = None
         return {'marker': marker, 'unprivileged': fields.get('unprivileged'), 'fields': fields}
 
     def owned(self, marker):
@@ -324,7 +329,7 @@ class Node:
         cfg = self.owned(marker)
         if cfg.get('features') != 'keyctl=1,nesting=1' and cfg.get('features') != 'nesting=1,keyctl=1':
             raise ValueError('FEATURES_NOT_CONFIRMED')
-        if any('unconfined' in str(v) for k, v in cfg.items() if 'apparmor' in k):
+        if any('unconfined' in str(v) for k, v in cfg.items() if 'apparmor' in k or k == 'lxc'):
             raise ValueError('UNSAFE_APPARMOR')
         command(['/usr/sbin/pct', 'start', str(VMID)], timeout=90, child_umask=0o022)
         master = Path(f'/sys/class/net/veth{VMID}i0/master')
@@ -397,6 +402,7 @@ def main():
     parser.add_argument('--apply', action='store_true')
     parser.add_argument('--cleanup-only', action='store_true')
     parser.add_argument('--retire-failed-run')
+    parser.add_argument('--accepted-prior-fingerprint')
     args = parser.parse_args()
     marker = {'purpose': PURPOSE, 'run_id': args.run_id}
     try:
@@ -404,6 +410,9 @@ def main():
         node = Node(bootstrap, bootstrap.preflight.read_json(args.manifest),
                     bootstrap.preflight.read_json(args.config), marker)
         if args.cleanup_only and not args.apply: raise ValueError('APPLY_REQUIRED')
+        if args.accepted_prior_fingerprint is not None:
+            if not args.cleanup_only or not re.fullmatch(r'[0-9a-f]{64}', args.accepted_prior_fingerprint):
+                raise ValueError('INVALID_PRIOR_FINGERPRINT')
         if args.retire_failed_run:
             validate_marker({'purpose': PURPOSE, 'run_id': args.retire_failed_run})
             if not args.apply or args.cleanup_only or args.retire_failed_run == args.run_id:
@@ -423,8 +432,11 @@ def main():
                 if args.retire_failed_run:
                     retire_failed_workspace(node, {'purpose': PURPOSE, 'run_id': args.retire_failed_run},
                                             directory / (args.retire_failed_run + '.json'))
-                action = reconcile_probe if args.cleanup_only else execute_probe
-                result = action(node, marker, directory / (args.run_id + '.json'))
+                if args.cleanup_only:
+                    result = reconcile_probe(node, marker, directory / (args.run_id + '.json'),
+                                             accepted_prior_fingerprint=args.accepted_prior_fingerprint)
+                else:
+                    result = execute_probe(node, marker, directory / (args.run_id + '.json'))
             finally: os.close(lock)
         print(json.dumps(result, ensure_ascii=False))
         return 0 if result['state'] in {'probe_passed', 'probe_cleaned', 'plan_without_changes'} else 2

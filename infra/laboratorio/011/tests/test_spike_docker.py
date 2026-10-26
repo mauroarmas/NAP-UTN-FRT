@@ -102,6 +102,42 @@ def test_reconciliation_refuses_foreign_resource(tmp_path):
     assert 'cleanup' not in node.events and 'remove_firewall' not in node.events
 
 
+def test_real_adapter_reads_native_json_identity_with_description_newline(monkeypatch):
+    expected = marker(); calls = []
+    node = spike.Node.__new__(spike.Node)
+    def pvesh(path):
+        calls.append(path)
+        if path.endswith('/lxc'): return [{'vmid': spike.VMID}]
+        return {'description': json.dumps(expected) + '\n', 'unprivileged': 1, 'cores': 2}
+    monkeypatch.setattr(spike, 'pvesh', pvesh)
+    monkeypatch.setattr(spike, 'command', lambda *_a, **_kw: pytest.fail('No analizar pct config de texto'))
+    assert node.owned(expected)['cores'] == 2
+    assert calls == ['/nodes/proxmox/lxc', f'/nodes/proxmox/lxc/{spike.VMID}/config']
+
+
+def test_real_adapter_rejects_damaged_description(monkeypatch):
+    node = spike.Node.__new__(spike.Node)
+    monkeypatch.setattr(spike, 'pvesh', lambda p: [{'vmid': spike.VMID}] if p.endswith('/lxc') else
+                        {'description': '{broken-json}', 'unprivileged': 1})
+    with pytest.raises(ValueError, match='IDENTITY_MISMATCH'): node.owned(marker())
+
+
+def test_cleanup_accepts_exact_previous_package_only_and_never_recreates(tmp_path):
+    node = Node(); node.fingerprint = '2' * 64
+    expected = marker(); journal = tmp_path / 'state.json'
+    spike.save(journal, {'marker': expected, 'fingerprint': '1' * 64, 'phase': 'creating', 'vmid': spike.VMID,
+                        'result': {'state': 'cleanup_pending', 'resource_absent': False}})
+    node.resource = {'marker': expected, 'unprivileged': 1}
+    with pytest.raises(ValueError, match='PROBE_REQUEST_CHANGED'):
+        spike.execute_probe(node, expected, journal)
+    with pytest.raises(ValueError, match='PROBE_REQUEST_CHANGED'):
+        spike.reconcile_probe(node, expected, journal, accepted_prior_fingerprint='3' * 64)
+    assert node.resource is not None and not node.events
+    result = spike.reconcile_probe(node, expected, journal, accepted_prior_fingerprint='1' * 64)
+    assert result['state'] == 'probe_cleaned' and result['resource_absent']
+    assert 'create' not in node.events and 'start' not in node.events
+
+
 def test_bridge_policy_is_scoped_to_probe_and_rejects_injection():
     expected = marker()
     rules = spike.firewall_policy(expected, '172.16.36.81', '02:11:00:00:00:51')

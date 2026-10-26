@@ -110,6 +110,12 @@ umask 077. Ante una extracción fallida y ausencia confirmada, `--retire-failed-
 retirar sólo directorios vacíos identificados mediante el journal root anterior; exige otra
 identidad para el nuevo intento. No cambia permisos de carpetas existentes ni elimina archivos.
 
+El adaptador lee configuración JSON mediante pvesh; no analiza el texto de `pct config`, que
+codifica description. Para recuperar un journal tras corregir el programa, la opción técnica
+`--accepted-prior-fingerprint` se admite sólo con `--cleanup-only` y exige la huella exacta
+del paquete anterior respaldado. No autoriza ejecutar una petición modificada. El lanzador
+de recuperación detiene la secuencia si no confirma la ausencia del ensayo anterior.
+
 ## Pruebas sin nodo
 
 ```bash

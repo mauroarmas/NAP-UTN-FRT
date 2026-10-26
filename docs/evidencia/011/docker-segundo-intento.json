@@ -1,0 +1,13 @@
+{
+  "scope": "laboratorio_local",
+  "state": "cleanup_pending",
+  "phase": "creating",
+  "resource_absent": false,
+  "profiles_enabled": [],
+  "runner_code": "RECONCILIATION_REQUIRED",
+  "pve_task_result": "WARNINGS: 1",
+  "template_extracted": true,
+  "observed_probe_status": "stopped",
+  "observed_probe_unprivileged": true,
+  "runtime_tested": false
+}
