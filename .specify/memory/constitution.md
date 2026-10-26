@@ -1,3 +1,21 @@
+<!--
+Sync Impact Report — 2026-10-26
+Version change: 4.1.1 → 4.2.0 (MINOR).
+Rationale: se amplía materialmente el Principio VII con la distinción oferta/instancia,
+según la decisión posterior de Mauro en la feature 011. Se conserva el recorrido simple y
+la instalación automática; no se remueven principios ni garantías de seguridad.
+Principio modificado: VII (mismo título). Secciones agregadas/removidas: ninguna.
+✅ .specify/templates/{spec,plan,tasks}-template.md — oferta sin reserva; ejecución con pedido.
+✅ AGENTS.md y docs/rumbo-mini-cloud.md — objetivo y momento del despliegue sincronizados.
+✅ specs/011-desplegar-servicios-universitarios/ — referencia normativa actualizada.
+✅ specs/010-integrar-biblioteca-aplicaciones/spec.md — alcance posterior identificado;
+   artefactos y servicios existentes se conservan, sin reescribir su historia.
+✅ .claude/skills/speckit-*/SKILL.md — comandos genéricos revisados; sin reglas de producto
+   que obliguen a instalar durante el alta ni cambios necesarios en esos comandos.
+Follow-up TODOs: ninguno de gobernanza. Las verificaciones reales del nuevo motor siguen
+siendo compuertas de implementación; esta enmienda no afirma que se hayan ejecutado.
+-->
+
 <!-- Ajuste 2026-10-26: 4.1.0 → 4.1.1 (PATCH). Por pedido de Mauro se quitan
 los pasos manuales de preparar/comprobar/publicar del alta habitual. NAP los automatiza;
 las bases IaaS del nodo aparecen directamente. Se mantienen aislamiento e integridad.
@@ -313,9 +331,16 @@ El producto MUST organizarse alrededor de lo que necesitan hacer, con pocos paso
   mantenimiento MUST permanecer fuera de ese recorrido. No se agregan variantes, plazos ni
   opciones avanzadas sin un caso real autorizado.
 - En el alta de aplicaciones, el recorrido acordado es **elegir → agregar → disponible**.
-  NAP MUST realizar la instalación y las comprobaciones en segundo plano, sin confirmaciones
-  manuales de preparar o publicar. Las bases IaaS admitidas del nodo aparecen automáticamente. La preparación normal y la oferta publicada MUST NOT tener un ensayo de
-  24 horas ni vencimiento automático. Esto no modifica la vigencia de pedidos académicos.
+  Una oferta reutilizable MUST validar y guardar cómo desplegar el servicio, sin reservar
+  capacidad ni crear una instancia académica al incorporarla. Disponible en el catálogo significa
+  disponible para solicitar, no una aplicación ya instalada y comprobada.
+- La instalación de cada instancia y sus comprobaciones MUST ejecutarse automáticamente al
+  desplegar un pedido aprobado, respetando la vigencia y la capacidad reservada. MUST NOT
+  exigirse confirmaciones manuales de preparar o publicar ni evidencias técnicas en el recorrido
+  habitual. Se conservan los artefactos reutilizables ya disponibles y las bases IaaS admitidas
+  del nodo aparecen automáticamente.
+- La oferta publicada MUST NOT tener un ensayo de 24 horas ni vencimiento automático. Esto no
+  modifica la vigencia de pedidos académicos ni permite anunciar una entrega no comprobada.
 - La sencillez MUST conservar autorización, aislamiento, integridad de datos, trazabilidad y
   recuperación de fallos. NAP registra lo que comprueba; MUST NOT inventar pruebas para ocultar
   una dependencia técnica o anunciar una operación que no se completó.
@@ -417,4 +442,4 @@ violación aceptada MUST registrarse en la tabla de Complexity Tracking con su j
 alternativa más simple que se descartó; una violación sin justificación registrada bloquea la
 implementación.
 
-**Version**: 4.1.1 | **Ratified**: 2026-08-07 | **Last Amended**: 2026-10-26
+**Version**: 4.2.0 | **Ratified**: 2026-08-07 | **Last Amended**: 2026-10-26

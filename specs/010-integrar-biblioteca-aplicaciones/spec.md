@@ -10,6 +10,15 @@
 
 **Input**: User description: "Facilitar la búsqueda e incorporación de aplicaciones de Community Scripts, con Draw.io como piloto. Preparar cada aplicación una vez, publicarla en NAP y permitir que las cátedras la seleccionen al crear sus pedidos. Dejar una especificación pequeña para desarrollarla en otro chat."
 
+## Continuidad del producto — 26/10/2026
+
+La constitución 4.2.0 y la feature [011](../011-desplegar-servicios-universitarios/spec.md)
+separan el alta de una oferta reutilizable del despliegue de su instancia académica. El nuevo
+recorrido no exige ensayos o publicación manual ni reserva recursos al registrar una oferta.
+Los escenarios de preparación de esta feature describen su evolución histórica: se conservan
+los artefactos y accesos de Draw.io existentes, sin recrearlos ni trasladar ese ensayo al alta
+habitual de Docker o Community Scripts.
+
 ## Ajuste vigente: alta simple (25/10/2026)
 
 Por instrucción posterior del usuario, administración sólo elige aplicación, nombre, descripción opcional y Small/Medium; luego prepara, abre y confirma funcionamiento para publicar o eliminar. NAP resuelve los detalles técnicos. No hay vencimiento de 24 horas ni campos de entorno, códigos, versiones o JSON de comprobación en el formulario. Ver [contrato vigente](contracts/alta-simple-api.md). Esta decisión sustituye las aclaraciones anteriores sobre TTL y la comprobación avanzada como paso obligatorio de publicación; no modifica vigencias académicas ni afirma que se ejecutaron pruebas reales pendientes.

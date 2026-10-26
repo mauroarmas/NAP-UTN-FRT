@@ -10,7 +10,9 @@
 
 <!-- Principio VII: describir primero el recorrido más corto útil para personas no técnicas,
      incluida administración. Pedir sólo datos necesarios, reutilizar configuración inicial y
-     exigir feedback claro. No agregar variantes o campos para casos hipotéticos. -->
+     exigir feedback claro. Separar oferta solicitable de instancia entregada: el alta no
+     reserva capacidad ni crea instancias; el pedido aprobado habilita su despliegue.
+     No agregar variantes o campos para casos hipotéticos. -->
 
 ## User Scenarios & Testing *(mandatory)*
 

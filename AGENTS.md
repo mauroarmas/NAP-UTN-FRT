@@ -18,12 +18,14 @@
   No iniciar Specify/Plan/Tasks por rutina ni reabrir decisiones ya acordadas.
 - No cubrir todas las variantes imaginables: agregar sólo lo necesario para casos reales.
   Conservar seguridad, aislamiento, historial y recuperación sin complejizar la operación diaria.
-- Alta de aplicaciones: **elegir → agregar → disponible**. La instalación y comprobación son automáticas;
+- Alta de aplicaciones: **elegir → agregar → disponible para solicitar**, sin crear instancias ni
+  reservar capacidad. La instalación y comprobación son automáticas al desplegar el pedido aprobado;
   no volver a introducir pasos manuales de preparar, confirmar y publicar.
   Sin ensayo de 24 horas ni vencimiento de la preparación/oferta; conservar fechas académicas
   de los pedidos. Al publicar se reutiliza la aplicación para futuras instancias por cátedra. No se ofrecen aplicaciones sin adaptador compatible.
 - Small: 1 vCPU, 512 MB RAM, 4 GB disco. Medium: 2 vCPU, 1024 MB RAM, 8 GB disco.
-  Aplicaciones con base Ubuntu 24.04/LXC; IaaS ofrece Ubuntu 24.04 y Debian 13 del nodo; respetar mínimos reales de cada aplicación.
+  Docker conserva la base Ubuntu 24.04/LXC. Community Scripts usa sólo la base comprobada por su
+  perfil compatible (pilotos previstos Debian 13); IaaS ofrece Ubuntu 24.04 y Debian 13. Respetar mínimos reales.
 - La cátedra pide aplicación/propósito/fechas y puede elegir **Otro**. Administración aprueba,
   rechaza o pide aclaración; reserva al aprobar, despliega desde la fecha inicial. Sin cuotas
   anticipadas por cátedra. Catálogo administrativo sólo visible para administración.
@@ -31,7 +33,7 @@
   guardarlos en el repositorio. No asumir configurado el clúster/red universitarios.
 
 La fuente normativa es [.specify/memory/constitution.md](.specify/memory/constitution.md),
-con el Principio VII agregado el 26/10/2026. Esta memoria se mantiene para próximos chats.
+versión 4.2.0, con la distinción entre oferta e instancia acordada el 26/10/2026. Esta memoria se mantiene para próximos chats.
 
 ## graphify
 
