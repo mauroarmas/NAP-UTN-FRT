@@ -6,7 +6,7 @@ from uuid import UUID
 from urllib.parse import quote
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, Header, Response
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, Header, Response, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -103,6 +103,16 @@ async def acceso_del_servicio(servicio_id: int, response: Response, current_user
     return await service_access_service.metadatos(db, actor=current_user, servicio_id=servicio_id)
 
 
+@router.post('/{servicio_id}/abrir-aplicacion')
+async def abrir_aplicacion(servicio_id: int, request: Request, body: RevelarAccesoRequest,
+    current_user: Usuario = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    from app.services.aplicacion_access_service import crear_codigo
+    from fastapi.responses import JSONResponse
+    result = await crear_codigo(db, servicio_id, actor=current_user, session=request.state.auth_session)
+    await db.commit()
+    return JSONResponse(result, headers={'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer'})
+
+
 @router.post('/{servicio_id}/acceso/revelar', response_model=AccesoReveladoResponse)
 async def revelar_acceso(servicio_id: int, body: RevelarAccesoRequest, response: Response,
     current_user: Usuario = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
@@ -148,7 +158,16 @@ async def consola_del_servicio(servicio_id: int, current_user: Usuario = Depends
     if not servicio.proxmox_vmid or not servicio.proxmox_node:
         raise HTTPException(status_code=400, detail={'codigo': 'sin_vmid', 'mensaje': 'Servicio sin VMID asignado'})
     from app.services.consola_gate_service import autorizar
-    await autorizar(db, servicio, current_user)
+    if current_user.rol == RolUsuario.ADMIN:
+        # El enlace exige iniciar sesión en Proxmox con la cuenta propia del administrador.
+        # No emite tickets ni comparte las credenciales de la API.
+        from app.models.identidad_infraestructura import IdentidadInfraestructura
+        from app.services.identidad_infra_service import observar
+        identity = await db.get(IdentidadInfraestructura, servicio.identidad_infraestructura_id) if servicio.identidad_infraestructura_id else None
+        if not identity or (await observar(identity)).estado != 'propia':
+            raise error(409, 'identidad_no_confirmada', 'No se pudo confirmar la instancia de esta consola.')
+    else:
+        await autorizar(db, servicio, current_user)
     settings = get_settings()
     console_url = f"https://{settings.proxmox_host}:{settings.proxmox_port}/?console=lxc&xtermjs=1&vmid={servicio.proxmox_vmid}&node={servicio.proxmox_node}"
     return {"url": console_url, "servicio_id": servicio_id, "vmid": servicio.proxmox_vmid, "node": servicio.proxmox_node}

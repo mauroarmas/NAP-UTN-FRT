@@ -37,12 +37,13 @@ async def correo(estado: Literal['pendiente','enviando','enviada','fallida','can
 async def avisos(servicio_id: int | None = None, limit: int = Query(default=100, ge=1, le=500),
     actor=Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     query = select(Notificacion).where(Notificacion.canal == 'portal', Notificacion.destinatario_usuario_id == actor.id,
-        Notificacion.servicio_id.is_not(None))
+        Notificacion.estado != 'cancelada')
     if actor.rol != RolUsuario.ADMIN:
         query = query.where(Notificacion.catedra_id.in_(await catedras_visibles(db, actor)))
     if servicio_id is not None: query = query.where(Notificacion.servicio_id == servicio_id)
     rows = (await db.scalars(query.order_by(Notificacion.created_at.desc(), Notificacion.id).limit(limit))).all()
     return respuesta([{'id': row.id, 'servicio_id': row.servicio_id, 'catedra_id': row.catedra_id,
+        'pedido_id': row.payload.get('pedido_id'),
         'tipo': row.payload.get('tipo'), 'asunto': row.payload.get('asunto'), 'texto': row.payload.get('texto'),
         'created_at': row.created_at} for row in rows])
 

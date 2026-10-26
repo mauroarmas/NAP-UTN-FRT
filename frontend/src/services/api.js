@@ -82,7 +82,7 @@ export const getProxmoxTemplates = (storage = 'local') => api.get('/proxmox/temp
 
 // Pedidos
 export const getPedidos = (estado, options = {}) => api.get('/pedidos/', { ...options, params: estado ? { estado } : {} });
-export const getPedido = (id) => api.get(`/pedidos/${id}`);
+export const getPedido = (id, options = {}) => api.get(`/pedidos/${id}`, options);
 export const createPedido = (data, clave = crypto.randomUUID()) => api.post('/pedidos/', data, ordenHeaders(clave));
 export const getEstadosPedido = () => api.get('/pedidos/estados');
 export const reintentarPedido = (id, data = {}, clave = crypto.randomUUID()) => api.post(`/pedidos/${id}/reintentar`, data, ordenHeaders(clave));
@@ -115,6 +115,8 @@ export const guardarCalendario = (anio, data, clave = crypto.randomUUID()) => ap
 
 // Templates
 export const consultarPreparacion = (id) => api.get(`/biblioteca/incorporaciones/${id}/preparacion`);
+export const agregarAplicacion = (id, data, clave) => api.post(`/biblioteca/incorporaciones/${id}/agregar`, data, ordenHeaders(clave));
+export const sincronizarIaas = () => api.post('/templates/sincronizar-iaas');
 export const prepararAplicacion = (id, data, clave) => api.post(`/biblioteca/incorporaciones/${id}/preparar`, data, ordenHeaders(clave));
 export const confirmarFuncionamiento = (id, funciona, clave) => api.post(`/biblioteca/incorporaciones/${id}/confirmar-funcionamiento`, { funciona }, ordenHeaders(clave));
 export const publicarAplicacion = (id, data, clave) => api.post(`/biblioteca/incorporaciones/${id}/publicar`, data, ordenHeaders(clave));
@@ -188,6 +190,7 @@ export const deleteUsuario = retirarUsuario;
 // La evidencia se envía como texto para conservar las claves originales.
 export const registrarEvidencia = (documento, clave = crypto.randomUUID()) => api.post('/evidencias', documento, ordenHeaders(clave));
 export const getAccesoServicio = (id) => api.get(`/servicios/${id}/acceso`);
+export const abrirAplicacionServicio = (id) => api.post(`/servicios/${id}/abrir-aplicacion`, {});
 export const revelarAccesoServicio = (id) => api.post(`/servicios/${id}/acceso/revelar`, {});
 export const verificarAccesoServicio = (id, data, clave = crypto.randomUUID()) => api.post(`/servicios/${id}/verificar-acceso`, data, ordenHeaders(clave));
 export const getConsolaServicio = (id) => api.get(`/servicios/${id}/consola`);
@@ -228,6 +231,7 @@ export const getAvisos = (params = {}, options = {}) => api.get('/alertas/avisos
 export const getEstadoCorreo = (params = {}, options = {}) => api.get('/alertas/correo', { ...options, params });
 
 // Biblioteca: sólo descubrimiento e incorporación administrativa.
+export const getCategoriasAplicaciones = () => api.get('/biblioteca/categorias');
 export const buscarAplicaciones = (params) => api.get('/biblioteca/aplicaciones', { params });
 export const listarIncorporaciones = (params = {}) => api.get('/biblioteca/incorporaciones', { params });
 export const incorporarAplicacion = (body, key) => api.post('/biblioteca/incorporaciones', body, { headers: { 'Idempotency-Key': key } });

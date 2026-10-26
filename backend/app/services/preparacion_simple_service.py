@@ -1,5 +1,6 @@
 """Alta guiada: decisiones del administrador, detalles técnicos resueltos por NAP."""
 import hashlib
+import logging
 from uuid import UUID
 from sqlalchemy import select
 
@@ -12,7 +13,7 @@ from app.models.recurso_ensayo import RecursoEnsayo
 from app.models.recurso_template import RecursoTemplate
 from app.models.operacion_ensayo import OperacionEnsayo
 from app.schemas.ensayo import EnsayoCreate, RevisionBiblioteca, ComprobarEnsayo, DescartarEnsayo, PublicarOferta, PerfilOferta
-from app.schemas.preparacion_simple import SIMPLE_CHECKS
+from app.schemas.preparacion_simple import SIMPLE_CHECKS, AUTOMATIC_CHECKS
 from app.schemas.definicion import digest
 from app.schemas.evidencia import parse_document, canonical
 from app.schemas.tamanos import TAMANOS
@@ -58,9 +59,14 @@ async def estado(db, identity, *, actor):
         result['mensaje'] = 'Falta completar la conexión con Proxmox. Debe configurarla el responsable técnico una sola vez.'
     if not trial:
         return result
-    initial = await db.scalar(select(OperacionEnsayo).where(OperacionEnsayo.ensayo_id == trial.id, OperacionEnsayo.tipo == 'resolver').order_by(OperacionEnsayo.created_at).limit(1))
+    result['revision'] = trial.revision
+    result['progreso'] = {'pendiente': 'Iniciando el alta.', 'resolviendo': 'Obteniendo los archivos de la aplicación.',
+        'construyendo': 'Instalando la aplicación.', 'ensayando': 'Comprobando el funcionamiento.',
+        'comprobada': 'Terminando el alta en el catálogo.'}.get(trial.estado, '')
+    initial = await db.scalar(select(OperacionEnsayo).where(OperacionEnsayo.ensayo_id == trial.id, OperacionEnsayo.tipo == 'resolver').order_by(OperacionEnsayo.created_at).limit(1).execution_options(populate_existing=True))
     if initial:
         result['datos_servicio'] = initial.contexto_seguro.get('oferta')
+        result['alta_automatica'] = bool(initial.contexto_seguro.get('alta_automatica'))
     result['puede_preparar'] = False
     result['estado'] = 'preparando'
     if trial.publicacion_id:
@@ -84,14 +90,36 @@ async def estado(db, identity, *, actor):
         result['recursos'] = [{'id': str(row.id)} for row in resources if row.acceso_metadata.get('local_health')][:1]
     if result['estado'] in {'preparando', 'lista_para_probar', 'lista_para_publicar', 'publicada', 'eliminada', 'eliminando'}:
         result['mensaje'] = ''
+    if initial and initial.contexto_seguro.get('alta_error') and not trial.publicacion_id:
+        result['estado'] = 'fallida'
+        result['mensaje'] = initial.contexto_seguro['alta_error']
+    if not trial.publicacion_id and not trial.cancelada_at:
+        interrupted = await db.scalar(select(OperacionEnsayo.id).where(OperacionEnsayo.ensayo_id == trial.id,
+            OperacionEnsayo.estado.in_(['incierta', 'fallida'])).limit(1))
+        if interrupted and result['estado'] == 'preparando':
+            result['estado'] = 'fallida'
+            result['mensaje'] = 'No se pudo confirmar el último paso. Podés reintentar; se conserva lo que ya se completó.'
     return result
 
 
-async def preparar(db, identity, *, actor, clave, data=None, pve=None, builder=None):
+async def preparar(db, identity, *, actor, clave, data=None, pve=None, builder=None, automatico=False):
     actor = await requiere_admin_actual(db, actor)
     async def decide(session):
         inc, definition, trial = await actual(session, identity, actor, bloquear=True)
         if trial and (not trial.cancelada_at or trial.limpieza_estado != 'confirmada'):
+            if automatico and not trial.publicacion_id:
+                initial = await session.scalar(select(OperacionEnsayo).where(OperacionEnsayo.ensayo_id == trial.id, OperacionEnsayo.tipo == 'resolver'))
+                initial.contexto_seguro = {**initial.contexto_seguro, 'alta_automatica': True,
+                    'alta_error': None, 'oferta': data.model_dump()}
+                if trial.estado in {'incierta', 'fallida'}:
+                    from app.schemas.biblioteca_common import RevisionEsperada
+                    await ensayo_service.accion(session, trial.id, actor=actor,
+                        data=RevisionEsperada(revision_esperada=trial.revision), clave=subclave(clave, 'reintentar'), action='reintentar')
+                else:
+                    for pending in (await session.scalars(select(OperacionEnsayo).where(
+                        OperacionEnsayo.ensayo_id == trial.id, OperacionEnsayo.estado == 'incierta'))).all():
+                        pending.next_poll_at = clock.now()
+                await session.flush()
             return ResultadoDecision(200, await estado(session, identity, actor=actor))
         profile = perfil_automatico()
         if not profile:
@@ -111,11 +139,45 @@ async def preparar(db, identity, *, actor, clave, data=None, pve=None, builder=N
         if data:
             initial = await session.scalar(select(OperacionEnsayo).where(OperacionEnsayo.ensayo_id == UUID(started.resultado['id']), OperacionEnsayo.tipo == 'resolver'))
             initial.contexto_seguro = {**initial.contexto_seguro, 'oferta': {'nombre': data.nombre or inc.nombre,
-                'descripcion': data.descripcion, 'tamano': data.tamano}}
+                'descripcion': data.descripcion, 'tamano': data.tamano}, 'alta_automatica': automatico}
             await session.flush()
         return ResultadoDecision(202, await estado(session, identity, actor=actor))
     return await ejecutar(db, actor_id=actor.id, clave=clave, metodo='POST',
-        ruta=f'/biblioteca/incorporaciones/{identity}/preparar', payload=data.model_dump() if data else {}, decidir=decide)
+        ruta=f'/biblioteca/incorporaciones/{identity}/' + ('agregar' if automatico else 'preparar'), payload=data.model_dump() if data else {}, decidir=decide)
+
+
+async def completar_altas(sessions, *, pve=None):
+    """Continuación durable de Agregar; nunca depende de una pestaña abierta."""
+    from app.models.usuario import Usuario
+    async with sessions() as db:
+        pending = list((await db.scalars(select(EnsayoPreparacion.id).where(
+            EnsayoPreparacion.estado.in_(['lista_para_comprobar', 'comprobada']),
+            EnsayoPreparacion.cancelada_at.is_(None), EnsayoPreparacion.publicacion_id.is_(None)))).all())
+    for identity in pending:
+        async with sessions() as db:
+            trial = await db.get(EnsayoPreparacion, identity)
+            initial = await db.scalar(select(OperacionEnsayo).where(OperacionEnsayo.ensayo_id == identity, OperacionEnsayo.tipo == 'resolver'))
+            context = initial.contexto_seguro if initial else {}
+            if not context.get('alta_automatica') or context.get('alta_error'):
+                continue
+            actor = await db.get(Usuario, trial.creado_por)
+            try:
+                if trial.estado == 'lista_para_comprobar':
+                    await confirmar(db, trial.incorporacion_id, actor=actor, funciona=True,
+                        clave=f'alta-auto:{identity}:comprobar', pve=pve, automatico=True)
+                elif (await estado(db, trial.incorporacion_id, actor=actor))['estado'] == 'lista_para_publicar':
+                    from app.schemas.preparacion_simple import PublicarAplicacion
+                    await publicar(db, trial.incorporacion_id, actor=actor,
+                        data=PublicarAplicacion(**context['oferta']), clave=f'alta-auto:{identity}:ofrecer')
+                await db.commit()
+            except Exception as exc:
+                from fastapi import HTTPException
+                code = exc.detail.get('codigo', 'interno') if isinstance(exc, HTTPException) and isinstance(exc.detail, dict) else 'interno'
+                logging.getLogger(__name__).warning('alta_automatica no_confirmada ensayo_id=%s error_type=%s codigo=%s', identity, type(exc).__name__, code)
+                await db.rollback()
+                initial = await db.scalar(select(OperacionEnsayo).where(OperacionEnsayo.ensayo_id == identity, OperacionEnsayo.tipo == 'resolver'))
+                initial.contexto_seguro = {**initial.contexto_seguro, 'alta_error': 'No se pudo completar el alta. Revisá la conexión y volvé a intentar.'}
+                await db.commit()
 
 
 async def validar_evidencia_simple(db, definition, data):
@@ -134,14 +196,14 @@ async def validar_evidencia_simple(db, definition, data):
         or any(row.definition_sha256 != digest(artifact.manifest) or row.bundle_sha256 != artifact.bundle_sha256 for row in identities)
         or artifact.image_sha256 != data['image_sha256'] or artifact.bundle_sha256 != data['recipe_sha256']
         or {row.cluster_id for row in identities} != {data['cluster_uuid']}
-        or not SIMPLE_CHECKS <= set(data['checks'])):
+        or not (AUTOMATIC_CHECKS if 'automatic_verification' in data['checks'] else SIMPLE_CHECKS) <= set(data['checks'])):
         raise error(409, 'preparacion_incompleta', 'No se pudo comprobar la preparación de la aplicación.')
     passwords = [configured_keyring().decrypt(row.credenciales_encrypted, context=f'ensayo:{row.id}:secretos')['access_password'] for row in resources]
     if len(set(passwords)) != len(passwords):
         raise error(409, 'credenciales_no_independientes', 'La preparación necesita credenciales independientes.')
 
 
-async def confirmar(db, identity, *, actor, funciona, clave, pve=None):
+async def confirmar(db, identity, *, actor, funciona, clave, pve=None, automatico=False):
     actor = await requiere_admin_actual(db, actor)
     if not funciona:
         return await eliminar(db, identity, actor=actor, clave=clave)
@@ -170,12 +232,13 @@ async def confirmar(db, identity, *, actor, funciona, clave, pve=None):
         if artifact is None:
             raise error(409, 'preparacion_incompleta', 'La preparación todavía no terminó.')
         document = {'schema_version': 1, 'tipo': 'validacion_definicion', 'entorno': 'real',
-            'operador_institucional': actor.nombre, 'referencia_institucional': 'NAP-preparacion-simple:' + str(trial.id),
+            'operador_institucional': 'NAP (comprobación automática)' if automatico else actor.nombre,
+            'referencia_institucional': 'NAP-preparacion-simple:' + str(trial.id),
             'observado_at': clock.now().isoformat().replace('+00:00', 'Z'), 'resultado': {
                 'definicion_id': str(definition.id), 'definition_key': definition.codigo, 'definition_version': definition.version,
                 'image_sha256': artifact.image_sha256, 'recipe_sha256': artifact.bundle_sha256,
                 'cluster_uuid': get_settings().infrastructure_profile['cluster_id'], 'pve_versions': [version.valor['version']],
-                'instancias': sorted(str(row.resource_uuid) for row in identities), 'checks': sorted(SIMPLE_CHECKS)}}
+                'instancias': sorted(str(row.resource_uuid) for row in identities), 'checks': sorted(AUTOMATIC_CHECKS if automatico else SIMPLE_CHECKS)}}
         parse_document(canonical(document).encode())
         await capacidad_service.BloqueoCapacidad(session).__aenter__()
         result = await evidencia_service.registrar(session, document, usuario=actor, clave=subclave(clave, 'comprobacion'))

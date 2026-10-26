@@ -23,6 +23,11 @@ def compatible(template, definition):
 
 
 async def exigir_definicion(db, template, *, bloquear=False):
+    from app.services.bases_iaas_service import es_base, disponible
+    if es_base(template):
+        if not disponible(template):
+            raise error(422, 'base_iaas_no_disponible', 'La base Linux o su red no están disponibles.')
+        return None
     if not template.definicion_version_id:
         raise error(422, 'definicion_requerida', 'El perfil necesita una definición publicada compatible')
     query = select(DefinicionServicio).where(DefinicionServicio.id == template.definicion_version_id)
@@ -41,6 +46,15 @@ async def anexar_disponibilidad(db, templates):
     ids = {row.definicion_version_id for row in templates if row.definicion_version_id}
     definitions = {row.id: row for row in (await db.scalars(select(DefinicionServicio).where(DefinicionServicio.id.in_(ids)))).all()} if ids else {}
     for row in templates:
+        from app.services.bases_iaas_service import es_base, disponible
+        if es_base(row):
+            from app.schemas.tamanos import TAMANOS
+            row.minimum_resources = dict(TAMANOS['small'])
+            row.tamanos_permitidos = list(TAMANOS)
+            row.tamano_recomendado = identificar_tamano({key: getattr(row, 'default_' + key) for key in TAMANOS['small']}) or 'small'
+            row.oferta_disponible = disponible(row)
+            row.origen_biblioteca = False
+            continue
         definition = definitions.get(row.definicion_version_id)
         minimum = (definition.manifest or {}).get('minimum_resources') if definition else None
         row.codigo_definicion = definition.codigo if definition else None

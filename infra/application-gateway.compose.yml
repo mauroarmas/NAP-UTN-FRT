@@ -1,0 +1,37 @@
+# Complemento de instalación. La configuración privada y los certificados se
+# preparan una vez; no incluye datos, identidades ni claves del laboratorio.
+services:
+  api:
+    image: ${NAP_BACKEND_IMAGE:-nap-backend:local}
+    environment:
+      NAP_SETTINGS_FILE: /run/nap/settings.json
+    volumes:
+      - ${NAP_SETTINGS_DIR:?Indicar directorio privado absoluto}:/run/nap:ro
+  notificaciones:
+    environment:
+      NAP_SETTINGS_FILE: /run/nap/settings.json
+    volumes:
+      - ${NAP_SETTINGS_DIR:?Indicar directorio privado absoluto}:/run/nap:ro
+  application_gateway:
+    image: ${NAP_BACKEND_IMAGE:-nap-backend:local}
+    entrypoint: [uvicorn]
+    command: [app.application_gateway:app, --host, "0.0.0.0", --port, "8443", --ssl-certfile, /tls/server.crt, --ssl-keyfile, /tls/server.key, --no-access-log, --no-proxy-headers]
+    user: "10001:10001"
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 384m
+    cpus: 1
+    pids_limit: 64
+    environment:
+      NAP_SETTINGS_FILE: /run/nap/settings.json
+    ports:
+      - "${NAP_GATEWAY_BIND:-127.0.0.1}:${NAP_GATEWAY_HTTPS_PORT:-8443}:8443"
+    volumes:
+      - ${NAP_SETTINGS_DIR:?Indicar directorio privado absoluto}:/run/nap:ro
+      - ${NAP_APPLICATION_TLS_DIR:?Indicar directorio TLS absoluto}:/tls:ro
+    depends_on:
+      db:
+        condition: service_healthy

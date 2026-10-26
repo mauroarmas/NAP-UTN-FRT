@@ -124,6 +124,8 @@ class AccesoServicioResponse(Contrato):
     puede_revelar_credenciales: bool
     estado_entrega: Literal['no_preparado', 'solo_validacion', 'pendiente_verificacion', 'entregado', 'no_disponible']
     instrucciones: str
+    acceso_con_nap: bool = False
+    puede_abrir_con_nap: bool = False
     verificacion_instancia: dict | None = None
 
 

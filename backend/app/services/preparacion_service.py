@@ -61,6 +61,9 @@ def _profile(manifest, destination, *, frozen=None):
 
 
 async def validar_preparacion(*, sessions, asignacion, destino, runner=None, pve=None):
+    if asignacion.get('origen') == 'proxmox_iaas':
+        from app.services.bases_iaas_service import validar_snapshot
+        return await validar_snapshot(asignacion, destino, pve=pve)
     async with sessions() as db:
         definition = await _definition(db, asignacion)
         manifest = deepcopy(definition.manifest)

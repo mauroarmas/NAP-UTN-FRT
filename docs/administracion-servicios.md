@@ -1,49 +1,91 @@
 # Administración sencilla de servicios
 
-Desde **Catálogo** (`/catalogo`), administración consulta y gestiona las aplicaciones en una sola pantalla. Las cátedras sólo pueden consultar el catálogo y hacer pedidos.
+Desde **Catálogo**, administración gestiona los servicios. Las cátedras consultan lo disponible y hacen pedidos.
 
 ## Agregar una aplicación
 
-1. Pulsar **Agregar servicio**. Elegir una aplicación preparada o **Buscar en la biblioteca** e incorporarla.
-2. Completar **Nombre**, una descripción opcional y **Small** o **Medium**. Pulsar **Preparar aplicación**.
-3. Cuando aparezca **Ya podés probarla**, pulsar **Ver acceso**, abrir la aplicación y comprobar que funcione. Elegir **Funciona correctamente** o **No funciona, eliminar**.
-4. Si funciona, pulsar **Publicar servicio**. Quedará disponible para los pedidos de las cátedras.
+1. Pulsar **Agregar servicio** y buscar por nombre o elegir una categoría del proveedor.
+2. En una aplicación con **Instalación automática**, pulsar **Agregar servicio**, revisar nombre y descripción y elegir **Agregar al catálogo**.
+3. NAP completa la instalación y las comprobaciones en segundo plano. Al terminar muestra **Servicio disponible**.
 
-NAP se ocupa de la preparación técnica. Se puede cerrar la ventana y retomarla después. No hay que introducir entornos, códigos, versiones ni documentos técnicos. La preparación no vence a las 24 horas; la publicación permanece hasta que administración la retire. Si falla la preparación, se puede eliminar y comenzar otra vez.
+Se puede cerrar la ventana y volver después. No hay pasos manuales de preparar, comprobar o publicar,
+ni plazos de 24 horas. Si algo falla, se muestra el problema y se puede reintentar o cancelar el alta.
+Agregar una aplicación conserva su imagen para reutilizarla y retira los contenedores auxiliares.
+Cada pedido aprobado tendrá su propia instancia. Retirar un servicio impide nuevos pedidos y conserva los existentes.
 
-Publicar conserva la aplicación preparada para reutilizarla y libera los recursos auxiliares de preparación. Cada pedido aprobado tendrá su propia instancia y sus propios datos. Retirar una oferta impide nuevos pedidos y conserva los existentes.
+Actualmente, Draw.io tiene instalación automática. Otras aplicaciones de la biblioteca pueden necesitar
+soporte técnico inicial; NAP lo indica antes de permitir agregarlas. No se crean fichas para aplicaciones
+sin instalación disponible ni aparece una sección «Guardadas». Las altas existentes se retoman al
+elegir nuevamente la aplicación. Guardar una ficha no equivale a contar con instalación automática.
 
-La biblioteca permite descubrir aplicaciones; sólo las que cuentan con una preparación compatible pueden instalarse desde NAP. Draw.io es el piloto disponible en esta integración. Incorporar una ficha no significa que ya esté instalada.
+Las categorías y descripciones se consultan en las colecciones públicas del proveedor; si no se
+pueden actualizar, se informa y sigue disponible la búsqueda por nombre. Descubrir una aplicación
+no habilita la ejecución automática de su script.
 
-## Conexión inicial
+El objetivo acordado es una nube pequeña para la universidad, incluyendo aplicaciones propias
+basadas en imágenes. Esa ampliación sigue pendiente: ver [rumbo del producto](rumbo-mini-cloud.md).
 
-El responsable técnico debe dejar configurada la conexión institucional con Proxmox, la construcción de aplicaciones y la red una sola vez. Cuando falta esa configuración, NAP lo indica y deshabilita la preparación. Administración no tiene que adivinar ni escribir identificadores técnicos en cada alta. Ver [conexión de infraestructura](conexion-infraestructura.md).
+## Entornos Linux (IaaS)
 
-## Dos tamaños
+**Ubuntu 24.04 y Debian 13** aparecen automáticamente cuando sus plantillas estándar están descargadas
+en Proxmox y está configurada la red Linux. **Actualizar catálogo** vuelve a consultar el nodo.
+No hay que construirlas ni publicarlas. Retirar una base se respeta en las siguientes actualizaciones.
+
+## Dos tamaños y aprobación
 
 | Tamaño | CPU | Memoria | Disco |
 |---|---:|---:|---:|
 | Small | 1 vCPU | 512 MB | 4 GB |
 | Medium | 2 vCPU | 1024 MB | 8 GB |
 
-Ambos utilizan la base Linux institucional Ubuntu 24.04 en LXC. Un tamaño insuficiente para la aplicación aparece deshabilitado. Si ninguno alcanza, debe revisarse su preparación o la capacidad disponible.
+La cátedra elige el servicio, explica su propósito pedagógico e indica las fechas. Se conserva **Otro**
+para necesidades aún no disponibles. Administración elige Small o Medium y aprueba, rechaza o pide aclaración.
+Aprobar reserva los recursos; se despliega desde la fecha inicial. Cambiar una recomendación no modifica
+los pedidos ya aprobados. La vigencia académica sigue siendo independiente del catálogo.
 
-## Pedido y aprobación
-
-La cátedra elige la aplicación, explica su propósito pedagógico e indica las fechas. No elige hardware. Se conserva **Otro** para necesidades aún no disponibles.
-
-Administración elige el servicio y Small o Medium, evalúa la capacidad y aprueba, rechaza o pide una aclaración. Aprobar reserva los recursos; después se despliega desde la fecha inicial. Las fechas académicas del pedido siguen vigentes: son independientes de la permanencia de la aplicación en el catálogo.
-
-Cambiar una recomendación no modifica pedidos ya aprobados. Las renovaciones mantienen sus recursos originales.
+Al revisar un pedido, NAP comprueba la disponibilidad automáticamente. El formulario muestra
+el servicio, Small/Medium y las fechas solicitadas; **Cambiar fechas** permite ajustarlas.
+Los detalles de capacidad quedan en una sección opcional. **Aprobar pedido** reserva los recursos;
+**Desplegar después de aprobar** solicita también la creación si la fecha inicial está habilitada.
+Si otra asignación cambia la capacidad, se conservan los datos y se puede usar **Actualizar disponibilidad**.
+Las variaciones normales del uso de memoria del host no invalidan la aprobación.
 
 ## Pruebas manuales
 
-- Como administrador, abrir **Catálogo → Agregar servicio**: comprobar que sólo se pidan nombre, descripción y tamaño. No debe haber entorno de prueba, plazo de 24 horas ni opciones técnicas avanzadas.
-- Con infraestructura configurada, preparar Draw.io, cerrar y volver a abrir la ventana: debe recuperar el progreso sin crear otra preparación.
-- Abrir la aplicación, crear y guardar un diagrama. Confirmar que funciona y publicar. Debe aparecer en **Servicios disponibles**.
-- En otra preparación, elegir **No funciona, eliminar**: debe mostrar la eliminación y permitir comenzar de nuevo cuando termine.
-- Sin infraestructura configurada, debe aparecer un mensaje claro y no deben crearse recursos.
-- Como cátedra, comprobar que se pueda pedir una aplicación publicada o **Otro**, con justificación y fechas, sin herramientas administrativas.
-- Retirar una oferta: debe impedir nuevos pedidos y conservar los ya aprobados.
+- Abrir **Catálogo** como administrador: Ubuntu, Debian y Draw.io deben figurar como disponibles en el laboratorio.
+- Filtrar por **IaaS**, **PaaS** o **SaaS** y buscar por nombre.
+- Hacer un pedido de Ubuntu o Debian con justificación y fechas; aprobarlo con Small y desplegarlo cuando la fecha inicial lo permita.
+- En **Servicios → Ver acceso**, comprobar que se recuperen las credenciales. El administrador puede abrir
+  la consola iniciando sesión con su cuenta propia de Proxmox. Las cátedras necesitan su acceso individual
+  configurado por la institución; NAP no comparte la cuenta ni el token de administración.
+- Agregar una aplicación compatible: no deben aparecer pasos de preparar o publicar. Cerrar la ventana,
+  volver a abrirla y comprobar que continúe la misma alta.
+- Simular una desconexión: debe conservar el catálogo anterior y mostrar el error, sin anunciar un alta exitosa.
+- Como cátedra, comprobar que se puedan pedir servicios disponibles u **Otro**, sin herramientas administrativas.
 
-Las pruebas que crean aplicaciones requieren la infraestructura conectada. Las comprobaciones automatizadas con simuladores no sustituyen ese recorrido real.
+El responsable técnico configura la conexión y las redes una sola vez. Ver [conexión de infraestructura](conexion-infraestructura.md).
+Las pruebas automatizadas con simuladores no sustituyen verificaciones en la infraestructura real.
+
+## Seguir un despliegue
+
+En **Pedidos → Ver detalle**, NAP muestra el avance por etapas: preparar recursos, crear instancia,
+iniciar aplicación y habilitar acceso. La barra representa etapas completadas, sin estimar minutos.
+El listado y el detalle se actualizan automáticamente mientras el pedido está en despliegue.
+
+**Servicio iniciado · acceso pendiente** significa que la instancia ya arrancó y falta completar la
+verificación de acceso. No indica que continúe instalándose. **Servicio disponible** corresponde a
+la entrega completada. Si hay un error o una consulta falla, se muestra esa situación y se conserva
+el último estado conocido.
+
+La **campana de notificaciones** muestra avisos de aprobación, inicio de despliegue y resultado.
+Al pulsar un aviso se abre su pedido. Se pueden marcar como leídos; esa preferencia se guarda por
+cuenta en este navegador. Los avisos nuevos de avance son internos al portal; los correos de los
+otros eventos conservan su configuración existente.
+
+Draw.io se abre desde **Servicios → Ver acceso → Abrir aplicación** usando la sesión de NAP, sin otra
+contraseña. El texto de BookStack sólo corresponde a BookStack. Ver [acceso con NAP](acceso-aplicaciones-nap.md).
+
+En **Ver acceso** sólo se muestran el estado y las acciones de uso. No se piden documentos de evidencia,
+UUID ni fechas técnicas. Las comprobaciones automáticas y el historial permanecen internos.
+
+Fuente de categorías: [colección pública de Community Scripts](https://db.community-scripts.org/api/collections/script_categories/records?perPage=500).

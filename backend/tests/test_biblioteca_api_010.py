@@ -59,3 +59,11 @@ async def test_cursor_invalidado_faltantes_y_producto_no_soportado(client, auth_
     altered = await client.get('/biblioteca/aplicaciones?q=drawio&cursor='+first['next_cursor'], headers=auth_admin)
     assert altered.status_code == 409
     assert 'version' in first['items'][0]['faltantes']
+
+async def test_categorias_de_la_fuente_solo_para_admin(client,auth_admin,auth_catedra,fuente):
+    fuente.items.extend([{**DRAWIO,'identidad_externa':'ct/mariadb.sh','categorias':['Databases','diagramas']}])
+    assert (await client.get('/biblioteca/categorias')).status_code==401
+    assert (await client.get('/biblioteca/categorias',headers=auth_catedra)).status_code==403
+    response=await client.get('/biblioteca/categorias',headers=auth_admin)
+    assert response.status_code==200 and response.json()['items']==['Databases','diagramas']
+    assert response.headers['cache-control']=='no-store'

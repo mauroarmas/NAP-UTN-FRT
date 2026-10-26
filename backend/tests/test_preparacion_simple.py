@@ -113,3 +113,43 @@ async def test_alta_simple_sin_plazo_y_publicacion_o_eliminacion(db,engine,admin
     assert (await simple.estado(db,inc,actor=admin))['estado']==('publicada' if publish else 'eliminada')
     ledgers=(await db.scalars(select(CompromisoCapacidad).where(CompromisoCapacidad.recurso_ensayo_id.is_not(None)))).all()
     assert all(row.liberado_at for row in ledgers)
+
+
+async def test_agregar_completa_sin_pasos_manuales_y_poll_stage_admite_contrato(db, engine, admin, proxmox, perfil_capacidad, monkeypatch):
+    from app.schemas.build_runner import BuildRequest
+    inc, did, original = await setup(db, admin, proxmox, monkeypatch, perfil_capacidad)
+    class AsyncStage:
+        def __init__(self): self.pending = {}; self.polled = False
+        async def execute(self, request, *, host_id):
+            if request['operation_id'] in self.pending and request['action'] == 'status':
+                BuildRequest.model_validate(request)  # Rechazaba validated_manifest en status y quedaba clavado.
+                self.polled = True
+                return self.pending[request['operation_id']]
+            result = await original.execute(request, host_id=host_id)
+            if request['action'] == 'stage' and request.get('validated_manifest'):
+                self.pending[request['operation_id']] = result
+                return {'status': 'accepted', 'result': {}}
+            return result
+    builder = AsyncStage()
+    monkeypatch.setattr(catalogo_service, 'comprobar_disponibilidad', AsyncMock())
+    result = await simple.preparar(db, inc, actor=admin, clave='agregar-directo',
+        data=PublicarAplicacion(nombre='Diagramas', tamano='small'), automatico=True, pve=proxmox, builder=builder)
+    assert result.resultado['alta_automatica']
+    tid = UUID(result.resultado['preparacion_id'])
+    await db.commit()
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    for _ in range(26):
+        for op in (await db.scalars(select(OperacionEnsayo).where(OperacionEnsayo.ensayo_id == tid))).all():
+            op.next_poll_at = clock.now()
+        await db.commit()
+        await ensayo_worker.procesar_una(sessions, builder=builder, pve=proxmox, runner=DrawRunner())
+        await simple.completar_altas(sessions, pve=proxmox)
+        state = await simple.estado(db, inc, actor=admin)
+        await db.commit()
+        if state['estado'] == 'publicada': break
+    assert state['estado'] == 'publicada', state
+    assert builder.polled
+    row = await db.scalar(select(RecursoTemplate).where(RecursoTemplate.nombre == 'Diagramas'))
+    assert row and row.activo
+    await simple.completar_altas(sessions, pve=proxmox)
+    assert await db.scalar(select(func.count()).select_from(RecursoTemplate).where(RecursoTemplate.nombre == 'Diagramas')) == 1

@@ -4,15 +4,26 @@ Estado al 20 de octubre de 2026: recetas y flujo local implementados. Las prueba
 
 ## Uso diario
 
-Una **definición** fija software, versión, imagen, receta y pruebas. Un **perfil** asocia CPU/RAM/disco a esa definición. Cada **instancia** contiene los datos y credenciales de una cátedra. La preparación técnica inicial se realiza una vez por versión; solicitar y desplegar instancias usa el portal, sin instalar paquetes en cada guest.
+El administrador abre **Catálogo → Agregar servicio**, elige una aplicación compatible y pulsa
+**Agregar al catálogo**. NAP construye/comprueba la aplicación en segundo plano y la ofrece al
+terminar. No hay confirmaciones manuales de preparar o publicar ni plazo de 24 horas.
+Draw.io está integrado; otras aplicaciones requieren un adaptador permitido antes de instalarse.
 
-1. Administración publica una versión validada en **Definiciones** y crea un perfil compatible en **Perfiles de recursos**.
-2. El docente elige el perfil en **Catálogo**, cátedra y vigencia. Administración evalúa la selección explícita y aprueba.
-3. Desde la fecha inicial se ordena desplegar. El worker crea LXC y prepara esa versión; la aprobación conserva imagen/receta y recursos aunque luego se retire del catálogo.
-4. En **Servicios → Ver acceso**, administración revela el acceso inicial solo para validar. Prueba la instancia desde la red prevista, importa su evidencia y confirma la referencia por separado.
-5. El pedido pasa a activo y el responsable puede revelar su acceso inicial. Un contenedor encendido o un probe local no completan la entrega.
+Ubuntu 24.04 y Debian 13 se descubren directamente en el almacenamiento de plantillas de Proxmox.
+El catálogo las sincroniza sin construirlas y respeta las retiradas del administrador. La red Linux
+se configura una sola vez mediante `iaas_network_profile_id`; `iaas_template_storage` indica el
+almacenamiento de plantillas (por defecto `local`). Las aplicaciones conservan sus imágenes y recetas
+inmutables, con verificaciones automáticas diferenciadas de la aceptación humana o de una red externa.
 
-QEMU conserva lectura histórica; no se ofrecen nuevas VMs. La consola Linux exige además el gate institucional de permisos/revocación T101.
+La cátedra solicita aplicación/propósito/fechas. Administración aprueba y elige Small o Medium;
+la reserva se efectúa al aprobar y el despliegue comienza desde la fecha inicial. **Ver acceso**
+permite consultar las credenciales de la instancia autorizada. Para la consola docente sigue
+siendo necesario configurar su identidad Proxmox individual y el aislamiento institucional.
+El administrador abre la consola con su propia cuenta nativa, sin compartir el token de NAP.
+
+La [guía de administración](../../docs/administracion-servicios.md) describe el recorrido habitual.
+La [guía del laboratorio](../../docs/laboratorio-biblioteca.md) distingue ensayos reales y pendientes.
+QEMU conserva lectura histórica; no se ofrecen nuevas VMs.
 
 ## Qué preparar con infraestructura
 
@@ -21,7 +32,7 @@ Usar un host/VM de build Ubuntu 24.04 amd64 separado de los nodos operativos y s
 Resolver y registrar antes del build:
 
 - Rootfs oficial Ubuntu 24.04 amd64 y su SHA-256 verificado. Conservar procedencia/fecha y comprobación del archivo oficial; no usar una referencia flotante como identidad del artefacto.
-- Revisión Git íntegra **comprometida** que coincida con common.py, receta, build.sh, builder y saneador. El build real rechaza código distinto de esa revisión. Este trabajo todavía está sin commits; no se realizó un build operativo.
+- Revisión Git íntegra **comprometida** que coincida con common.py, receta, build.sh, builder y saneador. El build real rechaza código distinto de esa revisión. El laboratorio utiliza un snapshot Git privado y ya realizó construcciones reales; no hay commit en el repositorio de trabajo.
 - Lock completo de todos los paquetes del rootfs final, incluidos base y cierre de dependencias, con versiones exactas. El operador lo obtiene en una preparación aislada de la misma base y repositorios y lo revisa; el builder no resuelve silenciosamente un lock ni acepta un inventario diferente. Si cambia un paquete, crear/revisar otra versión.
 - Destino de imagen LXC en PVE, almacenamiento rootdir, nodo, clúster UUID institucional, red/bridge/VLAN y rangos permitidos. DHCP/DNS/rutas/certificados los proporciona infraestructura.
 - Cuenta SSH/forced-command/hostkeys/registro y clave montada en el worker conforme a [runner](../runner/README.md). Usar identidad nativa PVE individual y comprobar scopes, permisos heredados y revocación antes de habilitar consola.

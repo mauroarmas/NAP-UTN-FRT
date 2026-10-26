@@ -28,6 +28,14 @@ async def listar_tamanos(current_user: Usuario = Depends(require_admin)):
     return [{'id': name, 'nombre': name.title(), **resources} for name, resources in TAMANOS.items()]
 
 
+@router.post('/sincronizar-iaas')
+async def sincronizar_iaas(current_user: Usuario = Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    from app.services.bases_iaas_service import sincronizar
+    count = await sincronizar(db)
+    await db.commit()
+    return {'disponibles': count}
+
+
 @router.get("/", response_model=list[TemplateResponse])
 async def listar_templates(
     incluir_retiradas: bool = False,

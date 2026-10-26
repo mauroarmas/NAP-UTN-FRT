@@ -56,7 +56,7 @@ async def owned(db,lease):
 
 
 def finish(op):
-    op.estado='confirmada';op.lease_owner=None;op.lease_until=None
+    op.estado='confirmada';op.lease_owner=None;op.lease_until=None;op.error_codigo=None
 
 
 async def renovar_lease(sessions,lease):
@@ -112,7 +112,9 @@ async def procesar_una(sessions,*,builder=None,pve=None,runner=None,owner=None):
                 if not poll:op.dispatch_started_at=clock.now()
                 host_id=profile.builder_id
                 await db.commit()
-                response=await (builder or BuildRunnerClient()).execute({**request,'action':'status'} if poll else request,host_id=host_id)
+                # status no admite el manifiesto de stage: sólo consulta la operación ya enviada.
+                status_request={k:v for k,v in request.items() if k!='validated_manifest'}
+                response=await (builder or BuildRunnerClient()).execute({**status_request,'action':'status'} if poll else request,host_id=host_id)
                 async with sessions() as current:
                     trial,op=await owned(current,lease)
                     if response['status'] in {'accepted','running','unknown','not_found'}:

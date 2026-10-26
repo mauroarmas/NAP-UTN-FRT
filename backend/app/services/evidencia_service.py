@@ -46,12 +46,12 @@ async def validar_destino(db, document):
             raise error(422, 'evidencia_invalida', 'Definición no registrada')
         if (definition.codigo, definition.version) != (data['definition_key'], data['definition_version']):
             raise error(409, 'evidencia_desactualizada', 'La evidencia corresponde a otra versión')
-        simple = 'simple_verification' in data['checks']
+        simple = bool({'simple_verification', 'automatic_verification'} & set(data['checks']))
         if simple:
-            from app.schemas.preparacion_simple import SIMPLE_CHECKS
+            from app.schemas.preparacion_simple import SIMPLE_CHECKS, AUTOMATIC_CHECKS
             from app.services.preparacion_simple_service import validar_evidencia_simple
             await validar_evidencia_simple(db, definition, data)
-            required = SIMPLE_CHECKS
+            required = AUTOMATIC_CHECKS if 'automatic_verification' in data['checks'] else SIMPLE_CHECKS
         else:
             required = BASE_CHECKS | ({'unique_secrets'} if definition.producto in {'postgresql', 'bookstack', 'drawio'} else set())
             if definition.producto == 'drawio':

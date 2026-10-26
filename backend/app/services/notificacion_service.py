@@ -169,7 +169,7 @@ async def encolar_aviso_servicio(db, service, *, evento, tipo, asunto, texto, in
     await db.flush()
 
 
-async def encolar_aviso_pedido(db, pedido, *, evento, tipo, asunto, texto, destinatarios='titular'):
+async def encolar_aviso_pedido(db, pedido, *, evento, tipo, asunto, texto, destinatarios='titular', solo_portal=False):
     """Aviso transaccional y deduplicado del ciclo de vida del pedido."""
     from html import escape
     from app.models.catedra import Catedra
@@ -190,7 +190,7 @@ async def encolar_aviso_pedido(db, pedido, *, evento, tipo, asunto, texto, desti
     safe_json(payload)
     insert = pg_insert if db.bind.dialect.name == 'postgresql' else sqlite_insert
     for user in (await db.scalars(query)).all():
-        for channel in ['portal'] + (['email'] if user.email and user.recibir_notificaciones_email else []):
+        for channel in ['portal'] + (['email'] if not solo_portal and user.email and user.recibir_notificaciones_email else []):
             identity = await db.scalar(insert(Notificacion).values(evento_clave=evento,
                 destinatario_usuario_id=user.id, destinatario_normalizado=f'usuario:{user.id}', canal=channel,
                 catedra_id=pedido.catedra_id, servicio_id=None, payload=payload, proximo_intento_at=clock.now())
@@ -200,6 +200,16 @@ async def encolar_aviso_pedido(db, pedido, *, evento, tipo, asunto, texto, desti
                 entry = await db.get(Notificacion, identity)
                 entry.destinatario_email_cifrado = configured_keyring().encrypt(user.email, context=f'email:{entry.id}')
     await db.flush()
+
+
+async def avisar_despliegue_confirmado(db, pedido, servicio, operacion):
+    ready = servicio.disponibilidad_aplicacion == 'utilizable'
+    await encolar_aviso_pedido(db, pedido, evento=f'operacion:{operacion.id}:despliegue_confirmado',
+        tipo='servicio_disponible' if ready else 'servicio_iniciado',
+        asunto=f'Pedido #{pedido.id}: ' + ('servicio disponible' if ready else 'servicio iniciado'),
+        texto=('El servicio está disponible. Podés consultar sus datos en Servicios.' if ready else
+               'La instancia se creó e inició correctamente. Falta que administración compruebe el acceso para completar la entrega.'),
+        destinatarios='ambos', solo_portal=True)
 
 
 async def encolar_aviso_ensayo(db,trial):

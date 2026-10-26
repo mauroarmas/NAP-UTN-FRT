@@ -86,3 +86,32 @@ async def test_oversubscription_needs_reason_but_cannot_override_physical_storag
         json={**payload, 'capacidad_token': evaluated.json()['capacidad_token'], 'justificacion_capacidad': 'No elude un límite físico'})
     assert physical.status_code == 409
     assert physical.json()['detail']['codigo'] == 'limite_fisico'
+
+
+async def test_telemetria_normal_no_invalida_aprobacion(client, db, proxmox, perfil_capacidad, catedra, usuario_catedra, template, auth_admin):
+    pedido = await preparar_pedido(db, catedra, usuario_catedra, template)
+    payload = seleccion(template)
+    evaluated = await client.post(f'/pedidos/{pedido.id}/evaluacion', headers=auth_admin, json=payload)
+    assert evaluated.status_code == 200
+    # Reproduce la VM real: cambia RAM usada por el host y algunos bytes de disco,
+    # sin modificar recursos configurados, compromisos ni elegibilidad del pedido.
+    proxmox.nodos[0]['mem'] += 3 * 1024**2
+    proxmox.storages[0]['avail'] -= 4096
+    approved = await client.post(f'/pedidos/{pedido.id}/aprobar', headers=auth_admin | {'Idempotency-Key': 'telemetria-estable'},
+        json={**evaluated.json()['seleccion'], 'capacidad_token': evaluated.json()['capacidad_token']})
+    assert approved.status_code == 200, approved.text
+
+
+async def test_perder_espacio_fisico_sigue_impidiendo_aprobar(client, db, proxmox, perfil_capacidad, catedra, usuario_catedra, template, auth_admin):
+    from sqlalchemy import select, func
+    from app.models.compromiso_capacidad import CompromisoCapacidad
+    pedido = await preparar_pedido(db, catedra, usuario_catedra, template)
+    evaluated = await client.post(f'/pedidos/{pedido.id}/evaluacion', headers=auth_admin, json=seleccion(template))
+    assert evaluated.status_code == 200
+    proxmox.storages[0]['avail'] = 1024**3
+    denied = await client.post(f'/pedidos/{pedido.id}/aprobar', headers=auth_admin | {'Idempotency-Key': 'sin-disco-fisico'},
+        json={**evaluated.json()['seleccion'], 'capacidad_token': evaluated.json()['capacidad_token']})
+    assert denied.status_code == 409
+    assert await db.scalar(select(func.count()).select_from(CompromisoCapacidad)) == 0
+    await db.refresh(pedido)
+    assert pedido.estado.value == 'solicitado'

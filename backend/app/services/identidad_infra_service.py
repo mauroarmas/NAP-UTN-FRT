@@ -60,7 +60,7 @@ async def reclamar(db, operation, *, pve=None):
             raise InfraNoVerificable()
         resource_uuid, nonce = uuid4(), secrets.token_urlsafe(32)
         product = operation.contexto_seguro['asignacion'].get('product')
-        if product in {'postgresql', 'bookstack', 'drawio'}:
+        if product in {'postgresql', 'bookstack', 'drawio'} or operation.contexto_seguro['asignacion'].get('origen') == 'proxmox_iaas':
             from app.services.reserva_red_service import reservar
             network_id = operation.contexto_seguro.get('preparacion_validada', {}).get('network_profile_id')
             resource_uuid, allocation = await reservar(db, network_id=network_id, product=product, node=destination['nodo'])

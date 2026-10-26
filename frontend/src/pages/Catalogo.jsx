@@ -5,8 +5,9 @@ import { getTemplates } from '../services/api';
 import { PageHead, Empty } from '../components/ui';
 import NuevoPedidoModal from '../components/NuevoPedidoModal';
 import { mensajeError } from '../utils/errors';
+import { MODELOS_SERVICIO } from '../utils/catalogo';
 
-const MODELS = [['iaas', 'Linux'], ['paas', 'Bases de datos'], ['saas', 'Aplicaciones']];
+const MODELS = MODELOS_SERVICIO;
 
 export default function Catalogo({ user }) {
   const [profiles, setProfiles] = useState([]);

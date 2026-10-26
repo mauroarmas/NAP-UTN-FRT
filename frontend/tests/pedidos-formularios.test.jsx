@@ -67,7 +67,7 @@ test('un año sin calendario explica el faltante sin inventar fechas', async () 
   expect(api.createPedido).not.toHaveBeenCalled();
 });
 
-test('editar costo invalida la evaluación y el token hasta volver a evaluar', async () => {
+test('cambiar tamaño actualiza disponibilidad automáticamente antes de aprobar', async () => {
   const user = userEvent.setup();
   api.evaluarPedido.mockImplementation(async (_id, payload) => ({ data: {
     pedido_id: 1, seleccion: payload, version_solicitada: '1.0.0', version_efectiva: '2.0.0', cambio_version: true, capacidad_token: 'token-' + payload.asignacion.ram_mb,
@@ -76,43 +76,37 @@ test('editar costo invalida la evaluación y el token hasta volver a evaluar', a
     vigencia_efectiva: { inicio_at: '2027-03-01T03:00:00Z', fin_exclusivo_at: '2027-07-01T03:00:00Z' },
   } }));
   render(<AprobarPedidoModal open pedido={{ id: 1, template_id: 1, modelo_servicio: 'iaas', vigencia: dates }} templates={templates} onClose={vi.fn()} />);
-  await waitFor(() => expect(screen.getByRole('button', { name: 'Evaluar asignación' })).toBeEnabled());
-  await user.click(screen.getByRole('button', { name: 'Evaluar asignación' }));
-  expect(await screen.findByText(/Versión solicitada: 1.0.0. Versión a autorizar: 2.0.0/)).toBeVisible();
   await waitFor(() => expect(api.evaluarPedido).toHaveBeenCalledTimes(1));
+  expect(await screen.findByText(/Se usará la versión 2.0.0/)).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Evaluar asignación' })).not.toBeInTheDocument();
   await user.click(screen.getByRole('radio', { name: /^Medium/ }));
-  expect(screen.getByRole('button', { name: /^Aprobar/ })).toBeDisabled();
-  await waitFor(() => expect(screen.getByRole('button', { name: 'Evaluar asignación' })).toBeEnabled());
-  await user.click(screen.getByRole('button', { name: 'Evaluar asignación' }));
+  expect(screen.getByRole('button', { name: 'Aprobar pedido' })).toBeDisabled();
   await user.type(await screen.findByLabelText(/Justificación/), 'Capacidad deliberada para la práctica');
-  await user.click(screen.getByRole('button', { name: /^Aprobar/ }));
+  await user.click(screen.getByRole('button', { name: 'Aprobar pedido' }));
   await waitFor(() => expect(api.aprobarPedido).toHaveBeenCalled());
   const payload = api.aprobarPedido.mock.calls[0][1];
   expect(payload.asignacion).toMatchObject({ ram_mb: 1024, vcpus: 2, disk_gb: 8, tamano: 'medium' });
   expect(payload.capacidad_token).toBe('token-1024');
 });
 
-test('409 conserva recursos, fechas y motivo pero exige reevaluar', async () => {
+test('409 conserva selección, fechas y motivo y permite actualizar disponibilidad', async () => {
   const user = userEvent.setup();
   api.evaluarPedido.mockImplementation(async (_id, seleccion) => ({ data: {
-    seleccion, capacidad_token: 'token', justificacion_requerida: true, restricciones_fisicas: [],
-    costo_incremental: seleccion.asignacion,
+    seleccion, capacidad_token: 'token', justificacion_requerida: true, restricciones_fisicas: [], costo_incremental: seleccion.asignacion,
   } }));
   api.aprobarPedido.mockRejectedValue({ response: { status: 409, data: { detail: {
     codigo: 'token_desactualizado', mensaje: 'La capacidad cambió. Volvé a evaluar.',
   } } } });
   render(<AprobarPedidoModal open pedido={{ id: 1, template_id: 1, modelo_servicio: 'iaas', vigencia: dates }} templates={templates} onClose={vi.fn()} />);
-  await waitFor(() => expect(screen.getByRole('button', { name: 'Evaluar asignación' })).toBeEnabled());
-  await user.click(screen.getByRole('button', { name: 'Evaluar asignación' }));
   await user.type(await screen.findByLabelText(/Justificación/), 'Motivo que debe conservarse');
-  await user.click(screen.getByRole('button', { name: /^Aprobar/ }));
+  await user.click(screen.getByRole('button', { name: 'Aprobar pedido' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('La capacidad cambió');
   expect(screen.getByRole('radio', { name: /^Small/ })).toBeChecked();
+  await user.click(screen.getByRole('button', { name: 'Cambiar fechas' }));
   expect(screen.getByLabelText('Fecha desde')).toHaveValue('2027-03-01');
   expect(screen.getByLabelText('Fecha hasta')).toHaveValue('2027-06-30');
-  expect(screen.getByRole('button', { name: /^Aprobar/ })).toBeDisabled();
-  await waitFor(() => expect(screen.getByRole('button', { name: 'Evaluar asignación' })).toBeEnabled());
-  await user.click(screen.getByRole('button', { name: 'Evaluar asignación' }));
+  expect(screen.getByRole('button', { name: 'Aprobar pedido' })).toBeDisabled();
+  await user.click(screen.getByRole('button', { name: 'Actualizar disponibilidad' }));
   expect(await screen.findByLabelText(/Justificación/)).toHaveValue('Motivo que debe conservarse');
 });
 
@@ -200,4 +194,42 @@ test('la solicitud sólo consulta años lectivos desde 2026 y bloquea fechas ant
   await user.type(screen.getByLabelText('Fecha hasta'), '2026-03-01');
   expect(await screen.findByText('Las fechas deben corresponder a 2026 o un año posterior.')).toBeVisible();
   expect(screen.getByRole('button', { name: 'Enviar solicitud', exact: true })).toBeDisabled();
+});
+
+
+test('una respuesta anterior no habilita aprobar el tamaño equivocado', async () => {
+  const user = userEvent.setup();
+  let resolveFirst;
+  api.evaluarPedido.mockImplementation(async (_id, seleccion) => {
+    const response = { data: { seleccion, capacidad_token: 'token-' + seleccion.asignacion.ram_mb,
+      justificacion_requerida: false, restricciones_fisicas: [], costo_incremental: seleccion.asignacion } };
+    if (seleccion.asignacion.ram_mb === 512) return new Promise((resolve) => { resolveFirst = () => resolve(response); });
+    return response;
+  });
+  render(<AprobarPedidoModal open pedido={{ id: 1, template_id: 1, modelo_servicio: 'iaas', vigencia: dates }} templates={templates} onClose={vi.fn()}/>);
+  await waitFor(() => expect(resolveFirst).toBeTypeOf('function'));
+  await user.click(screen.getByRole('radio', { name: /^Medium/ }));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Aprobar pedido' })).toBeEnabled());
+  resolveFirst();
+  await user.click(screen.getByRole('button', { name: 'Aprobar pedido' }));
+  await waitFor(() => expect(api.aprobarPedido).toHaveBeenCalledOnce());
+  expect(api.aprobarPedido.mock.calls[0][1]).toMatchObject({ capacidad_token: 'token-1024', asignacion: { tamano: 'medium', ram_mb: 1024 } });
+});
+
+test('actualizaciones del listado no borran las fechas editadas ni el tamaño', async () => {
+  const user = userEvent.setup();
+  api.evaluarPedido.mockImplementation(async (_id, seleccion) => ({ data: {
+    seleccion, capacidad_token: 'token', justificacion_requerida: false, restricciones_fisicas: [], costo_incremental: seleccion.asignacion,
+  } }));
+  const pedido = { id: 1, template_id: 1, modelo_servicio: 'iaas', vigencia: dates };
+  const props = { open: true, pedido, templates, onClose: vi.fn() };
+  const { rerender } = render(<AprobarPedidoModal {...props}/>);
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Aprobar pedido' })).toBeEnabled());
+  await user.click(screen.getByRole('radio', { name: /^Medium/ }));
+  await user.click(screen.getByRole('button', { name: 'Cambiar fechas' }));
+  await user.clear(screen.getByLabelText('Fecha hasta'));
+  await user.type(screen.getByLabelText('Fecha hasta'), '2027-07-15');
+  rerender(<AprobarPedidoModal {...props} pedido={{ ...pedido }} templates={templates.map(row => ({ ...row }))}/>);
+  expect(screen.getByRole('radio', { name: /^Medium/ })).toBeChecked();
+  expect(screen.getByLabelText('Fecha hasta')).toHaveValue('2027-07-15');
 });

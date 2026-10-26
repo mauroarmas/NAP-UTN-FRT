@@ -225,3 +225,42 @@ async def test_despliegue_fallido_notifica_a_docente_y_administradores(
     assert usuario_catedra.email in destinatarios_notificados
     assert admin.email in destinatarios_notificados
 
+
+
+async def test_avisos_portal_de_pedidos_sin_servicio_visibles_solo_al_destinatario(client, db, auth_catedra,
+        auth_admin, usuario_catedra, catedra, template):
+    pedido = await factories.crear_pedido(db, catedra.id, usuario_catedra.id, template.id)
+    await notificacion_service.encolar_aviso_pedido(db, pedido, evento='aviso-pedido-sin-servicio',
+        tipo='pedido_aprobado', asunto='Pedido aprobado', texto='Recursos reservados.', solo_portal=True)
+    await db.commit()
+    response = await client.get('/alertas/avisos', headers=auth_catedra)
+    assert response.status_code == 200
+    assert any(row['pedido_id'] == pedido.id and row['servicio_id'] is None for row in response.json())
+    assert (await client.get('/alertas/avisos', headers=auth_admin)).json() == []
+
+
+async def test_avisos_de_avance_son_deduplicados_y_no_generan_correo(db, usuario_catedra, catedra, admin, template):
+    from sqlalchemy import select
+    from app.models.notificacion import Notificacion
+    pedido = await factories.crear_pedido(db, catedra.id, usuario_catedra.id, template.id)
+    for _ in range(2):
+        await notificacion_service.encolar_aviso_pedido(db, pedido, evento='avance-unico',
+            tipo='despliegue_iniciado', asunto='Creando servicio', texto='El proceso sigue en NAP.',
+            destinatarios='ambos', solo_portal=True)
+    await db.commit()
+    entries = (await db.scalars(select(Notificacion).where(Notificacion.evento_clave == 'avance-unico'))).all()
+    assert len(entries) == 2
+    assert {row.destinatario_usuario_id for row in entries} == {admin.id, usuario_catedra.id}
+    assert {row.canal for row in entries} == {'portal'}
+
+
+async def test_cambiar_alcance_oculta_avisos_de_la_catedra_anterior(client, db, auth_catedra,
+        usuario_catedra, catedra, admin, template):
+    pedido = await factories.crear_pedido(db, catedra.id, usuario_catedra.id, template.id)
+    await notificacion_service.encolar_aviso_pedido(db, pedido, evento='aviso-alcance',
+        tipo='servicio_iniciado', asunto='Servicio iniciado', texto='Pendiente de acceso.', solo_portal=True)
+    await db.commit()
+    assert len((await client.get('/alertas/avisos', headers=auth_catedra)).json()) == 1
+    catedra.titular_id = admin.id
+    await db.commit()
+    assert (await client.get('/alertas/avisos', headers=auth_catedra)).json() == []

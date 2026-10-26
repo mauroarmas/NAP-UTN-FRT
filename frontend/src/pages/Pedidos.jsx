@@ -1,7 +1,9 @@
 import { mensajeError } from '../utils/errors.js';
 import { useState, useEffect, useMemo, useRef } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import useRemoteData from '../hooks/useRemoteData';
 import EstadoConsulta from '../components/EstadoConsulta';
+import ProgresoDespliegue from '../components/ProgresoDespliegue';
 import useOperacion, { operacionAbierta, textoOperacion } from '../hooks/useOperacion';
 import {
   Search, Send, Info, CheckCircle2, XCircle, AlertTriangle, RefreshCw,
@@ -166,6 +168,9 @@ const descripcionPedido = (p) => {
 };
 
 export default function Pedidos({ user }) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const pedidoDesdeAviso = Number(new URLSearchParams(location.search).get('pedido'));
   const [filtroEstado, setFiltroEstado] = useState('');
   const [query, setQuery] = useState('');
   const [modalNuevoAbierto, setModalNuevoAbierto] = useState(false);
@@ -177,6 +182,9 @@ export default function Pedidos({ user }) {
   const [transicionando, setTransicionando] = useState(false);
   const [motivoRechazo, setMotivoRechazo] = useState('');
   const [operationIds, setOperationIds] = useState([]);
+  const [notice, setNotice] = useState('');
+  const [detalleSinActualizar, setDetalleSinActualizar] = useState(false);
+  const pendingPedidos = useRef(false);
   const intentKeys = useRef({});
   const busyRef = useRef(false);
   const claveIntencion = (tipo, id, payload = '') => {
@@ -211,9 +219,12 @@ export default function Pedidos({ user }) {
 
   const scope = `${user?.id || ''}:${user?.rol || ''}`;
   const pedidosRemote = useRemoteData((options) => getPedidos(filtroEstado || null, options), {
-    key: `pedidos:${scope}:${filtroEstado}`, errorMessage: 'No se pudieron consultar los pedidos.' });
+    key: `pedidos:${scope}:${filtroEstado}`, refreshMs: 5000,
+    canRefresh: () => pendingPedidos.current && !busyRef.current && !modalAprobarAbierto && !modalAjusteAbierto && !modalReenviarAbierto,
+    errorMessage: 'No se pudieron consultar los pedidos.' });
   const pedidos = pedidosRemote.data || EMPTY;
-  const loading = pedidosRemote.loading;
+  pendingPedidos.current = pedidos.some((p) => p.estado === 'en_despliegue' || p.operation_id);
+  const loading = pedidosRemote.loading && !pedidosRemote.data;
   const fetchPedidos = pedidosRemote.reload;
   useEffect(() => {
     if (pedidosRemote.data) setOperationIds((current) => [...new Set([...current,
@@ -254,11 +265,49 @@ export default function Pedidos({ user }) {
     fetchPedidos();
     if (detalle) verDetalle(detalle.id);
   });
+  const operacionDelPedido = (p) => p.operation_id ? operaciones[p.operation_id] : Object.values(operaciones)
+    .filter((op) => op.pedido_id === p.id && op.tipo === 'desplegar')
+    .sort((a, b) => (Date.parse(a.creado_at) || 0) - (Date.parse(b.creado_at) || 0)).at(-1);
+
+  useEffect(() => {
+    if (!Number.isSafeInteger(pedidoDesdeAviso) || pedidoDesdeAviso <= 0) return;
+    const controller = new AbortController();
+    getPedido(pedidoDesdeAviso, { signal: controller.signal }).then(({ data }) => {
+      if (controller.signal.aborted) return;
+      setDetalle(data); setDetalleSinActualizar(false);
+      if (data.operation_id) setOperationIds((current) => [...new Set([...current, data.operation_id])]);
+    }).catch(() => { if (!controller.signal.aborted) setNotice('No se pudo abrir el pedido de esta notificación.'); });
+    return () => controller.abort();
+  }, [pedidoDesdeAviso, scope]);
+
+  const detalleId = detalle?.id;
+  const seguimiento = detalle?.estado === 'en_despliegue' && !modalAprobarAbierto && !modalAjusteAbierto && !modalReenviarAbierto;
+  useEffect(() => {
+    if (!detalleId || !seguimiento) return;
+    let running = false;
+    const controller = new AbortController();
+    const poll = async () => {
+      if (document.hidden || running || busyRef.current) return;
+      running = true;
+      try {
+        const { data } = await getPedido(detalleId, { signal: controller.signal });
+        if (!controller.signal.aborted) {
+          setDetalle(data); setDetalleSinActualizar(false);
+          if (data.operation_id) setOperationIds((current) => [...new Set([...current, data.operation_id])]);
+        }
+      } catch { if (!controller.signal.aborted) setDetalleSinActualizar(true); }
+      finally { running = false; }
+    };
+    const timer = setInterval(poll, 5000);
+    document.addEventListener('visibilitychange', poll);
+    return () => { clearInterval(timer); controller.abort(); document.removeEventListener('visibilitychange', poll); };
+  }, [detalleId, seguimiento, scope]);
 
   const verDetalle = async (id) => {
     try {
       const { data } = await getPedido(id);
       setDetalle(data);
+      setDetalleSinActualizar(false);
       setMotivoRechazo('');
       setMotivoReversion('');
       registrarOrden(data);
@@ -268,6 +317,7 @@ export default function Pedidos({ user }) {
   };
 
   const cerrarDetalle = () => {
+    if (pedidoDesdeAviso) navigate('/pedidos', { replace: true });
     setDetalle(null);
     setMotivoRechazo('');
     setMotivoReversion('');
@@ -391,6 +441,7 @@ export default function Pedidos({ user }) {
           <span>Nueva Solicitud</span>
         </button>
       </PageHead>
+      {notice && <div className="callout" role="status"><CheckCircle2 size={18}/><span>{notice}</span><button type="button" className="btn btn-ghost" onClick={() => setNotice('')}>Cerrar aviso</button></div>}
 
       <EstadoConsulta remote={pedidosRemote} nombre="pedidos" />
       <EstadoConsulta remote={templatesRemote} nombre="perfiles" />
@@ -453,9 +504,11 @@ export default function Pedidos({ user }) {
                   </div>
                 </div>
 
-                {p.operation_id && <p role="status">{textoOperacion(operaciones[p.operation_id])}</p>}
+                {p.tipo !== 'renovacion' && ['en_despliegue', 'error'].includes(p.estado)
+                  ? <ProgresoDespliegue pedido={p} operacion={operacionDelPedido(p)} isAdmin={isAdmin} compact/>
+                  : p.operation_id && <p role="status">{textoOperacion(operaciones[p.operation_id])}</p>}
                 <VigenciaPedido pedido={p} formatDate={formatDate} />
-                {p.tipo !== 'renovacion' && paso >= 0 && paso < 3 && (
+                {p.tipo !== 'renovacion' && p.estado !== 'en_despliegue' && paso >= 0 && paso < 3 && (
                   <div className="stepper">
                     {PASOS_PEDIDO.map((label, i) => (
                       <div className="stepper__col" key={label}>
@@ -500,7 +553,8 @@ export default function Pedidos({ user }) {
           formatDate={formatDate}
           onClose={cerrarDetalle}
           transicionando={transicionando || Boolean(detalle.operation_id && (!operaciones[detalle.operation_id] || operacionAbierta(operaciones[detalle.operation_id])))}
-          operacion={detalle.operation_id ? operaciones[detalle.operation_id] : null}
+          operacion={operacionDelPedido(detalle)}
+          sinActualizar={detalleSinActualizar}
           motivoRechazo={motivoRechazo}
           setMotivoRechazo={setMotivoRechazo}
           motivoReversion={motivoReversion}
@@ -532,6 +586,7 @@ export default function Pedidos({ user }) {
         onClose={() => setModalAprobarAbierto(false)}
         onAprobado={(result) => {
           registrarOrden(result);
+          setNotice(result.operation_id ? 'Pedido aprobado. El despliegue está en marcha; podés seguir su avance en el detalle.' : 'Pedido aprobado. Los recursos quedaron reservados.');
           actualizarDetalle(detalle.id);
         }}
       />
@@ -563,7 +618,7 @@ export default function Pedidos({ user }) {
 
 function DetalleDialog({
   detalle, isAdmin, templateDe, templateNombre, catedraNombre, formatDate, onClose, transicionando,
-  operacion,
+  operacion, sinActualizar,
   motivoRechazo, setMotivoRechazo, onAbrirAprobar, onAbrirAjuste, onAbrirReenviar, onCancelarPedido, onRechazar,
   onDesplegar, onReintentar, motivoReversion, setMotivoReversion, onRevertir,
 }) {
@@ -690,7 +745,10 @@ function DetalleDialog({
       )}
 
       <VigenciaPedido pedido={detalle} formatDate={formatDate} />
-      {detalle.operation_id && <p role="status">{textoOperacion(operacion)}</p>}
+      {sinActualizar && <p role="alert" className="callout warn">No se pudo actualizar el pedido. Mostramos el último estado y volveremos a consultar.</p>}
+      {detalle.tipo !== 'renovacion' && ['en_despliegue', 'error'].includes(detalle.estado)
+        ? <ProgresoDespliegue pedido={detalle} operacion={operacion} isAdmin={isAdmin}/>
+        : detalle.operation_id && <p role="status">{textoOperacion(operacion)}</p>}
       {detalle.tipo === 'renovacion' && detalle.estado === 'activo' && <p>Las nuevas condiciones quedaron registradas. Consultá el estado del servicio para saber si está encendido.</p>}
       {isAdmin && detalle.estado === 'solicitado' && (
         <div className="decision-container">

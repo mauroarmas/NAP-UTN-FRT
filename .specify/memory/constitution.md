@@ -1,3 +1,7 @@
+<!-- Ajuste 2026-10-26: 4.1.0 → 4.1.1 (PATCH). Por pedido de Mauro se quitan
+los pasos manuales de preparar/comprobar/publicar del alta habitual. NAP los automatiza;
+las bases IaaS del nodo aparecen directamente. Se mantienen aislamiento e integridad.
+Memoria y guía de administración sincronizadas; no se crea otra spec. -->
 <!--
 Sync Impact Report — 2026-10-26
 =================================
@@ -308,8 +312,9 @@ El producto MUST organizarse alrededor de lo que necesitan hacer, con pocos paso
 - Las tareas habituales MUST tener un recorrido principal sencillo. Herramientas técnicas de
   mantenimiento MUST permanecer fuera de ese recorrido. No se agregan variantes, plazos ni
   opciones avanzadas sin un caso real autorizado.
-- En el alta de aplicaciones, el recorrido acordado es elegir, preparar, abrir y comprobar,
-  publicar o eliminar. La preparación normal y la oferta publicada MUST NOT tener un ensayo de
+- En el alta de aplicaciones, el recorrido acordado es **elegir → agregar → disponible**.
+  NAP MUST realizar la instalación y las comprobaciones en segundo plano, sin confirmaciones
+  manuales de preparar o publicar. Las bases IaaS admitidas del nodo aparecen automáticamente. La preparación normal y la oferta publicada MUST NOT tener un ensayo de
   24 horas ni vencimiento automático. Esto no modifica la vigencia de pedidos académicos.
 - La sencillez MUST conservar autorización, aislamiento, integridad de datos, trazabilidad y
   recuperación de fallos. NAP registra lo que comprueba; MUST NOT inventar pruebas para ocultar
@@ -412,4 +417,4 @@ violación aceptada MUST registrarse en la tabla de Complexity Tracking con su j
 alternativa más simple que se descartó; una violación sin justificación registrada bloquea la
 implementación.
 
-**Version**: 4.1.0 | **Ratified**: 2026-08-07 | **Last Amended**: 2026-10-26
+**Version**: 4.1.1 | **Ratified**: 2026-08-07 | **Last Amended**: 2026-10-26

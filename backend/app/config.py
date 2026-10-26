@@ -35,8 +35,13 @@ class Settings(BaseSettings):
     service_artifacts: dict = Field(default_factory=dict)
     artifact_registry_directory: str = ""
     network_profiles: dict = Field(default_factory=dict)
+    iaas_network_profile_id: str = ''
+    iaas_template_storage: str = 'local'
     runner_nodes: dict = Field(default_factory=dict, repr=False)
     console_access_profile: dict = Field(default_factory=dict)
+    application_gateway_domain: str = ''
+    application_gateway_port: int = Field(default=443, ge=1, le=65535)
+    application_gateway_ca_file: str = ''
 
     biblioteca_fuente: FuenteBiblioteca = Field(default_factory=FuenteBiblioteca)
     builder_hosts: dict[str, BuilderHost] = Field(default_factory=dict, repr=False)

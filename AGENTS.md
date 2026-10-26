@@ -2,8 +2,15 @@
 
 ## Preferencias acordadas con Mauro
 
+- **Propósito del producto: un pequeño AWS simple para la universidad.** Community Scripts es una
+  fuente opcional, no el alcance de NAP. Debe admitir entornos Linux y aplicaciones propias de las
+  cátedras basadas en imágenes, con instancias independientes y catálogo reutilizable. La vía de
+  imágenes propias está acordada como objetivo; su despliegue genérico todavía no está implementado.
+
 - **Simplicidad ante todo**. Las cátedras no son técnicas y el administrador sólo un poco más.
   Formularios cortos, lenguaje cotidiano, botones claros y progreso/éxito/error visibles.
+- El acceso a servicios no incluye formularios de evidencia institucional, JSON, UUID ni fechas UTC.
+  Conservar las comprobaciones automáticas y el historial sin trámites manuales para el administrador.
 - Resolver automáticamente detalles técnicos y reutilizar la configuración inicial.
   No pedir códigos, UUID, hashes, versiones o JSON en los recorridos habituales.
 - Implementar directamente correcciones y mejoras acotadas autorizadas. Usar pocas specs:
@@ -11,11 +18,12 @@
   No iniciar Specify/Plan/Tasks por rutina ni reabrir decisiones ya acordadas.
 - No cubrir todas las variantes imaginables: agregar sólo lo necesario para casos reales.
   Conservar seguridad, aislamiento, historial y recuperación sin complejizar la operación diaria.
-- Alta de aplicaciones: **elegir → preparar → abrir y comprobar → publicar o eliminar**.
+- Alta de aplicaciones: **elegir → agregar → disponible**. La instalación y comprobación son automáticas;
+  no volver a introducir pasos manuales de preparar, confirmar y publicar.
   Sin ensayo de 24 horas ni vencimiento de la preparación/oferta; conservar fechas académicas
-  de los pedidos. Al publicar se reutiliza la aplicación para futuras instancias por cátedra.
+  de los pedidos. Al publicar se reutiliza la aplicación para futuras instancias por cátedra. No se ofrecen aplicaciones sin adaptador compatible.
 - Small: 1 vCPU, 512 MB RAM, 4 GB disco. Medium: 2 vCPU, 1024 MB RAM, 8 GB disco.
-  Misma base Linux Ubuntu 24.04/LXC; respetar mínimos reales de cada aplicación.
+  Aplicaciones con base Ubuntu 24.04/LXC; IaaS ofrece Ubuntu 24.04 y Debian 13 del nodo; respetar mínimos reales de cada aplicación.
 - La cátedra pide aplicación/propósito/fechas y puede elegir **Otro**. Administración aprueba,
   rechaza o pide aclaración; reserva al aprobar, despliega desde la fecha inicial. Sin cuotas
   anticipadas por cátedra. Catálogo administrativo sólo visible para administración.
@@ -37,8 +45,9 @@ hacer otra cosa. No reconstruir grafos por rutina para cambios acotados.
   `.env` (ignorado por Git) carga el complemento privado de Compose.
 - Archivos privados en `/home/mauro/.local/share/nap010/`. Guía y verificaciones reales:
   [docs/laboratorio-biblioteca.md](docs/laboratorio-biblioteca.md). No imprimir sus secretos.
-- Draw.io está **listo para probar**, en dos LXC, con HTTPS y acceso desde esta PC comprobados.
-  No se publicó: Mauro puede abrirlo, confirmar funcionamiento y publicar desde el asistente.
+- Draw.io está **disponible en el catálogo**. Los LXC auxiliares se retiraron al completar el alta.
+  Ubuntu 24.04 y Debian 13 aparecen automáticamente desde Proxmox y admiten pedidos.
+  La red IaaS local usa el perfil privado `lab-linux-010` (direcciones .71–.78).
 - VMware necesita permitir tráfico de los LXC anidados. Se concedió acceso sólo a Mauro sobre
   `/dev/vmnet8`, persistido en el drop-in `90-nap010-permisos.conf` de `vmware.service`.
   No volver a deshabilitarlo mientras se use esta VM para acceder a las aplicaciones.
@@ -47,3 +56,13 @@ hacer otra cosa. No reconstruir grafos por rutina para cambios acotados.
 - La red del clúster universitario sigue siendo una instalación distinta: completar sus datos
   reales con infraestructura, sin copiar tokens/certificados/identidades de este laboratorio.
 - Para cambios rutinarios, continuar directamente; no crear nuevas specs por esta memoria.
+
+- Migración `010_05_alta_materializada`: repara la constraint antigua que impedía vincular
+  un pedido ALTA con su servicio creado, aunque las revisiones anteriores ya figuraban aplicadas.
+- Seguimiento de despliegue: barra de cuatro etapas en Pedidos, actualización automática y campana
+  de avisos. Distinguir instancia iniciada/acceso pendiente de servicio disponible; no simular porcentajes
+  de tiempo. Draw.io ahora se abre con la sesión de NAP desde Ver acceso, mediante un gateway HTTPS
+  separado por instancia. No copiar contraseñas del portal al guest ni alojar el editor en el origen del portal.
+- Gateway local: `nap010-app-gateway`, `https://app-<servicio>.nap-apps.test:8443`, sólo loopback.
+  Configuración/clave TLS privadas en nap010; nombres locales 1–256 en /etc/hosts con respaldo privado.
+  Sesión de aplicación revocable, códigos de un uso y sin service workers; ver docs/acceso-aplicaciones-nap.md.

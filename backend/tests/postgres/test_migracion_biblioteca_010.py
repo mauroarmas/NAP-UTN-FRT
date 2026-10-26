@@ -11,12 +11,12 @@ async def test_upgrade_009_preserva_historia_y_esquema_010(empty_pg_schema):
         await conn.run_sync(lambda c:migrate(c,'009_14_restauracion'))
         before=(await conn.execute(text('SELECT id,asignacion_snapshot FROM pedidos ORDER BY id'))).all()
         await conn.run_sync(lambda c:migrate(c,'head'))
-        assert await conn.scalar(text('SELECT version_num FROM alembic_version'))=='010_04_preparacion_simple'
+        assert await conn.scalar(text('SELECT version_num FROM alembic_version'))=='010_06_acceso_aplicacion'
         after=(await conn.execute(text('SELECT id,asignacion_snapshot FROM pedidos ORDER BY id'))).all()
         assert before==after
         assert await conn.scalar(text('SELECT count(*) FROM pedidos WHERE seleccion_oferta_snapshot IS NOT NULL'))==0
         for table in ['incorporaciones_aplicacion','ensayos_preparacion','recursos_ensayo','operaciones_ensayo',
-            'eventos_ensayo','artefactos_preparados','replicas_artefacto','presupuestos_builder','reservas_espacio_builder','publicaciones_oferta']:
+            'eventos_ensayo','artefactos_preparados','replicas_artefacto','presupuestos_builder','reservas_espacio_builder','publicaciones_oferta','accesos_aplicacion']:
             columns=await conn.run_sync(lambda c:{v['name'] for v in inspect(c).get_columns(table)})
             assert columns==set(Base.metadata.tables[table].columns.keys())
             assert await conn.scalar(text(f'SELECT count(*) FROM {table}'))==0

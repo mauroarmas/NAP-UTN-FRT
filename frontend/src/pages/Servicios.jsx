@@ -801,7 +801,7 @@ export default function Servicios({ user }) {
       </div>
 
       {access && <Dialog wide title={`Acceso: ${access.nombre_snapshot || `Servicio #${access.id}`}`} onClose={() => setAccess(null)}>
-        <AccesoServicio servicio={access} user={user} onVerified={fetchData} />
+        <AccesoServicio servicio={access} user={user} />
       </Dialog>}
 
       {revisionDetalle && <Dialog title="Pendiente de Revisión" onClose={() => setRevisionDetalle(null)}

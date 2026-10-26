@@ -88,14 +88,17 @@ async def calcular(db, pedido_id, *, actor, payload, pve=None, bloquear=False):
     from app.models.definicion_servicio import DefinicionServicio
     offered_definition=await db.get(DefinicionServicio,template.definicion_version_id) if template.definicion_version_id else None
     library=bool(offered_definition and offered_definition.incorporacion_id)
-    if not selection.asignacion.definicion_version_id or selection.asignacion.definicion_version_id != template.definicion_version_id:
+    from app.services.bases_iaas_service import es_base
+    raw_iaas = es_base(template)
+    if (not raw_iaas and not selection.asignacion.definicion_version_id) or selection.asignacion.definicion_version_id != template.definicion_version_id:
         if library:
             raise error(409, 'evaluacion_desactualizada', 'La oferta cambió; actualizá el catálogo y volvé a evaluar', definicion_version_id=str(template.definicion_version_id), version=offered_definition.version)
         raise error(422, 'definicion_incompatible', 'La evaluación debe usar la definición vinculada al perfil seleccionado')
     from app.services.perfiles_service import exigir_definicion
     definition = await exigir_definicion(db, template, bloquear=bloquear)
-    minimums = definition.manifest['minimum_resources']
-    image = definition.manifest['image']['volume_id']
+    from app.schemas.tamanos import TAMANOS
+    minimums = definition.manifest['minimum_resources'] if definition else TAMANOS['small']
+    image = definition.manifest['image']['volume_id'] if definition else template.os_template
     assignment = selection.asignacion.model_dump(mode='json')
     if any(assignment[key] < minimums[key] for key in minimums):
         raise error(422, 'recursos_inferiores_minimos', 'La asignación no alcanza los mínimos validados del producto')
@@ -141,7 +144,8 @@ async def calcular(db, pedido_id, *, actor, payload, pve=None, bloquear=False):
     state = {'pedido_revision': pedido.revision, 'template_revision': template.revision,
              'template': {key: getattr(template, key) for key in ['nombre', 'os_template', 'default_vcpus', 'default_ram_mb', 'default_disk_gb', 'config_extra']},
              'definicion_hash': inventario_service.fingerprint(definition.manifest) if definition else None,
-             'seleccion': normalized, 'vigencia': dates, 'inventario_compromisos': overview['capacidad_token']}
+             'seleccion': normalized, 'vigencia': dates, 'inventario_compromisos': overview['capacidad_token'],
+             'requiere_justificacion': exceeds, 'restricciones_fisicas': constraints}
     fingerprint = inventario_service.fingerprint(state)
     result = {'pedido_id': pedido.id, 'seleccion': normalized, 'vigencia_efectiva': dates,
         'costo_incremental': cost, 'libre_antes': {key: capacity['libre'][key] for key in cost},

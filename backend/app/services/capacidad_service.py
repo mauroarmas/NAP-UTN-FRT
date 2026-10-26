@@ -119,7 +119,14 @@ async def panorama(db, pve=None, *, destino=None, inventario=None):
     ledger_snapshot = [{key: str(getattr(row, key)) for key in ['id', 'pedido_id', 'recurso_ensayo_id', 'servicio_id', 'identidad_infraestructura_id',
         'nodo', 'storage_scope', 'vcpus_retenidos', 'ram_mb_retenida', 'disk_bytes_retenidos', 'estado', 'revision', 'expira_at']}
         for row in sorted(commitments, key=lambda row: str(row.id))]
-    fingerprint = inventario_service.fingerprint({'inventario': inventory, 'compromisos': ledger_snapshot})
+    # La aprobación vincula asignaciones/configuración, no telemetría que cambia
+    # con cada lectura. El saldo físico se vuelve a comprobar bajo lock al aprobar.
+    stable_inventory = {**inventory,
+        'nodos': {key: {field: value for field, value in row.items() if field != 'ram_fisica_libre_mb'}
+                  for key, row in inventory['nodos'].items()},
+        'storages': {key: {field: value for field, value in row.items() if field != 'fisico_libre_bytes'}
+                     for key, row in inventory['storages'].items()}}
+    fingerprint = inventario_service.fingerprint({'inventario': stable_inventory, 'compromisos': ledger_snapshot})
     if destino is not None:
         if hasattr(destino, 'model_dump'):
             destino = destino.model_dump(mode='json')

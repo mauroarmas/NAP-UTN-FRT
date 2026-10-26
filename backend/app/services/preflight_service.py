@@ -290,6 +290,9 @@ async def inspeccionar_ofertas(db):
             required=BASE_CHECKS|({'unique_secrets'} if definition.producto in {'postgresql','bookstack','drawio'} else set())
             if definition.producto=='drawio': required|={'editable_diagram_cycle','authorized_perimeter','deployment_without_provider'}
             if definition.producto=='bookstack': required|={'reader_permissions_and_revocation'}
+            if definition.producto == 'drawio' and {'simple_verification', 'automatic_verification'} & set(proof['checks']):
+                from app.schemas.preparacion_simple import SIMPLE_CHECKS, AUTOMATIC_CHECKS
+                required = AUTOMATIC_CHECKS if 'automatic_verification' in proof['checks'] else SIMPLE_CHECKS
             observed=datetime.fromisoformat(document['observado_at'].replace('Z','+00:00'))
             if (entry.tipo!='validacion_definicion' or checksum!=entry.sha256 or checksum!=reference['evidence_sha256']
                 or proof['definicion_id']!=str(definition.id) or proof['definition_key']!=definition.codigo

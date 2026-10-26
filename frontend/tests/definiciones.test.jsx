@@ -52,7 +52,7 @@ test('el perfil solo elige definiciones publicadas compatibles y respeta sus mí
   api.createTemplate.mockResolvedValue({ data: { id: 1 } });
   render(<TemplatesAdmin open onClose={vi.fn()} onGuardado={vi.fn()} />);
   await user.type(screen.getByLabelText('Nombre del servicio'), 'Base de laboratorio');
-  await user.selectOptions(await screen.findByLabelText('Aplicación preparada'), 'pg');
+  await user.selectOptions(await screen.findByLabelText('Servicio'), 'pg');
   expect(screen.queryByRole('option', { name: /borrador/ })).not.toBeInTheDocument();
   expect(screen.getByRole('radio', { name: /^Small/ })).toBeDisabled();
   expect(screen.getByRole('radio', { name: /^Medium/ })).toBeChecked();

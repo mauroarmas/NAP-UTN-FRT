@@ -25,7 +25,7 @@ async def test_indice_sin_ejecutar_shell_y_cache(monkeypatch):
         assert first[0]['revision_fuente'] == 'a'*40
         assert first[0]['compatibilidad'] == 'adaptador_disponible'
         _, cached = await source.index()
-        assert cached['cache'] and len(calls) == 2
+        assert cached['cache'] and len(calls) == 4
         assert 'curl' in first[0]['comando_origen']
 
 
@@ -52,3 +52,28 @@ async def test_fallos_explicitos_y_cache_desactualizada(mode):
         cold = CommunityScriptsClient(client=client, settings=Settings(_env_file=None))
         with pytest.raises(HTTPException) as caught: await cold.index()
         assert caught.value.status_code == 502
+
+async def test_categorias_y_fichas_publicas_sin_filtrar_token_github():
+    from app.services.community_scripts_client import CommunityScriptsClient
+    settings=Settings(_env_file=None)
+    settings.biblioteca_fuente.token='github-test-only'
+    def handler(request):
+        if request.url.host=='api.github.com':
+            assert request.headers['authorization']=='Bearer github-test-only'
+            if '/git/ref/' in request.url.path:return httpx.Response(200,json={'object':{'sha':'a'*40}})
+            return httpx.Response(200,json={'truncated':False,'tree':[
+                {'path':'ct/mariadb.sh','type':'blob','mode':'100644'},
+                {'path':'ct/drawio.sh','type':'blob','mode':'100644'}]})
+        assert request.url.host=='db.community-scripts.org' and 'authorization' not in request.headers
+        if 'script_categories' in request.url.path:
+            return httpx.Response(200,json={'page':1,'totalPages':1,'items':[{'id':'db','name':'Databases'},{'id':'office','name':'Office'}]})
+        return httpx.Response(200,json={'page':1,'totalPages':1,'items':[
+            {'slug':'mariadb','name':'MariaDB','description':'Base de datos','categories':['db']},
+            {'slug':'drawio','name':'Draw.IO','description':'Diagramas','categories':['office']}]})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        rows,info=await CommunityScriptsClient(client=client,settings=settings).index()
+    assert info['categorias']==['Databases','Office'] and info['metadatos_estado']=='disponible'
+    maria=next(row for row in rows if row['identidad_externa']=='ct/mariadb.sh')
+    assert maria['nombre']=='MariaDB' and maria['categorias']==['Databases'] and maria['descripcion']=='Base de datos'
+    assert maria['compatibilidad']=='sin_comprobar'  # Los metadatos no habilitan un instalador.
+    assert next(row for row in rows if row['identidad_externa']=='ct/drawio.sh')['compatibilidad']=='adaptador_disponible'

@@ -18,6 +18,11 @@ async def buscar(filters:Annotated[Busqueda,Query()],actor=Depends(require_admin
     return JSONResponse(await biblioteca_service.buscar(db,actor=actor,filters=filters),headers={'Cache-Control':'no-store'})
 
 
+@router.get('/categorias')
+async def categorias(actor=Depends(require_admin),db:AsyncSession=Depends(get_db)):
+    return JSONResponse(await biblioteca_service.categorias(db,actor=actor),headers={'Cache-Control':'no-store'})
+
+
 @router.post('/incorporaciones')
 async def incorporar(body:IncorporacionCreate,clave:str=Header(alias='Idempotency-Key'),actor=Depends(require_admin),db:AsyncSession=Depends(get_db)):
     return await responder(db,biblioteca_service.incorporar(db,actor=actor,data=body,clave=clave))
@@ -58,6 +63,11 @@ async def consultar_preparacion(identity:UUID,actor=Depends(require_admin),db:As
 @router.post('/incorporaciones/{identity}/preparar')
 async def preparar(identity:UUID,body:PrepararAplicacion,clave:str=Header(alias='Idempotency-Key'),actor=Depends(require_admin),db:AsyncSession=Depends(get_db)):
     return await responder(db,preparacion.preparar(db,identity,actor=actor,clave=clave,data=body))
+
+
+@router.post('/incorporaciones/{identity}/agregar')
+async def agregar(identity:UUID,body:PublicarAplicacion,clave:str=Header(alias='Idempotency-Key'),actor=Depends(require_admin),db:AsyncSession=Depends(get_db)):
+    return await responder(db,preparacion.preparar(db,identity,actor=actor,clave=clave,data=body,automatico=True))
 
 
 @router.post('/incorporaciones/{identity}/confirmar-funcionamiento')

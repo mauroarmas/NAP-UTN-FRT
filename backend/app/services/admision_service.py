@@ -66,6 +66,10 @@ async def _queue_deploy(db, pedido, *, actor, clave, payload):
     await transicionar(db, pedido.id, EstadoPedido.EN_DESPLIEGUE, usuario=actor,
         motivo='Despliegue admitido; pendiente de ejecución y verificación', operacion_id=operation.id,
         evento_clave=f'operacion:{operation.id}:admitida')
+    await notificacion_service.encolar_aviso_pedido(db, pedido, evento=f'operacion:{operation.id}:iniciada',
+        tipo='despliegue_iniciado', asunto=f'Pedido #{pedido.id}: despliegue en curso',
+        texto='NAP está creando el servicio. Podés seguir el avance desde el detalle del pedido.',
+        destinatarios='ambos', solo_portal=True)
     return operation
 
 
@@ -107,6 +111,10 @@ async def aprobar(db, pedido_id, *, actor, payload, clave, pve=None):
                 assignment.update(definition_sha256=definition.manifest_sha256, definition_key=definition.codigo,
                     definition_version=definition.version, product=definition.producto,
                     bundle_sha256=definition.manifest['preparation']['bundle_sha256'])
+            else:
+                from app.schemas.tamanos import TAMANOS
+                assignment.update(origen='proxmox_iaas', product='linux')
+                assignment['minimum_resources'] = dict(TAMANOS['small'])
             destination = {**evaluation['seleccion']['destino'], 'storage_scope': evaluation['storage_scope']}
             service = None
             if pedido.tipo == TipoPedido.RENOVACION:
@@ -160,6 +168,11 @@ async def aprobar(db, pedido_id, *, actor, payload, clave, pve=None):
             from app.services.pedido_service import transicionar
             await transicionar(session, pedido.id, EstadoPedido.APROBADO, usuario=actor,
                 motivo='Asignación efectiva y vigencia aprobadas', evento_clave=f'decision:{pedido.revision_decision}:aprobada', metadata=pedido.decision_snapshot)
+            await notificacion_service.encolar_aviso_pedido(session, pedido,
+                evento=f'pedido:{pedido.id}:aprobado:{pedido.revision_decision}', tipo='pedido_aprobado',
+                asunto=f'Pedido #{pedido.id} aprobado',
+                texto='Administración aprobó el pedido. ' + ('Las nuevas fechas quedaron autorizadas.' if service else 'Los recursos quedaron reservados para su despliegue.'),
+                destinatarios='ambos', solo_portal=True)
             if service:
                 await transicionar(session, pedido.id, EstadoPedido.EN_DESPLIEGUE, usuario=actor,
                     motivo='Registro de condiciones de renovación', evento_clave=f'decision:{pedido.revision_decision}:registrando')

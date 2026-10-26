@@ -62,6 +62,10 @@ async def limpiar_autenticacion(db):
     from sqlalchemy import update
     from app.models.autenticacion import SesionAutenticacion, DesafioAutenticacion
     from app.utils.clock import clock
+    from sqlalchemy import delete
+    from datetime import timedelta
+    from app.models.acceso_aplicacion import AccesoAplicacion
+    await db.execute(delete(AccesoAplicacion).where(AccesoAplicacion.expira_at < clock.now()-timedelta(days=1)))
     await db.execute(update(SesionAutenticacion).where(SesionAutenticacion.expira_at <= clock.now(),
         SesionAutenticacion.revoked_at.is_(None)).values(revoked_at=clock.now()))
     await db.execute(update(DesafioAutenticacion).where(DesafioAutenticacion.expira_at <= clock.now(),
@@ -89,6 +93,7 @@ def registrar_trabajos(*, solo_notificaciones=False):
     from app.services.ensayo_cleanup_service import tick as limpiar_ensayos
     scheduler.registrar('limpiar_ensayos', limpiar_ensayos, cada_minutos=1)
     scheduler.registrar('procesar_ensayos', procesar_ensayos, cada_segundos=5)
+    scheduler.registrar('sincronizar_bases_iaas', sincronizar_bases_iaas, cada_minutos=5)
 
 
 async def procesar_operaciones(db):
@@ -104,7 +109,21 @@ async def procesar_ensayos(db):
     from sqlalchemy.ext.asyncio import async_sessionmaker
     from app.services.ensayo_worker import procesar_una
     await db.commit()
-    return {'afectados': int(await procesar_una(async_sessionmaker(db.bind, expire_on_commit=False)))}
+    sessions = async_sessionmaker(db.bind, expire_on_commit=False)
+    affected = int(await procesar_una(sessions))
+    from app.services.preparacion_simple_service import completar_altas
+    await completar_altas(sessions)
+    return {'afectados': affected}
+
+
+async def sincronizar_bases_iaas(db):
+    from app.config import get_settings
+    if not get_settings().iaas_network_profile_id:
+        return {'afectados': 0}
+    from app.services.bases_iaas_service import sincronizar
+    count = await sincronizar(db)
+    await db.commit()
+    return {'afectados': count}
 
 
 async def main(*, solo_notificaciones=False):

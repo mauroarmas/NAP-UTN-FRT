@@ -28,7 +28,7 @@ async def validar(db, data, *, historical=False):
         if not historical:
             from app.services.perfiles_service import exigir_definicion
             definition = await exigir_definicion(db, template, bloquear=True)
-            if definition.incorporacion_id and data.oferta_revision is not None and data.oferta_revision != template.revision:
+            if definition and definition.incorporacion_id and data.oferta_revision is not None and data.oferta_revision != template.revision:
                 raise error(409, 'oferta_actualizada', 'La oferta cambió; revisá la versión vigente antes de enviar', oferta_revision=template.revision, version=definition.version)
     elif historical:
         raise error(422, 'plantilla_requerida', 'La renovación requiere el recurso asignado originalmente')

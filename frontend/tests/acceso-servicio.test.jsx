@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, test, vi } from 'vitest';
 import AccesoServicio from '../src/components/AccesoServicio';
@@ -9,16 +9,16 @@ vi.mock('../src/services/api', () => ({
 }));
 beforeEach(() => vi.clearAllMocks());
 
-test('docente no recibe revelado prematuro ni secretos en la carga inicial', async () => {
+test('docente ve un estado simple sin recibir secretos antes de habilitar el acceso', async () => {
   api.getAccesoServicio.mockResolvedValue({ data: { servicio_id: 1, disponibilidad: 'no_verificada',
-    puede_revelar_credenciales: false, instrucciones: 'Falta comprobar acceso desde la red prevista.' } });
+    puede_revelar_credenciales: false, estado_entrega: 'pendiente_verificacion', instrucciones: 'Falta comprobar acceso desde la red prevista.' } });
   render(<AccesoServicio servicio={{ id: 1 }} user={{ rol: 'catedra_admin' }} />);
-  expect(await screen.findByText('Falta comprobar acceso desde la red prevista.')).toBeVisible();
+  expect(await screen.findByText('El servicio se inició. El acceso todavía no está habilitado.')).toBeVisible();
   expect(screen.queryByRole('button', { name: /Revelar/ })).not.toBeInTheDocument();
   expect(api.revelarAccesoServicio).not.toHaveBeenCalled();
 });
 
-test('administración revela deliberadamente solo para validar y sin copiar automáticamente', async () => {
+test('administración consulta sus datos de acceso sin copiar contraseñas automáticamente', async () => {
   const user = userEvent.setup();
   const copy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue();
   api.getAccesoServicio.mockResolvedValue({ data: { servicio_id: 1, disponibilidad: 'no_verificada',
@@ -30,29 +30,19 @@ test('administración revela deliberadamente solo para validar y sin copiar auto
   expect(api.revelarAccesoServicio).not.toHaveBeenCalled();
   await user.click(reveal);
   expect(await screen.findByText('test-private-access')).toBeVisible();
-  expect(screen.getByText(/Solo para validación/)).toBeVisible();
+  expect(screen.getByText('El servicio se inició. Podés abrirlo y consultar sus datos de acceso.')).toBeVisible();
   expect(copy).not.toHaveBeenCalled();
 });
 
-test('registrar evidencia no confirma acceso hasta una segunda acción explícita', async () => {
-  const user = userEvent.setup();
-  const initial = { servicio_id: 1, estado_entrega: 'solo_validacion', disponibilidad: 'no_verificada',
-    puede_revelar_credenciales: true, metodo: 'postgresql', direccion: 'postgresql://base.example.edu:5432/curso' };
-  api.getAccesoServicio.mockResolvedValueOnce({ data: initial }).mockResolvedValue({ data: { ...initial,
-    estado_entrega: 'entregado', disponibilidad: 'utilizable' } });
-  api.registrarEvidencia.mockResolvedValue({ data: { evidencia_ref: 'proof-uuid', sha256: 'test-sha' } });
-  api.verificarAccesoServicio.mockResolvedValue({ data: { disponibilidad: 'utilizable' } });
+test('el acceso de administración no requiere documentos ni confirmaciones técnicas', async () => {
+  api.getAccesoServicio.mockResolvedValue({ data: { servicio_id: 1, estado_entrega: 'solo_validacion',
+    puede_revelar_credenciales: true, metodo: 'https', producto: 'drawio', direccion: 'https://drawio.example.edu',
+    verificacion_instancia: { resource_uuid: 'technical-resource-uuid', nonce_sha256: 'technical-hash' } } });
   render(<AccesoServicio servicio={{ id: 1 }} user={{ rol: 'admin' }} />);
-  const document = await screen.findByLabelText('Documento de evidencia');
-  await user.click(document);
-  await user.paste('{"tipo":"acceso_instancia","observado_at":"2026-10-20T20:00:00Z"}');
-  await user.click(screen.getByRole('button', { name: 'Registrar evidencia', exact: true }));
-  await waitFor(() => expect(screen.getByLabelText('Referencia UUID de evidencia registrada')).toHaveValue('proof-uuid'));
+  expect(await screen.findByRole('link', { name: 'Abrir aplicación', exact: true })).toHaveAttribute('href', 'https://drawio.example.edu/');
+  expect(screen.queryByText(/Registrar evidencia|Confirmar prueba de acceso|Identidad para la evidencia/)).not.toBeInTheDocument();
+  expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+  expect(screen.queryByText(/technical-resource-uuid|technical-hash/)).not.toBeInTheDocument();
+  expect(api.registrarEvidencia).not.toHaveBeenCalled();
   expect(api.verificarAccesoServicio).not.toHaveBeenCalled();
-  expect(api.revelarAccesoServicio).not.toHaveBeenCalled();
-  await user.click(screen.getByRole('button', { name: 'Confirmar verificación de acceso' }));
-  await waitFor(() => expect(api.verificarAccesoServicio).toHaveBeenCalledWith(1, {
-    evidencia_ref: 'proof-uuid', endpoint: initial.direccion, observado_at: '2026-10-20T20:00:00Z',
-  }, expect.any(String)));
-  expect(await screen.findByText('Acceso verificado. La entrega quedó registrada.')).toBeVisible();
 });

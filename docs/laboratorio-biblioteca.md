@@ -20,7 +20,7 @@ No copiar sus secretos al repositorio ni reutilizarlos como valores instituciona
 2. `preparar-nodo-proxmox.sh`: actualiza runner, agrega ocho certificados de aplicaciones y habilita las tres carpetas compartidas, con respaldo en root. Necesita contraseña root sólo en la terminal del operador.
 3. `configurar-acceso-local.sh`: agrega ocho nombres a `/etc/hosts` y la CA pública del laboratorio a esta PC, conservando respaldo. Necesita sudo local; no modifica VMware, DHCP ni interfaces.
 4. Verificar montajes y SSH del preparador, instalar settings privados para API/worker y habilitar el ejecutor de infraestructura. No habilitar con sólo el diagnóstico inicial.
-5. Preparar Draw.io desde NAP y abrirlo antes de confirmar funcionamiento/publicar. Una ficha incorporada y un build correcto no acreditan que el editor funcione desde el navegador.
+5. Agregar Draw.io desde NAP. El alta completa sus comprobaciones automáticamente; el navegador se verificó en este laboratorio. No confundir esa prueba con la aceptación de la red universitaria.
 
 El primer intento del paso 2 se detuvo antes de modificar archivos porque el control previo no contemplaba protocolo/wrapper originales. Se corrigió con hashes del paquete anterior y se verificó que acepte esos archivos y rechace cambios desconocidos.
 
@@ -50,7 +50,7 @@ API/worker se activaron con settings privados validados y verificación TLS de P
 
 ## Verificación real — 26/10/2026
 
-Estado final: `lista_para_comprobar` (la UI muestra **Ya podés probarla**), preparación
+Estado histórico antes de simplificar el alta: `lista_para_comprobar` (la UI muestra **Ya podés probarla**), preparación
 `ce1fc631-8deb-4ca0-9a10-db3b3b555a15`. Las siete operaciones de resolución, construcción,
 distribución, creación y bootstrap terminaron confirmadas. CT 100 y 101 están en
 `nap-preparacion`; las instancias anteriores de configuración se eliminaron con ausencia
@@ -107,3 +107,76 @@ Para revertir el ajuste específico de permisos, el operador puede retirar el dr
 recargar systemd y eliminar la ACL de Mauro de `/dev/vmnet8`. No hacerlo mientras se necesite
 acceder a los LXC anidados. Los archivos privados describen este laboratorio, no son los
 valores que debe adoptar el clúster universitario.
+
+## Alcance de la biblioteca y de IaaS
+
+La preparación automática actual admite **Draw.io**. Buscar e incorporar una ficha de
+Community Scripts no incorpora su instalador al ejecutor: otra aplicación necesita una
+receta compatible de construcción, configuración, acceso y comprobación. Una vez preparada
+y publicada, esa aplicación puede reutilizarse en pedidos independientes de varias cátedras.
+
+El catálogo usa las categorías **IaaS, PaaS y SaaS** en administración y en la vista docente.
+El administrador también puede consultar las bases Linux descargadas en Proxmox. El 26/10/2026
+se comprobaron por API `ubuntu-24.04-standard_24.04-2_amd64.tar.zst` y
+`debian-13-standard_13.6-1_amd64.tar.zst`. Ahora se incorporan automáticamente como IaaS,
+sin construir una aplicación ni registrar una validación ficticia. Las imágenes de aplicaciones
+y de ensayos no se muestran como bases Linux.
+
+
+## Alta directa y recuperación (26/10/2026)
+
+- Flujo habitual: **elegir → agregar → disponible**. NAP continúa en el worker y la pestaña no necesita quedar abierta.
+- Draw.io quedó **ofrecido en el catálogo**. Se conservó el artefacto ya probado y se retiraron sus dos LXC auxiliares.
+  La consulta de `stage` rechazaba `validated_manifest` al cambiar a `status`; se corrigió el contrato de consulta.
+- IaaS usa las plantillas estándar del nodo directamente. La red privada `lab-linux-010` asigna ocho IP/MAC
+  autorizadas (.71–.78); PVE configura la red y una contraseña root aleatoria, persistida cifrada antes del POST.
+  El alta IaaS acredita el contenedor propio arrancado y el acceso inicial recuperable, sin inventar pruebas de una aplicación.
+- Se aplicó `010_05_alta_materializada` con respaldo previo privado. La base local conservaba la condición antigua
+  que obligaba a las altas a mantener `servicio_id` vacío, aunque 009_14 ya figuraba aplicada. La migración permite
+  vincular el servicio creado y sigue exigiendo un servicio a las renovaciones. No modifica usuarios ni cátedras.
+- Pruebas reales: pedidos técnicos 31 (Ubuntu) y 32 (Debian), servicios 16 y 17, llegaron a **Activo** y permitieron
+  recuperar sus credenciales. Se detuvieron/eliminaron sus contenedores por el flujo normal, se confirmó la ausencia
+  y se archivaron los pedidos. No se comprobó manualmente el login dentro del guest ni se acreditó acceso de la universidad.
+- El acceso administrativo a consola abre Proxmox con la cuenta propia del operador, tras comprobar pertenencia;
+  no emite tickets ni comparte credenciales. La consola docente conserva la autorización individual institucional.
+- La verificación automática de aplicaciones tiene su propia marca (`automatic_verification`): no afirma que se
+  haya probado desde la red estudiantil. Se conservan los controles de integridad, propiedad y secretos distintos.
+
+## Acceso Draw.io con la sesión de NAP (26/10/2026)
+
+- Se conservó el servicio 18 del pedido 33, sin detenerlo, eliminarlo ni reconstruir el contenedor.
+- El arranque habitual de Compose incluye `nap010-app-gateway` (HTTPS, puerto local 8443).
+  Usa `app-<id>.nap-apps.test`, separado de localhost y de la API. Se agregaron los nombres 1–256
+  a `/etc/hosts` con respaldo privado `nap010/hosts.antes-acceso-nap`; no se cambió VMware ni Proxmox.
+- Certificado firmado con la CA local ya instalada; configuración y clave privada fuera del repositorio.
+  La migración `010_06_acceso_aplicacion` se aplicó tras `nap010/antes-acceso-nap.dump`.
+- Chromium abrió el editor real en español por **Ver acceso → Abrir aplicación**, sin Basic Auth,
+  con certificados verificados y sin fallos de recursos. Se comprobaron la separación de cookies/orígenes,
+  ausencia de opener y rechazo de consultas después de logout (HTTP 401).
+- Para esta verificación se creó una sesión de dominio temporal del titular operativo sin 2FA, auditada
+  y revocada al cerrar NAP. No se modificaron contraseñas, usuarios ni cátedras; esta prueba no acredita
+  ingreso mediante contraseña ni MFA. La apertura confirmó la entrega real y el pedido pasó a Activo.
+- Las capturas de comprobación quedan en el directorio privado `nap010/qa-acceso-modal.png` y
+  `nap010/qa-drawio-nap.png`. Las pruebas sintéticas de concurrencia se ejecutan en PostgreSQL aislado.
+- No se usan service workers ni instalación PWA: el editor debe consultar NAP al recargar después
+  del cierre de sesión. No se borra almacenamiento del navegador ni archivos del usuario.
+
+Guía de uso e instalación institucional: [acceso a aplicaciones con NAP](acceso-aplicaciones-nap.md).
+
+## Búsqueda y categorías (26/10/2026)
+
+Se eliminó la lista «Guardadas». Las incorporaciones se conservan internamente para retomar la
+misma alta, sin confundir una ficha con una instalación disponible. Las aplicaciones compatibles
+continúan directamente al formulario; las demás muestran el motivo y no ofrecen un botón bloqueado.
+
+La búsqueda conserva las rutas LXC fijadas a una revisión de GitHub y enriquece nombres,
+descripciones y categorías con las colecciones públicas `script_categories` y `script_scripts`
+de `https://db.community-scripts.org/api/collections/`. La consulta es de sólo lectura, con límite
+de tiempo, bytes, páginas y caché. El token de GitHub no se envía a ese proveedor de metadatos.
+Si esa consulta falla, permanece la búsqueda por nombre y se informa que faltan categorías.
+La metadata externa nunca habilita por sí misma la instalación de una aplicación.
+
+Comprobación real: se consultaron 28 categorías y las fichas públicas; MariaDB se encontró dentro
+de Databases. Las pruebas visuales de la nueva interfaz usan backend simulado, sin instalar servicios
+ni modificar Proxmox. El despliegue genérico de aplicaciones propias sigue pendiente, descrito en
+[rumbo del producto](rumbo-mini-cloud.md).

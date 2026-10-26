@@ -4,6 +4,7 @@ from app.schemas.tamanos import Tamano
 
 SIMPLE_CHECKS = {'image_digest', 'sanitized_image', 'repeatable_deployment', 'functional_access',
                  'student_network_access', 'unique_secrets', 'authorized_perimeter', 'simple_verification'}
+AUTOMATIC_CHECKS = (SIMPLE_CHECKS - {'student_network_access', 'simple_verification'}) | {'automatic_verification'}
 
 
 class PublicarAplicacion(Contrato):

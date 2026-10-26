@@ -43,7 +43,14 @@ async def buscar(db, *, actor, filters):
     q=(filters.q or '').casefold();cat=(filters.categoria or '').casefold()
     items=[item for item in items if (not q or q in ' '.join([item['nombre'],*(item.get('aliases') or [])]).casefold())
         and (not cat or cat in [c.casefold() for c in item['categorias']])]
-    return {**paginate(items,query=[q,cat],limit=filters.limit,cursor=filters.cursor,revision=info['revision']), 'fuente':info}
+    return {**paginate(items,query=[q,cat],limit=filters.limit,cursor=filters.cursor,revision=info.get('revision_catalogo',info['revision'])), 'fuente':info}
+
+
+async def categorias(db, *, actor):
+    await requiere_admin_actual(db,actor)
+    items,info=await get_fuente().index()
+    names=info.get('categorias') or [name for item in items for name in item.get('categorias',[])]
+    return {'items':sorted(set(names),key=str.casefold),'fuente':info}
 
 
 async def incorporar(db, *, actor, data, clave):

@@ -202,6 +202,15 @@ async def _dispatch(sessions, lease, action, *, pve, after_dispatch):
             action = 'detener'
         if action == 'crear' and (ledger is None or (ledger.expira_at and db_utc(ledger.expira_at) <= clock.now())):
             raise error(409, 'reserva_caducada', 'La reserva caducó antes del envío')
+        if action == 'crear' and assignment.get('origen') == 'proxmox_iaas':
+            import secrets
+            from app.utils.secretos import configured_keyring
+            keyring = configured_keyring()
+            encrypted = op.contexto_seguro.get('credenciales_iaas')
+            if not encrypted:
+                encrypted = keyring.encrypt({'guest_password': secrets.token_urlsafe(32)}, context=f'operacion:{op.id}:iaas')
+                op.contexto_seguro = {**op.contexto_seguro, 'credenciales_iaas': encrypted}
+            config['password'] = keyring.decrypt(encrypted, context=f'operacion:{op.id}:iaas')['guest_password']
         deadline = time.monotonic() + max(0, (db_utc(op.lease_until) - clock.now()).total_seconds())
         await _cas(db, lease, fase='dispatch_started', dispatch_started_at=clock.now(), upid=None,
             deadline_at=clock.now() + timedelta(seconds=180 if action == 'crear' else 60),
@@ -252,6 +261,10 @@ async def _materialize(sessions, lease, observation):
                 disponibilidad_aplicacion='no_verificada', deployed_at=clock.now().replace(tzinfo=None))
             db.add(service)
             await db.flush()
+            if assignment.get('origen') == 'proxmox_iaas':
+                from app.utils.secretos import configured_keyring
+                values = configured_keyring().decrypt(op.contexto_seguro['credenciales_iaas'], context=f'operacion:{op.id}:iaas')
+                service.credenciales_encrypted = configured_keyring().encrypt(values, context=f'servicio:{service.id}:secretos')
             request.servicio_id, identity.servicio_id, ledger.servicio_id = service.id, service.id, service.id
             periods = list((await db.scalars(select(VigenciaAutorizada).where(VigenciaAutorizada.pedido_id == request.id,
                 VigenciaAutorizada.revision_decision == op.contexto_seguro['revision_decision']))).all())
@@ -313,6 +326,9 @@ async def _confirmed(sessions, lease, observation, *, preparation=None):
                 # stop/start del mismo guest no borra la entrega ya acreditada;
                 # el revelado sigue exigiendo running, cobertura y pertenencia.
                 service.disponibilidad_aplicacion = 'no_verificada'
+                if service.asignacion_snapshot.get('origen') == 'proxmox_iaas':
+                    # IaaS entrega el sistema arrancado, no acredita pruebas de una aplicación.
+                    service.disponibilidad_aplicacion = 'utilizable'
             if new_state == EstadoServicio.PAUSED:
                 service.pausado_auto_at = clock.now().replace(tzinfo=None)
             elif new_state == EstadoServicio.RUNNING:
@@ -324,6 +340,8 @@ async def _confirmed(sessions, lease, observation, *, preparation=None):
             target = (EstadoPedido.SUSPENDIDO if new_state == EstadoServicio.PAUSED
                 and request.estado == EstadoPedido.ACTIVO else EstadoPedido.ACTIVO
                 if new_state == EstadoServicio.RUNNING and request.estado == EstadoPedido.SUSPENDIDO else None)
+            if preparation and service.asignacion_snapshot.get('origen') == 'proxmox_iaas' and request.estado == EstadoPedido.EN_DESPLIEGUE:
+                target = EstadoPedido.ACTIVO
             if target:
                 actor = await db.get(Usuario, op.actor_usuario_id) if op.actor_usuario_id else None
                 await transicionar(db, request.id, target, usuario=actor,
@@ -332,6 +350,8 @@ async def _confirmed(sessions, lease, observation, *, preparation=None):
         db.add(historial_service.registrar_servicio(service.id, before, new_state.value,
             comentario='Efecto de infraestructura confirmado: ' + op.tipo, operacion_id=op.id,
             evento_clave=f'operacion:{op.id}:confirmada', metadata=historial_service.asignacion_historica(service)))
+        if preparation and request and op.tipo == 'desplegar':
+            await notificacion_service.avisar_despliegue_confirmado(db, request, service, op)
         if not await operations.terminar(db, lease, estado='confirmada', fase='verificacion'):
             raise LeasePerdido()
 
@@ -425,8 +445,19 @@ async def procesar_lease(sessions, lease, *, pve=None, runner=None, after_dispat
                         await _cas(db, lease, fase='detencion_necesaria')
                 if not covered:
                     continue
-                preparation = await bootstrap_service.preparar(sessions=sessions, servicio_id=service.id,
-                    operacion_id=op.id, identidad_id=identity.id, runner=runner, lease=lease)
+                if service.asignacion_snapshot.get('origen') == 'proxmox_iaas':
+                    import hashlib
+                    from app.utils.secretos import configured_keyring
+                    nonce = configured_keyring().decrypt(identity.nonce_cifrado, context=f'infra:{identity.resource_uuid}:nonce')
+                    allocation = op.contexto_seguro.get('red_reservada', {}).get('instance', {})
+                    preparation = {'identity_verified': True, 'local_health': True, 'acceso_metadata': {
+                        'preparacion_id': str(op.id), 'local_health': True, 'producto': 'linux',
+                        'origen': 'proxmox_iaas', 'metodo': 'consola', 'username': 'root',
+                        'endpoint': f'/servicios/{service.id}/consola', 'addresses': [allocation['address']] if allocation.get('address') else [],
+                        'nonce_sha256': hashlib.sha256(nonce.encode()).hexdigest()}}
+                else:
+                    preparation = await bootstrap_service.preparar(sessions=sessions, servicio_id=service.id,
+                        operacion_id=op.id, identidad_id=identity.id, runner=runner, lease=lease)
                 if not isinstance(preparation, dict) or preparation.get('identity_verified') is not True or preparation.get('local_health') is not True:
                     await _finish_failure(sessions, lease, 'preparacion_no_confirmada')
                     return

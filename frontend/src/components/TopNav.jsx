@@ -7,6 +7,7 @@ import {
 import useTheme from '../hooks/useTheme';
 import { iniciales } from './ui';
 import utnLogo from '../assets/utn-logo.jpeg';
+import Notificaciones from './Notificaciones';
 
 const LINKS = [
   { to: '/catalogo', label: 'Catálogo', icon: Package },
@@ -141,6 +142,7 @@ export default function TopNav({ user, onLogout }) {
         </nav>
 
         <div className="topnav-right" style={{ marginLeft: 'auto' }}>
+          {user?.id && <Notificaciones key={`${user.id}:${user.rol}`} user={user}/>}
           <button ref={mobileTrigger} className="btn-icon topnav-mobile-trigger" aria-label={mobileOpen ? 'Cerrar navegación' : 'Abrir navegación'}
             aria-expanded={mobileOpen} aria-controls="portal-navigation" onClick={() => { setMobileOpen((value) => !value); setMenuOpen(false); }}>
             {mobileOpen ? <X size={19} /> : <Menu size={19} />}

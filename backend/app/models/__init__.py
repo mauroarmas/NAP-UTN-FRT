@@ -56,3 +56,4 @@ from app.models.artefacto_preparado import ArtefactoPreparado, ReplicaArtefacto
 from app.models.presupuesto_builder import PresupuestoBuilder
 from app.models.reserva_espacio_builder import ReservaEspacioBuilder
 from app.models.publicacion_oferta import PublicacionOferta
+from app.models.acceso_aplicacion import AccesoAplicacion

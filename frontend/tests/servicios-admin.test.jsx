@@ -7,15 +7,17 @@ import TemplatesAdmin from '../src/components/TemplatesAdmin';
 import * as api from '../src/services/api';
 import { sizes } from './fixtures/tamanos';
 
-vi.mock('../src/services/api', () => ({ getTemplates: vi.fn(), getTamanos: vi.fn(), getDefiniciones: vi.fn(),
-  retirarTemplate: vi.fn(), reactivarTemplate: vi.fn(), createTemplate: vi.fn(), updateTemplate: vi.fn(), listarIncorporaciones: vi.fn(), buscarAplicaciones: vi.fn(), incorporarAplicacion: vi.fn(), editarIncorporacion: vi.fn() }));
+vi.mock('../src/services/api', () => ({ sincronizarIaas: vi.fn(), getTemplates: vi.fn(), getTamanos: vi.fn(), getDefiniciones: vi.fn(),
+  retirarTemplate: vi.fn(), reactivarTemplate: vi.fn(), createTemplate: vi.fn(), updateTemplate: vi.fn(), listarIncorporaciones: vi.fn(), getCategoriasAplicaciones: vi.fn(), buscarAplicaciones: vi.fn(), incorporarAplicacion: vi.fn(), editarIncorporacion: vi.fn() }));
 const minimum = { vcpus: 1, ram_mb: 512, disk_gb: 4 };
 beforeEach(() => {
   vi.clearAllMocks();
+  api.sincronizarIaas.mockResolvedValue({data:{disponibles:2}});
   api.getTamanos.mockResolvedValue({ data: sizes });
   api.getTemplates.mockResolvedValue({ data: [{ id: 1, nombre: 'Linux de prácticas', tipo: 'lxc', activo: true,
     modelo_servicio: 'iaas', oferta_disponible: true, tamanos_permitidos: ['small', 'medium'], tamano_recomendado: 'small' }] });
   api.getDefiniciones.mockResolvedValue({ data: [] });
+  api.getCategoriasAplicaciones.mockResolvedValue({ data: { items: [], fuente: { estado: 'disponible' } } });
   api.listarIncorporaciones.mockResolvedValue({ data: { items: [] } });
 });
 
@@ -47,7 +49,7 @@ test('una preparación mayor que Medium impide ofrecerla sin bajar sus mínimos'
   api.getDefiniciones.mockResolvedValue({ data: [{ id: 'draw', codigo: 'drawio', producto: 'drawio',
     estado: 'publicada', modelo_servicio: 'saas', minimum_resources: { ...minimum, ram_mb: 2048 } }] });
   render(<TemplatesAdmin open onClose={vi.fn()} />);
-  await user.selectOptions(await screen.findByLabelText('Aplicación preparada'), 'draw');
+  await user.selectOptions(await screen.findByLabelText('Servicio'), 'draw');
   expect(await screen.findByRole('alert')).toHaveTextContent('más recursos');
   expect(screen.getByRole('radio', { name: /^Small/ })).toBeDisabled();
   expect(screen.getByRole('radio', { name: /^Medium/ })).toBeDisabled();
@@ -76,10 +78,7 @@ test('Agregar servicio integra la biblioteca dentro de un solo diálogo', async 
   expect(screen.queryByRole('button', { name: 'Preparación y biblioteca' })).not.toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: 'Agregar servicio', exact: true }));
   expect(screen.getAllByRole('dialog')).toHaveLength(1);
-  await user.click(screen.getByRole('button', { name: 'Buscar en la biblioteca' }));
   expect(screen.getAllByRole('dialog')).toHaveLength(1);
   await user.type(screen.getByLabelText('Nombre de aplicación'), 'diagramas');
-  await user.click(screen.getByRole('button', { name: 'Elegir una aplicación preparada' }));
-  await user.click(screen.getByRole('button', { name: 'Buscar en la biblioteca' }));
   expect(screen.getByLabelText('Nombre de aplicación')).toHaveValue('diagramas');
 });

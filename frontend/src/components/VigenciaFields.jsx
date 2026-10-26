@@ -8,7 +8,7 @@ const TYPES = [
   ['anual', 'Ciclo Lectivo Anual'], ['personalizado', 'Rango Personalizado'],
 ];
 
-export default function VigenciaFields({ value, onChange, onValid }) {
+export default function VigenciaFields({ value, onChange, onValid, onPeriodChange }) {
   const [calendar, setCalendar] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -33,6 +33,10 @@ export default function VigenciaFields({ value, onChange, onValid }) {
   const valid = academic ? Boolean(validYear && !loading && !error && period && String(calendar?.anio) === year)
     : Boolean(value.desde && value.hasta && value.desde >= FECHA_MINIMA && value.hasta >= FECHA_MINIMA && value.desde <= value.hasta);
   useEffect(() => { onValid?.(valid); }, [valid, onValid]);
+  useEffect(() => {
+    onPeriodChange?.(valid ? { desde: academic ? period.desde : value.desde,
+      hasta: academic ? period.hasta : value.hasta } : null);
+  }, [valid, academic, period?.desde, period?.hasta, value.desde, value.hasta, onPeriodChange]);
   return <fieldset className="vigencia-fields">
     <legend>Vigencia solicitada</legend>
     <div className="row gap-2 vigencia-options" style={{ flexWrap: 'wrap' }}>

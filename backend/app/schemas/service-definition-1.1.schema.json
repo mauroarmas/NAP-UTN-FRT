@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:nap:contracts:service-definition:1.1",
-  "title": "Definici\u00f3n validada de servicio LXC para publicaci\u00f3n en el cat\u00e1logo NAP",
-  "description": "Contrato del manifiesto de una definici\u00f3n ya construida y validada. No representa una instancia, no contiene secretos y no admite scripts, comandos o URLs ejecutables. Un borrador incompleto todav\u00eda no satisface este contrato de publicaci\u00f3n.",
+  "title": "Definición validada de servicio LXC para publicación en el catálogo NAP",
+  "description": "Contrato del manifiesto de una definición ya construida y validada. No representa una instancia, no contiene secretos y no admite scripts, comandos o URLs ejecutables. Un borrador incompleto todavía no satisface este contrato de publicación.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -226,7 +226,7 @@
       }
     },
     "minimum_resources": {
-      "description": "M\u00ednimos probados del producto; el perfil de recursos y la reserva aprobada se mantienen separados. No constituye una cuota fija de c\u00e1tedra.",
+      "description": "Mínimos probados del producto; el perfil de recursos y la reserva aprobada se mantienen separados. No constituye una cuota fija de cátedra.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -263,7 +263,7 @@
       }
     },
     "secret_metadata": {
-      "description": "Nombres y destino de secretos, nunca sus valores, hashes de contrase\u00f1as ni referencias que concedan acceso.",
+      "description": "Nombres y destino de secretos, nunca sus valores, hashes de contraseñas ni referencias que concedan acceso.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -361,7 +361,7 @@
       }
     },
     "network_profile_ids": {
-      "description": "Identificadores de configuraci\u00f3n de infraestructura preexistente y validada; no crea redes, DNS, IPAM, rutas o certificados.",
+      "description": "Identificadores de configuración de infraestructura preexistente y validada; no crea redes, DNS, IPAM, rutas o certificados.",
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
@@ -417,7 +417,7 @@
         },
         "checks": {
           "type": "array",
-          "minItems": 8,
+          "minItems": 7,
           "uniqueItems": true,
           "items": {
             "enum": [
@@ -435,15 +435,25 @@
               "editable_diagram_cycle",
               "authorized_perimeter",
               "deployment_without_provider",
-              "simple_verification"
+              "simple_verification",
+              "automatic_verification"
             ]
           },
           "allOf": [
             {
               "if": {
-                "contains": {
-                  "const": "simple_verification"
-                }
+                "anyOf": [
+                  {
+                    "contains": {
+                      "const": "simple_verification"
+                    }
+                  },
+                  {
+                    "contains": {
+                      "const": "automatic_verification"
+                    }
+                  }
+                ]
               },
               "then": {
                 "allOf": [
@@ -469,22 +479,12 @@
                   },
                   {
                     "contains": {
-                      "const": "student_network_access"
-                    }
-                  },
-                  {
-                    "contains": {
                       "const": "unique_secrets"
                     }
                   },
                   {
                     "contains": {
                       "const": "authorized_perimeter"
-                    }
-                  },
-                  {
-                    "contains": {
-                      "const": "simple_verification"
                     }
                   }
                 ]
@@ -552,6 +552,18 @@
                     }
                   }
                 ]
+              }
+            },
+            {
+              "if": {
+                "contains": {
+                  "const": "simple_verification"
+                }
+              },
+              "then": {
+                "contains": {
+                  "const": "student_network_access"
+                }
               }
             }
           ]
