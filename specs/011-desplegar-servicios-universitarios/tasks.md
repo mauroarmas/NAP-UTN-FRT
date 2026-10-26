@@ -312,7 +312,9 @@ Todas las tareas comienzan pendientes. Marcar una tarea sólo después de implem
 T001–T004 completadas: registry TLS local verificado en sólo lectura y bootstrap del nodo
 confirmado por recibo root con perfiles pendientes. T005/T006 requieren sus ensayos reales;
 la política candidata debe imponerse y comprobarse antes de arrancar un invitado. Ver `docs/evidencia/011/setup-inicial.md` y `docs/evidencia/011/bootstrap-inicial.md`.
-T005 tiene prototipo, recuperación y siete pruebas aprobadas; su lanzador está preparado para
-el operador. No se habilitó ningún perfil nuevo ni se acreditaron T005/T006. Ver también
+T005 tiene prototipo y recuperación. Su primer ensayo falló al extraer Ubuntu por permisos;
+confirmó retirada del disco/CT. La corrección de umask pasó las pruebas locales (44 en la selección
+de laboratorio, diez del spike), pero requiere otro ensayo real. No se habilitó ningún perfil
+nuevo ni se acreditaron T005/T006. Ver también
 `docs/evidencia/011/factibilidad-docker.md`. La implementación restante y sus aceptaciones
 continúan pendientes. Los lanzadores y datos privados están en nap011 fuera de Git.

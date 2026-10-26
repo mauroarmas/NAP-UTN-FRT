@@ -104,6 +104,12 @@ archivos regulares exactos a un directorio root temporal y retiran el secreto al
 El journal queda en `/var/lib/nap-lab011/`, sin credenciales. Los resultados se registran en
 `docs/evidencia/011/factibilidad-docker.md`; el ensayo **no habilita perfiles**.
 
+La creación y el arranque mediante pct usan umask 022 exclusivamente en esos subprocesos:
+sus directorios deben poder recorrerse desde el user namespace. El proceso principal conserva
+umask 077. Ante una extracción fallida y ausencia confirmada, `--retire-failed-run` admite
+retirar sólo directorios vacíos identificados mediante el journal root anterior; exige otra
+identidad para el nuevo intento. No cambia permisos de carpetas existentes ni elimina archivos.
+
 ## Pruebas sin nodo
 
 ```bash

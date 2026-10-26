@@ -1,5 +1,8 @@
 import importlib.util
 import json
+import os
+import stat
+import sys
 from pathlib import Path
 from uuid import uuid4
 
@@ -111,3 +114,51 @@ def test_bridge_policy_is_scoped_to_probe_and_rejects_injection():
         spike.firewall_policy(expected, '172.16.36.100', '02:11:00:00:00:51')
     with pytest.raises(ValueError):
         spike.firewall_policy(expected, '172.16.36.81', 'bad; flush ruleset')
+
+
+@pytest.mark.integration
+def test_pct_directory_umask_does_not_weaken_private_state(tmp_path):
+    original = os.umask(0o077)
+    try:
+        parent = tmp_path / 'pct'
+        # La reproducción pasa por un subproceso, como la creación real de PVE.
+        spike.command([sys.executable, '-c', 'import os,sys;os.mkdir(sys.argv[1])', str(parent)],
+                      child_umask=0o022)
+        assert stat.S_IMODE(parent.stat().st_mode) == 0o755
+        journal = tmp_path / 'private.json'; spike.save(journal, {'state': 'fixture'})
+        assert stat.S_IMODE(journal.stat().st_mode) == 0o600
+        private = tmp_path / 'private-directory'; private.mkdir()
+        assert stat.S_IMODE(private.stat().st_mode) == 0o700
+    finally:
+        os.umask(original)
+
+
+def test_retire_only_empty_workspace_of_completed_failed_probe(tmp_path):
+    node = Node(); expected = marker(); journal = tmp_path / 'state.json'
+    spike.save(journal, {'marker': expected, 'fingerprint': None, 'phase': 'creating', 'vmid': spike.VMID,
+                        'result': {'state': 'probe_failed', 'resource_absent': True}})
+    root = tmp_path / 'host'; workspace = root / f'var/lib/lxc/{spike.VMID}'
+    (workspace / 'rootfs').mkdir(parents=True, mode=0o700)
+    spike.retire_failed_workspace(node, expected, journal, root=root)
+    assert not workspace.exists()
+    assert 'create' not in node.events
+
+
+def test_retire_workspace_refuses_content_live_resource_and_links(tmp_path):
+    node = Node(); expected = marker(); journal = tmp_path / 'state.json'
+    spike.save(journal, {'marker': expected, 'fingerprint': None, 'phase': 'creating', 'vmid': spike.VMID,
+                        'result': {'state': 'probe_failed', 'resource_absent': True}})
+    root = tmp_path / 'host'; workspace = root / f'var/lib/lxc/{spike.VMID}'
+    (workspace / 'rootfs').mkdir(parents=True)
+    (workspace / 'rootfs/foreign').write_text('conservar')
+    with pytest.raises(ValueError): spike.retire_failed_workspace(node, expected, journal, root=root)
+    assert (workspace / 'rootfs/foreign').read_text() == 'conservar'
+    (workspace / 'rootfs/foreign').unlink()
+    node.resource = {'marker': marker()}
+    with pytest.raises(ValueError): spike.retire_failed_workspace(node, expected, journal, root=root)
+    assert workspace.exists()
+    node.resource = None
+    (workspace / 'rootfs').rmdir()
+    (workspace / 'rootfs').symlink_to(tmp_path, target_is_directory=True)
+    with pytest.raises(ValueError): spike.retire_failed_workspace(node, expected, journal, root=root)
+    assert (workspace / 'rootfs').is_symlink()

@@ -19,7 +19,7 @@ import struct
 import subprocess
 import sys
 import time
-from stat import S_ISREG
+from stat import S_ISDIR, S_ISREG
 from uuid import UUID
 
 
@@ -96,17 +96,48 @@ def save(path, value):
         if temporary.exists(): temporary.unlink()
 
 
-def read_state(node, marker, journal):
-    validate_marker(marker)
+def read_private_state(journal):
     journal = Path(journal)
     info = journal.lstat()
     if (not S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_mode & 0o077
             or info.st_uid != os.geteuid() or info.st_size > 1048576):
         raise ValueError('UNTRUSTED_PROBE_STATE')
-    previous = json.loads(journal.read_text())
+    return json.loads(journal.read_text())
+
+
+def read_state(node, marker, journal):
+    validate_marker(marker)
+    previous = read_private_state(journal)
     if previous['marker'] != marker or previous['fingerprint'] != getattr(node, 'fingerprint', None):
         raise ValueError('PROBE_REQUEST_CHANGED')
     return previous
+
+
+def retire_failed_workspace(node, marker, journal, *, root=Path('/')):
+    """Retirar sólo directorios vacíos dejados por una extracción fallida identificada."""
+    validate_marker(marker)
+    previous = read_private_state(journal)
+    result = previous.get('result', {})
+    if (previous.get('marker') != marker or previous.get('vmid') != VMID
+            or previous.get('phase') != 'creating' or result.get('state') != 'probe_failed'
+            or result.get('resource_absent') is not True or not node.absent()):
+        raise ValueError('PREVIOUS_PROBE_NOT_RETIRED')
+    workspace = root / f'var/lib/lxc/{VMID}'
+    paths = [workspace, workspace / 'rootfs']
+    mountpoints = [line.split()[4] for line in Path('/proc/self/mountinfo').read_text().splitlines()]
+    if any(m == str(workspace) or m.startswith(str(workspace) + '/') for m in mountpoints):
+        raise ValueError('WORKSPACE_STILL_MOUNTED')
+    for path in paths:
+        if not path.exists() and not path.is_symlink(): continue
+        info = path.lstat()
+        if not S_ISDIR(info.st_mode) or info.st_uid != os.geteuid():
+            raise ValueError('UNTRUSTED_WORKSPACE')
+        entries = set(p.name for p in path.iterdir())
+        if entries - ({'rootfs'} if path == workspace else set()):
+            raise ValueError('WORKSPACE_NOT_EMPTY')
+    # rmdir nunca elimina contenido; una carrera/no vaciedad detiene la recuperación.
+    for path in reversed(paths):
+        if path.exists(): path.rmdir()
 
 
 def reconcile_probe(node, marker, journal):
@@ -166,6 +197,9 @@ def execute_probe(node, marker, journal):
                       'FEATURES_NOT_CONFIRMED', 'UNSAFE_APPARMOR', 'UNEXPECTED_BRIDGE_PORT',
                       'GUEST_PROBE_FAILED', 'FIREWALL_COUNTERS_NOT_CONFIRMED'}
         failure = str(error) if str(error) in safe_codes else 'INFRASTRUCTURE_NOT_CONFIRMED'
+        guest_phase = getattr(node, 'failed_guest_phase', None)
+        if guest_phase in {'prepare_runtime', 'isolation', 'public_pull', 'private_pull', 'application'}:
+            observations = {'guest_failed_phase': guest_phase}
     try:
         existing = node.config()
         if existing is not None:
@@ -186,10 +220,10 @@ def execute_probe(node, marker, journal):
     return result
 
 
-def command(args, *, data=None, capture=False, timeout=30):
+def command(args, *, data=None, capture=False, timeout=30, child_umask=0o077):
     result = subprocess.run(args, input=data, stdin=None if data is not None else subprocess.DEVNULL,
         stdout=subprocess.PIPE if capture else subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        timeout=timeout, check=True)
+        timeout=timeout, check=True, umask=child_umask)
     if capture:
         if len(result.stdout) > 1048576: raise ValueError('PROBE_OUTPUT_LIMIT')
         return result.stdout
@@ -266,11 +300,14 @@ class Node:
         return value['fields']
 
     def create(self, marker):
+        # PVE crea directorios que luego debe recorrer el UID mapeado del LXC.
+        # Sólo su subproceso usa 022; el journal, paquete y secretos conservan 077/0600.
         command(['/usr/sbin/pct', 'create', str(VMID), 'local:vztmpl/' + self.profile['base'],
             '--hostname', 'nap011-docker-spike', '--description', json.dumps(marker, separators=(',', ':')),
             '--rootfs', 'local-lvm:8', '--memory', '1024', '--swap', '0', '--cores', '2',
             '--unprivileged', '1', '--start', '0', '--nameserver', '172.16.36.2',
-            '--net0', f'name=eth0,bridge=vmbr0,hwaddr={self.mac},ip={self.address}/24,gw=172.16.36.2,firewall=0'], timeout=180)
+            '--net0', f'name=eth0,bridge=vmbr0,hwaddr={self.mac},ip={self.address}/24,gw=172.16.36.2,firewall=0'],
+            timeout=180, child_umask=0o022)
         self.owned(marker)
 
     def install_firewall(self, marker):
@@ -289,7 +326,7 @@ class Node:
             raise ValueError('FEATURES_NOT_CONFIRMED')
         if any('unconfined' in str(v) for k, v in cfg.items() if 'apparmor' in k):
             raise ValueError('UNSAFE_APPARMOR')
-        command(['/usr/sbin/pct', 'start', str(VMID)], timeout=90)
+        command(['/usr/sbin/pct', 'start', str(VMID)], timeout=90, child_umask=0o022)
         master = Path(f'/sys/class/net/veth{VMID}i0/master')
         if not master.exists() or master.resolve().name != 'vmbr0':
             raise ValueError('UNEXPECTED_BRIDGE_PORT')
@@ -311,6 +348,7 @@ class Node:
         if data.get('state') != 'guest_probe_passed':
             phase = data.get('phase')
             if phase in {'prepare_runtime', 'isolation', 'public_pull', 'private_pull', 'application'}:
+                self.failed_guest_phase = phase
                 print('Ensayo detenido en: ' + phase, file=sys.stderr, flush=True)
             raise ValueError('GUEST_PROBE_FAILED')
         rules = json.loads(command(['/usr/sbin/nft', '-j', 'list', 'table', 'bridge', self.table], capture=True))
@@ -358,6 +396,7 @@ def main():
     parser.add_argument('--run-id', required=True)
     parser.add_argument('--apply', action='store_true')
     parser.add_argument('--cleanup-only', action='store_true')
+    parser.add_argument('--retire-failed-run')
     args = parser.parse_args()
     marker = {'purpose': PURPOSE, 'run_id': args.run_id}
     try:
@@ -365,6 +404,10 @@ def main():
         node = Node(bootstrap, bootstrap.preflight.read_json(args.manifest),
                     bootstrap.preflight.read_json(args.config), marker)
         if args.cleanup_only and not args.apply: raise ValueError('APPLY_REQUIRED')
+        if args.retire_failed_run:
+            validate_marker({'purpose': PURPOSE, 'run_id': args.retire_failed_run})
+            if not args.apply or args.cleanup_only or args.retire_failed_run == args.run_id:
+                raise ValueError('INVALID_REPLACEMENT_PROBE')
         if not args.apply:
             result = {'state': 'plan_without_changes', 'vmid': VMID, 'profiles_enabled': []}
         else:
@@ -377,13 +420,20 @@ def main():
                 if not S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_nlink != 1 or info.st_mode & 0o077:
                     raise ValueError('UNTRUSTED_PROBE_LOCK')
                 fcntl.flock(lock, fcntl.LOCK_EX)
+                if args.retire_failed_run:
+                    retire_failed_workspace(node, {'purpose': PURPOSE, 'run_id': args.retire_failed_run},
+                                            directory / (args.retire_failed_run + '.json'))
                 action = reconcile_probe if args.cleanup_only else execute_probe
                 result = action(node, marker, directory / (args.run_id + '.json'))
             finally: os.close(lock)
         print(json.dumps(result, ensure_ascii=False))
         return 0 if result['state'] in {'probe_passed', 'probe_cleaned', 'plan_without_changes'} else 2
-    except (OSError, ValueError, subprocess.SubprocessError):
-        print(json.dumps({'state': 'probe_not_confirmed', 'profiles_enabled': [], 'vmid': VMID}))
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        safe_codes = {'PREVIOUS_PROBE_NOT_RETIRED', 'WORKSPACE_STILL_MOUNTED', 'UNTRUSTED_WORKSPACE',
+                      'WORKSPACE_NOT_EMPTY', 'PROBE_RECONCILIATION_REQUIRED', 'PROBE_REQUEST_CHANGED',
+                      'UNTRUSTED_PROBE_STATE', 'UNTRUSTED_PROBE_LOCK', 'ROOT_REQUIRED'}
+        code = str(error) if str(error) in safe_codes else 'INFRASTRUCTURE_NOT_CONFIRMED'
+        print(json.dumps({'state': 'probe_not_confirmed', 'code': code, 'profiles_enabled': [], 'vmid': VMID}))
         return 2
 
 

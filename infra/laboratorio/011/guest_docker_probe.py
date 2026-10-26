@@ -68,6 +68,13 @@ def main():
         (certificates / 'ca.crt').write_text(registry['ca_pem'])
         run(['systemctl', 'daemon-reload']); run(['systemctl', 'start', 'docker'])
         version = json.loads(run(['docker', 'version', '--format', '{{json .Server}}'], capture=True))
+        driver = json.loads(run(['docker', 'info', '--format', '{{json .Driver}}'], capture=True))
+        filesystem = run(['findmnt', '--noheadings', '--output', 'FSTYPE', '/'], capture=True).decode().strip()
+        packages = dict(line.split('=', 1) for line in run([
+            'dpkg-query', '-W', '-f', '${binary:Package}=${Version}\n', 'docker.io', 'containerd', 'runc'],
+            capture=True).decode().splitlines())
+        if driver not in {'overlay2', 'overlayfs'} or filesystem != 'ext4':
+            raise ValueError('FILESYSTEM_NOT_CONFIRMED')
         phase = 'isolation'
         require_blocked('172.16.36.100', 8006)
         require_blocked('172.16.36.1', 8001)
@@ -108,6 +115,7 @@ def main():
                   not any(Path('/run').glob('nap011-auth-*')), 'managed_endpoints_blocked': True,
                   'runtime_version': version['Version'], 'disk_used_bytes': disk, 'memory_peak_bytes': peak}
         result['private_image_digest'] = frozen_image.split('@', 1)[1]
+        result.update(storage_driver=driver, filesystem=filesystem, runtime_packages=packages)
     except (OSError, ValueError, KeyError, StopIteration, subprocess.SubprocessError):
         result = {'state': 'guest_probe_failed', 'phase': phase}
     print(json.dumps(result))
