@@ -55,15 +55,34 @@ de ausencia de secretos en journal/archivos durante despliegues completos.
 
 - Suite completa de backend ordinaria: **860 aprobadas**, antes de añadir la prueba
   adicional de rotación HMAC. Ninguna prueba conecta al Proxmox real.
-- Selección 011 posterior y regresión de runner: resultados registrados al completar
-  este bloque en `tasks.md`.
+- Selección 011 posterior: **55 aprobadas**. Aplicaciones/runner histórico: **79
+  aprobadas y 5 integraciones omitidas explícitamente**.
 - Migraciones 009/010/011: se corrigió el backfill previo a 010 para diferir columnas
   011; las fixtures de un esquema congelado 009 usan SQL de esa versión.
 - PostgreSQL 16 temporal, puerto 55432/esquemas aleatorios: carreras de secretos,
   unicidad de intento/dirección activa y takeover sin renumeración. Las restricciones
   no sustituyen las pruebas pendientes del asignador/admisión de T012/T023/T030.
+- Suite PostgreSQL completa: 119 aprobadas y una expectativa de revisión antigua
+  detectada en restauración; corregida y verificada mediante la selección afectada:
+  **10 aprobadas**, incluyendo la nueva carrera del asignador. No es una segunda
+  ejecución completa ni acredita instalaciones PVE.
 - Laboratorio 011: **98 aprobadas**, incluye Core real en Docker sin red; sigue
   siendo distinto de los ensayos físicos documentados en `compuertas.md`.
 
 No se certificó la red o el clúster universitario. El uso productivo de perfiles
 continúa condicionado a T028, T050 y T061 y a las aceptaciones de cada historia.
+
+## Asignador de red — T023 parcial
+
+Nueva rama separada para perfiles `nap-application-network/1`, vacíos por defecto.
+Valida direcciones/MAC/DNS, plataforma de destino, administración, gateway y solapes
+con slots históricos y otros perfiles. Incluye las direcciones de administración
+efectivas en el snapshot y su hash. Reserva bajo el lock único de capacidad;
+replay devuelve la misma asignación sin sustituir el snapshot aprobado. La liberación
+exige identidad retirada y ausencia confirmada del mismo recurso, conservando la fila.
+El slot se puede reutilizar con otra identidad; las identidades no se reciclan.
+
+Pruebas locales nuevas + regresión de red histórica: **22 aprobadas**. PostgreSQL:
+dos asignaciones concurrentes toman slots diferentes y repetir una no duplica filas.
+No crea invitados, DNS, certificados ni claves TLS. T023 sigue pendiente hasta unir
+la creación de identidad/nonce nuevos y TLS por instancia al camino definitivo.

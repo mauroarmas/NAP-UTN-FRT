@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     application_gateway_port: int = Field(default=443, ge=1, le=65535)
     application_gateway_ca_file: str = ''
     application_profiles: dict = Field(default_factory=dict)
+    application_network_profiles: dict = Field(default_factory=dict)
 
     biblioteca_fuente: FuenteBiblioteca = Field(default_factory=FuenteBiblioteca)
     builder_hosts: dict[str, BuilderHost] = Field(default_factory=dict, repr=False)

@@ -16,6 +16,7 @@ from app.services.operacion_service import reclamar
 from app.services.secreto_despliegue_service import asegurar
 from app.utils.clock import clock
 from tests.test_secretos_despliegue_011 import pedido_app  # shared fixture
+from tests.test_reserva_red_aplicacion_011 import red_aplicaciones_011, new_identity_011
 
 
 async def seed_operation(db):
@@ -92,3 +93,21 @@ async def test_active_address_cannot_be_shared_and_release_preserves_history(db,
     row = await db.scalar(select(ReservaRedAplicacion))
     row.liberada_at = clock.now(); await db.commit()
     assert await db.scalar(select(func.count()).select_from(ReservaRedAplicacion)) == 1
+
+
+async def test_concurrent_allocator_assigns_disjoint_slots_and_replays_the_original(db, pg_sessions, red_aplicaciones_011):
+    from app.services.reserva_red_service import reservar_aplicacion
+    identities = [await new_identity_011(db, red_aplicaciones_011['cluster_uuid'], vmid) for vmid in (600,601)]
+    await db.commit()
+    barrier = asyncio.Barrier(2)
+    async def allocate(identity_id):
+        async with pg_sessions() as session, session.begin():
+            identity = await session.get(IdentidadInfraestructura, identity_id)
+            await barrier.wait()
+            return await reservar_aplicacion(session, identity, network_id='app-network')
+    first, second = await asyncio.wait_for(asyncio.gather(*(allocate(i.id) for i in identities)), timeout=15)
+    assert first['slot_id'] != second['slot_id'] and first['instance']['address'] != second['instance']['address']
+    assert first['resource_uuid'] != second['resource_uuid']
+    # Repetir una asignación no vuelve a consultar un slot nuevo ni duplica filas.
+    assert await reservar_aplicacion(db, identities[0], network_id='app-network') == first
+    assert await db.scalar(select(func.count()).select_from(ReservaRedAplicacion)) == 2

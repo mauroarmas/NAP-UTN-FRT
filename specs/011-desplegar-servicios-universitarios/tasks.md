@@ -324,6 +324,12 @@ Ver `docs/evidencia/011/base-comun.md` para alcance y límites.
 
 T008 sigue parcial: faltan pruebas del gateway genérico. T009 conserva pendiente el supervisor;
 T010, spool/ingesta; T012, admisión/asignación reales más allá de las restricciones probadas.
+T023 parcial: asignador transaccional de slots y liberación con ausencia probados; falta unir
+la identidad/nonce y TLS por instancia al camino definitivo. Red nueva vacía por defecto.
+Selecciones finales: 55 backend 011; 79 infra/runner aprobadas y 5 omitidas; 22 red nueva/legacy;
+PostgreSQL completo detectó una expectativa antigua de revisión (119 aprobadas/1 fallo),
+corregida y verificada con 10 pruebas afectadas y del asignador. Backend completo: 860 aprobadas
+antes de la prueba adicional de rotación y de las pruebas nuevas de red. Sin regresiones abiertas.
 Los módulos nuevos todavía requieren integración con el ejecutor y sus aceptaciones finales.
 Las cinco historias y sus aceptaciones siguen pendientes. Paquetes, recibos y credenciales
 se conservan en nap011 fuera de Git. No se certificó el clúster universitario ni se habilitaron

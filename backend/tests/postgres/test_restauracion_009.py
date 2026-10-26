@@ -16,7 +16,7 @@ from tests.test_restauracion_seguridad_009 import restored_rows
 async def test_migration_adds_only_restore_control_and_does_not_seed_accounts(empty_pg_schema):
     async with empty_pg_schema.begin() as conn:
         await conn.run_sync(lambda c: migrate(c, 'head'))
-        assert await conn.scalar(text('SELECT version_num FROM alembic_version')) == '010_06_acceso_aplicacion'
+        assert await conn.scalar(text('SELECT version_num FROM alembic_version')) == '011_01_despliegue_aplicaciones'
         for name in ['restauraciones', 'accesos_iniciales_restaurados']:
             columns = await conn.run_sync(lambda c: {v['name'] for v in inspect(c).get_columns(name)})
             assert columns == set(Base.metadata.tables[name].columns.keys())
