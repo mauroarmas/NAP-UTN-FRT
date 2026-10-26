@@ -38,7 +38,8 @@ purgue el texto para que un request antiguo no produzca un efecto nuevo.
 
 ## Ejecución duradera
 
-1. El portal persiste operación, intento, execution_id y snapshot antes de enviar `start`.
+1. El portal persiste operación, intento, execution_id, snapshot y cabecera de consola antes de
+   crear el CT. Registra los hitos seguros de creación aunque falle antes de enviar `start`.
 2. El nodo verifica pertenencia, perfil/base, red y fingerprint; persiste el manifiesto del trabajo.
 3. Arranca una unidad systemd de nombre derivado del UUID, ejecutable fijo y `Type=exec`, sin PTY,
    `--pipe` ni `--wait`. Entrada no interactiva; no poner secretos en argumentos, descripción o
@@ -76,9 +77,17 @@ normalizada y etapas confirmadas, no un porcentaje temporal inventado.
 
 ## Registro y depuración
 
-Fragmento: execution_id, source_seq, captured_at, fase, stream, texto depurado. El productor
+Fragmento del nodo: execution_id, source_seq, captured_at, fase, stream, texto depurado. El productor
 incrementa source_seq en orden de captura; si descarta, comunica el rango/contador omitido.
 Flush <=250 ms, fragmentos <=8 KiB y memoria/spool acotados. Mantener flujo aunque no haya lector.
+
+Al ingerir, el portal fija source=runner y source_key derivada de source_seq. Sus propios hitos
+anteriores a start usan source=portal, source_seq nulo y clave estable por intento/fase/hito;
+ambos se deduplican por (execution_id, source, source_key) y comparten secuencia global bajo lock.
+Los eventos portal son de esquema cerrado y se guardan con su cambio de fase; nunca se envían
+como salida del nodo ni avanzan su ACK. Un fallo de creación sin job deja consola legible y
+resumen seguro. Si hubo job, antes del evento final de entrega/fallo ingerir su último cursor
+confirmado para preservar el orden causal, sin ordenar retrospectivamente por timestamps de hosts distintos.
 
 Sólo eventos propios de esquema cerrado y salida admitida por el perfil. Registrar secretos antes
 de ejecutar; redactor incremental con ventana suficiente cubre tokens partidos entre chunks y

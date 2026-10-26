@@ -20,6 +20,12 @@ No ejecutar instalación sobre un nodo compartido sin la preparación y destinos
 - Mantener perfiles `pendiente_validacion` hasta completar el siguiente gate. Esta preparación
   no significa que la universidad tenga configurado su clúster/red.
 
+La tarea de bootstrap de `infra/laboratorio/011/preparar_entorno.py` se ejecuta después del
+preflight y antes de los spikes. Prepara prerrequisitos y candidatos, no instala paquetes de NAP
+que todavía no estén construidos. La instalación del runner común y de cada estrategia definitiva
+se realiza al terminar sus tareas de construcción, antes de la validación real de ese perfil;
+el cierre documental sólo revisa la guía/rollback, no posterga esta preparación al final.
+
 Referencias: [configuración](contracts/configuracion.md), [runner](contracts/runner.md),
 [modelo](data-model.md), [fuentes y decisiones](research.md).
 
@@ -141,8 +147,14 @@ Para cada origen, con datos de ensayo y los perfiles realmente habilitados:
 
 - Perder respuesta de `start` después de arrancar unidad; cortar worker/SSH, recuperar lease y
   verificar misma ejecución. Cambiar node_boot_id deja estado incierto hasta reconciliación.
+- Fallar la creación del CT antes de start: consola con hitos/error seguro del portal aunque
+  no exista job; reobservar el hito no lo duplica. Mezclar un evento portal y un fragmento runner
+  con la misma clave local no produce colisión; sólo el fragmento runner avanza su ACK.
 - Doble clic y dos consumidores: no duplicación. Un fallo confirmado permite nuevo intento
   enlazado, sin resetear el historial; incertidumbre no permite repetir ciegamente instalación.
+- Recrear tras ausencia confirmada mantiene valores/referencias de secretos de aplicación del
+  mismo pedido y renueva UUID/nonce/claves TLS de infraestructura. Un nuevo pedido de alta recibe secretos
+  de aplicación distintos y nunca hereda los del ocupante anterior de un slot de red.
 - Cambiar tag tras aprobar: se usa digest congelado. Digest/script/paquete inaccesible: fallo
   explícito, nunca otra versión. Imagen incompatible/privilegios excesivos: no oferta habilitada.
 - Simular DB caída, disco lleno, instalación que pide entrada y fallo de eliminación: ningún raw

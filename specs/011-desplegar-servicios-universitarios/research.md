@@ -212,10 +212,16 @@ Fuentes: [Core logging](https://github.com/community-scripts/core/blob/81a2e2ae7
 
 **Decision**: PostgreSQL conserva fragmentos depurados. Ingesta del spool de trabajos activos cada
 1 s, separada del tick de orquestación de 5 s; consulta visible de consola cada 1 s por Axios y
-cookie existente, lotes de hasta 64 KiB. Deduplicar `(execution_id, source_seq)` y asignar secuencia
+cookie existente, lotes de hasta 64 KiB. Deduplicar `(execution_id, source, source_key)` y asignar secuencia
 por raíz de operación en transacción corta; ACK al runner sólo después del commit. Flush del
 productor hasta 250 ms, sin depender de un navegador. Con sólo dos instalaciones activas no hace
 falta otro broker ni una biblioteca de terminal.
+
+Los hitos de creación del portal se guardan con su cambio de fase antes de start, sobre intento y
+cabecera ya persistidos. Para runner la clave deriva de source_seq; para portal es estable por
+fase/hito y source_seq es nulo. Ambos comparten seq/cuota, pero sólo runner tiene ACK. Un fallo de
+creación sin job conserva su consola. Si hubo job, ingerir su cursor final antes del resultado final
+del portal para conservar el orden causal.
 
 **Rationale**: combina revocación por petición con p95 de captura a pantalla <=5 s. El tick actual
 más consultas cada 2 s no alcanza ese presupuesto. Exportación por páginas con extremo superior
@@ -301,6 +307,8 @@ Para reintentos, conservar operaciones terminales y crear otra operación `repar
 raíz lógica. Si hay recurso incierto no se crea nuevo intento. Si la limpieza anterior confirmó
 su ausencia, una nueva identidad y reserva necesitan la misma comprobación de capacidad bajo
 bloqueo; nunca se reutiliza una identidad retirada como si el recurso siguiera presente.
+Conservar en ese reintento los secretos de aplicación y referencias del mismo pedido; sólo la
+identidad/nonce y claves TLS de infraestructura son nuevas. Un nuevo pedido de alta recibe secretos propios; una renovación conserva los del alta original.
 
 **Rationale**: cumple FR-012/014/025 sin falsificar el contador de reclamaciones, ni cambiar
 historia terminal, ni perder la capacidad reservada mientras se espera una fecha futura.
@@ -313,7 +321,8 @@ el contador de lease; reabrir cualquier operación fallida. Son interpretaciones
 **Decision**: el camino nuevo usa slots de red institucionales y una tabla de reserva activa por
 identidad, liberada sólo con ausencia confirmada. Mantener el formato histórico de `instances`
 para 009/010 y no reciclar sus resource UUIDs. Los slots nuevos son disjuntos y cada asignación
-recibe UUID y claves nuevos; el perfil se configura una vez, no por cátedra o por alta.
+recibe UUID y claves de infraestructura nuevos; los secretos de aplicación de un reintento siguen
+la regla del mismo pedido de R13. El perfil se configura una vez, no por cátedra o por alta.
 
 **Rationale**: la reserva histórica toma UUIDs del archivo y considera usados todos los registrados;
 tratarla como un pool reciclable agotaría direcciones después de sucesivos servicios o violaría la

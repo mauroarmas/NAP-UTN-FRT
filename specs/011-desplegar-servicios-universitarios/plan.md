@@ -195,11 +195,18 @@ por documentación: son el primer gate de implementación.
   utilizable/transicionar a ACTIVO y avisar. No instalar otra vez por volver a consultar.
 - Stop/start/restart mantienen el contenedor y persistencia; delete confirma ausencia y libera
   capacidad/red. Si falla la identidad o limpieza, estado explícito y contabilidad retenida.
+- Un reintento del mismo pedido conserva secretos de aplicación y sus referencias, también tras
+  ausencia confirmada y recreación. La nueva identidad/nonce y claves TLS son de infraestructura;
+  sólo un nuevo pedido de alta genera otro conjunto; una renovación conserva los del alta original.
 
 ### Consola y continuidad
 
 - SQL almacena texto depurado ordenado por raíz; intentos y trabajos se correlacionan sin cambiar
   operaciones terminales. Supervisor de nodo sobrevive a SSH/worker; reboot exige reconciliar.
+- Crear intento/cabecera antes del CT y registrar hitos seguros del portal con la fase, incluso si
+  nunca arranca el job. Unificar portal/runner por (execution_id, source, source_key) y secuencia
+  global; source_seq/ACK siguen siendo exclusivos del runner. Si hubo job, ingerir su cursor final antes del
+  hito final del portal. No reordenar por relojes de máquinas distintas.
 - Ingesta corta cada 1 s, commit y después ACK; navegador cada 1 s con cursor, sin sockets de shell.
   Textos desconocidos no se retienen; registro técnico permite diagnóstico sin exponer credenciales.
 - UI con fases claras, consola negra/blanca, texto literal, scroll pausable, exportación deliberada,
@@ -219,14 +226,18 @@ por documentación: son el primer gate de implementación.
 
 ## Secuencia para la generación posterior de tareas
 
-1. **Gate de factibilidad**: harness Core, Docker anidado, permisos cerrados y red en un recurso
+1. **Preparación inicial**: ejecutar bootstrap técnico de registry TLS, red/DNS/CA/slots, bases
+   candidatas y acceso de ensayo antes de los spikes, sin habilitar perfiles ni tocar servicios
+   existentes. El preflight sólo diagnostica; no sustituye esta preparación. Instalar los paquetes
+   definitivos cuando estén construidos y antes de su gate real; al cierre sólo revisar guía/rollback.
+2. **Gate de factibilidad**: harness Core, Docker anidado, permisos cerrados y red en un recurso
    controlado; validar fuentes/secretos sin activar perfiles ni crear ofertas engañosas.
-2. **Base común**: migración/configuración, resolver/profile registry, snapshots/reserva, trabajos
+3. **Base común**: migración/configuración, resolver/profile registry, snapshots/reserva, trabajos
    duraderos, intento/fencing, productor seguro e ingesta de consola con fakes y carreras SQL.
-3. **Recorrido Docker**: alta, aprobación, instancia, persistencia, acceso y primer flujo de consola.
-4. **Recorrido Community**: mismo contrato y control, perfiles MariaDB/Caddy y probes específicos
+4. **Recorrido Docker**: alta, aprobación, instancia, persistencia, acceso y primer flujo de consola.
+5. **Recorrido Community**: mismo contrato y control, perfiles MariaDB/Caddy y probes específicos
    de acceso; ninguna duplicación de máquina de estados o implementación completa de instaladores.
-5. **Integración**: agenda/reintentos/bajas, permisos, GUI simple, regresión, ensayos reales y guía
+6. **Integración**: agenda/reintentos/bajas, permisos, GUI simple, regresión, ensayos reales y guía
    de conexión institucional. Declarar cada gate real aprobado o bloqueado con su motivo.
 
 Estos son incrementos de diseño, no tareas ejecutadas ni autorización para saltar sus compuertas.

@@ -64,6 +64,11 @@ origen `generado` o `aportado`; valor_cifrado; creado_at. UNIQUE(pedido_id, nomb
   `contexto_seguro`, mensajes, idempotencia de respuesta ni esquemas de lectura ordinarios.
 - Declaraciones de secreto pertenecen a la configuración; valores efectivos se crean por pedido
   antes del dispatch y nunca se regeneran al consultar o reintentar el mismo despliegue.
+  Esto incluye recrear el recurso después de confirmar su ausencia: el mismo pedido conserva
+  valores y referencias de secretos de aplicación. Un nuevo pedido de alta genera sus propios
+  secretos; una renovación conserva los del alta original.
+  Resource UUID, nonce y claves/certificados TLS de la instancia sí son nuevos al recrear el recurso;
+  no son los secretos de aplicación referenciados por la decisión aprobada.
 - Credenciales nativas de acceso se generan por instancia. No se permiten contraseñas de acceso
   predeterminadas compartidas dentro de una oferta; si una aplicación necesita un valor aportado,
   se solicita para ese pedido mediante un campo sensible sólo cuando sea necesario.
@@ -109,9 +114,22 @@ Un código de salida no confirma por sí solo la entrega: deben pasar las compro
 first_retained_seq; last_seq; retained_bytes; dropped_bytes; dropped_messages; last_captured_at;
 last_ingested_at; truncated; expired; ultimo_resultado_seguro. Guardar esta cabecera tras purgar texto.
 
-`consola_fragmentos`: PK(operacion_raiz_id, seq); intento_id FK; execution_id; source_seq;
+`consola_fragmentos`: PK(operacion_raiz_id, seq); intento_id FK; execution_id; source;
+source_key; source_seq nullable;
 captured_at; ingested_at; fase; stream(`sistema`, `stdout`, `stderr`); texto_depurado; utf8_bytes.
-UNIQUE(execution_id, source_seq), índices por raíz/secuencia y fecha de captura.
+UNIQUE(execution_id, source, source_key), índices por raíz/secuencia y fecha de captura.
+
+- `source=runner`: source_seq positivo y source_key derivada de ese número; conservar el cursor
+  y ACK propios del protocolo del nodo. No aceptar otra clave arbitraria enviada por el productor.
+- `source=portal`: source_seq nulo, stream=sistema y source_key estable por intento/fase/hito
+  confirmado. Emitir sólo eventos estructurados permitidos, sin stdout de PVE ni valores privados.
+  Persistir intento/execution_id/cabecera antes de crear el CT y guardar el evento con el cambio de
+  fase en la misma transacción. Un replay del mismo hito no inserta otro fragmento.
+- Ambos orígenes comparten seq, cuota, retención y consulta. Secuenciar bajo el mismo lock de
+  cabecera; conservar orden por productor y causal de hitos, sin reordenar por relojes de máquinas
+  distintas. Si hubo job, ingerir su cursor final antes de registrar entrega/fallo final del portal.
+  Si falla la creación antes de existir job, los eventos del portal siguen siendo consultables;
+  no requieren runner_job_id ni generan ACK al nodo.
 
 Insertar, deduplicar, numerar y avanzar cursor en una transacción corta bloqueando la cabecera.
 ACK del nodo sólo después de commit. Un hueco debido a descarte en origen se conserva como dato y
@@ -147,8 +165,10 @@ UNIQUE parcial (cluster_id, address) y (perfil_id, slot_id) mientras liberada_at
 
 Admitir bajo bloqueo de capacidad y con validación de que slots nuevos no se superponen con pools
 legacy ni administración. Liberar sólo tras ausencia confirmada del recurso y su almacenamiento.
-Una asignación siguiente puede reutilizar el slot, nunca el resource UUID o los secretos anteriores;
-certificado/clave de instancia nuevos. No se mantiene una reserva de red sólo por existir una oferta.
+Una asignación siguiente puede reutilizar el slot, nunca el resource UUID, nonce o claves de
+infraestructura anteriores; certificado/clave de instancia nuevos. No hereda secretos de otro
+pedido: un reintento del mismo pedido conserva sólo sus secretos de aplicación conforme a la sección 3.
+No se mantiene una reserva de red sólo por existir una oferta.
 
 ## 8. Migración y reglas transversales
 

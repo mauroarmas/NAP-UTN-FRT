@@ -73,6 +73,9 @@ Si hay trabajo en curso, incertidumbre de identidad/resultado o vigencia ausente
 otro intento. Una respuesta de inicio perdida se reconcilia; no se trata como un fallo confirmado.
 Si el recurso fue retirado con ausencia confirmada, reclamar otra identidad y validar capacidad
 antes de un nuevo efecto. No alterar la configuración aprobada para hacer pasar el reintento.
+Conservar valores y referencias de secretos de aplicación del mismo pedido incluso si se recrea
+el recurso. Generar otro resource UUID/nonce y claves TLS de infraestructura; un nuevo pedido de alta sí
+genera sus propios secretos de aplicación; una renovación conserva los del alta original. No interpretar un reintento como un nuevo pedido.
 
 ## Consola administrativa de lectura
 
@@ -89,7 +92,7 @@ Respuesta 200:
 |---|---|
 | operation_id, operacion_raiz_id | Consulta y agrupación efectiva |
 | estado, fase, intento_efectivo | Estado seguro y número estable de instalación |
-| items | seq, intento, captured_at, fase, stream y texto depurado |
+| items | seq, intento, captured_at, fase, stream y texto depurado, tanto del portal como del runner |
 | next_cursor, previous_cursor, has_more | Continuación después del lote y límite para anteriores, sin repetir fragmentos |
 | first_retained_seq, last_seq | Rango retenido para recuperación/exportación |
 | truncated, expired, dropped_messages | Señal explícita de recorte, vencimiento o huecos |
@@ -100,6 +103,11 @@ Consulta cada 1 s sólo con consola visible. Si `after` queda detrás del rango 
 el rango disponible y aviso de salto; no fingir continuidad. Registro vencido devuelve cabecera,
 resultado y `expired=true`, no un 404 que sugiera operación inexistente. SQL/cursor no se expone
 como identidad de infraestructura ni contiene credenciales.
+
+La consulta también funciona si la creación falla antes de existir un job del nodo: devuelve los
+hitos seguros del portal y el resultado, sin exigir runner_job_id. Ambos productores comparten
+secuencia/cuota/retención; su deduplicación interna está definida en `data-model.md`. El cursor
+público sigue siendo seq de la raíz y no el source_seq privado del runner.
 
 Copiar/descargar es una acción explícita de la UI: fijar `through_seq=last_seq`, pedir las páginas
 retenidas y formar texto plano. Revalidar permisos en cada página; abortar ante revocación y no
