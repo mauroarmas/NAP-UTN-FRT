@@ -121,6 +121,30 @@ proceso, perfil LXC exacto cargado en enforce, UID mapeado y seccomp activo. La 
 desde dentro se conserva sólo como diagnóstico, porque los namespaces AppArmor pueden ocultar
 el perfil externo. No se acepta un host unconfined ni un perfil ajeno/ausente/complain.
 
+## Ensayo Community/Core (T006)
+
+`spike_community.py` verifica un bundle local de 14 fuentes/avisos de licencia. Los locks
+`community-sources.lock.json` y `community-dependencies.lock.json` fijan commits, hashes,
+snapshots firmados y el release Caddy. `community_harness.sh --check-only` sólo carga Core;
+su salida mantiene pendiente el gate real. El modo técnico de instalación sólo admite los
+dos pilotos dentro de LXC, no el nodo ni un Docker usado para pruebas del cargador.
+
+Los scripts guest se ejecutan sin modificarlos. Una política común cierra helpers,
+descargas/releases, preguntas, logging, fuentes APT, login y updater. El archivo base
+debian.sources conserva los tres snapshots; se comprueban fuentes y hashes antes/después
+de APT. No se seleccionan espejos mutables como recuperación. La guarda de releases usa
+el archivo previamente comprobado por hash, sin otra resolución de latest.
+
+Los lanzadores privados `ensayar-community.sh`/`limpiar-ensayo-community.sh` transmiten
+29 archivos exactos, con hash y rutas verificadas; no incluyen credenciales de registry/API.
+Usan secuencialmente el mismo VMID/dirección reservados del laboratorio, con identidades
+distintas y limpieza confirmada antes del siguiente caso. No se ejecutan simultáneamente
+con el spike Docker. Los recibos y parámetros privados permanecen fuera de Git.
+
+Los gates iniciales reales Docker/MariaDB/Caddy quedaron aprobados el 26/10/2026.
+Ver [compuertas](../../../docs/evidencia/011/compuertas.md): esto no habilita perfiles ni
+certifica el paquete definitivo, la red universitaria o el flujo de pedidos del portal.
+
 ## Pruebas sin nodo
 
 ```bash

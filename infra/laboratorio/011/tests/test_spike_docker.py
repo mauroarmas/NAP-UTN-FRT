@@ -184,6 +184,22 @@ def test_confinement_uses_node_process_not_guest_view(tmp_path, monkeypatch, sec
         assert node.confinement_observations['guest_label'] == 'unconfined'
 
 
+def test_shared_lab_adapter_needs_no_registry_secret_for_community(tmp_path):
+    s = importlib.util.spec_from_file_location('community_bootstrap_validation', ROOT / 'preparar_entorno.py')
+    bootstrap = importlib.util.module_from_spec(s); s.loader.exec_module(bootstrap)
+    manifest = json.loads((ROOT / 'candidatos.json').read_text())
+    config = {'schema_version': 'nap-community-probe/1', 'network': {
+        'cidr': '172.16.36.0/24', 'bridge': 'vmbr0', 'gateway': '172.16.36.2',
+        'slots': [{'address': '172.16.36.81', 'mac': '02:11:00:00:00:51', 'host': 'app1.nap011.test'}]}}
+    program = tmp_path / 'guest.py'; program.write_text('# fixed program\n')
+    expected = {'purpose': 'nap011-community-spike', 'run_id': str(uuid4())}
+    node = spike.Node(bootstrap, manifest, config, expected, profile_id='community-mariadb', program_path=program)
+    assert 'registry' not in node.config_data
+    assert node.profile['base'].startswith('debian-13-')
+    with pytest.raises(ValueError, match='INVALID_PROBE_ORIGIN'):
+        spike.Node(bootstrap, manifest, config, expected, profile_id='docker-ubuntu24', program_path=program)
+
+
 def test_bridge_policy_is_scoped_to_probe_and_rejects_injection():
     expected = marker()
     rules = spike.firewall_policy(expected, '172.16.36.81', '02:11:00:00:00:51')

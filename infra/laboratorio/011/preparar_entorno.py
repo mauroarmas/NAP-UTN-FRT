@@ -49,7 +49,13 @@ def validate_config(manifest, config):
             or not re.fullmatch('[A-Za-z0-9_-]+', registry['password'])
             or not isinstance(registry['ca_pem'], str) or not 1 <= len(registry['ca_pem']) <= 16384):
         raise ValueError('INVALID_REGISTRY')
-    network = config['network']
+    validate_network(manifest, config['network'])
+    return config
+
+
+def validate_network(manifest, network):
+    """Metadatos de red del laboratorio, reutilizables sin credenciales del registry."""
+    preflight.validate_manifest(manifest)
     if (not isinstance(network, dict) or set(network) != {'cidr', 'bridge', 'gateway', 'slots'}
             or network['cidr'] != '172.16.36.0/24' or network['bridge'] != manifest['bridge']
             or network['gateway'] != '172.16.36.2' or not isinstance(network['slots'], list)
@@ -67,7 +73,7 @@ def validate_config(manifest, config):
             raise ValueError('INVALID_SLOT')
         ipaddress.IPv4Address(slot['address'])
         seen_ip.add(slot['address']); seen_mac.add(slot['mac']); seen_host.add(slot['host'])
-    return config
+    return network
 
 
 class NoRedirect(HTTPRedirectHandler):

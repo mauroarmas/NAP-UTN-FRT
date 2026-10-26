@@ -1,0 +1,67 @@
+{
+  "scope": "laboratorio_local",
+  "date": "2026-10-26",
+  "state": "community_gate_passed",
+  "results": {
+    "mariadb": {
+      "state": "probe_passed",
+      "resource_absent": true,
+      "observations": {
+        "state": "guest_probe_passed",
+        "application": "mariadb",
+        "product_version": "mariadb from 11.8.6-MariaDB, client 15.2 for debian-linux-gnu (x86_64) using  EditLine wrapper",
+        "native_product_probe": true,
+        "root_locked": true,
+        "raw_installer_logs_absent": true,
+        "mutable_updater_absent": true,
+        "memory_peak_bytes": 1066696704,
+        "disk_used_bytes": 1033334784,
+        "oom_kills": 0,
+        "snapshots_verified": 3,
+        "external_firewall_counters": {
+          "nap011_node_block": 2,
+          "nap011_peer_block": 2
+        },
+        "confinement": {
+          "host_label": "lxc-900011_</var/lib/lxc>//&:lxc-900011_<-var-lib-lxc>:unconfined (enforce)",
+          "guest_label": "unconfined",
+          "host_lxc_profile_enforced": true,
+          "host_seccomp_filter": true,
+          "host_uid_mapped": true
+        }
+      },
+      "profiles_enabled": []
+    },
+    "caddy": {
+      "state": "probe_passed",
+      "resource_absent": true,
+      "observations": {
+        "state": "guest_probe_passed",
+        "application": "caddy",
+        "product_version": "v2.11.7",
+        "native_product_probe": true,
+        "root_locked": true,
+        "raw_installer_logs_absent": true,
+        "mutable_updater_absent": true,
+        "memory_peak_bytes": 873185280,
+        "disk_used_bytes": 732983296,
+        "oom_kills": 0,
+        "snapshots_verified": 3,
+        "external_firewall_counters": {
+          "nap011_node_block": 2,
+          "nap011_peer_block": 2
+        },
+        "confinement": {
+          "host_label": "lxc-900011_</var/lib/lxc>//&:lxc-900011_<-var-lib-lxc>:unconfined (enforce)",
+          "guest_label": "unconfined",
+          "host_lxc_profile_enforced": true,
+          "host_seccomp_filter": true,
+          "host_uid_mapped": true
+        }
+      },
+      "profiles_enabled": []
+    }
+  },
+  "resource_absent": true,
+  "profiles_enabled": []
+}

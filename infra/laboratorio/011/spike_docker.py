@@ -26,11 +26,13 @@ from uuid import UUID
 VMID = 900011
 NODE = 'proxmox'
 PURPOSE = 'nap011-docker-spike'
+COMMUNITY_PURPOSE = 'nap011-community-spike'
 GI_B = 1024**3
 
 
 def validate_marker(marker):
-    if not isinstance(marker, dict) or set(marker) != {'purpose', 'run_id'} or marker['purpose'] != PURPOSE:
+    if (not isinstance(marker, dict) or set(marker) != {'purpose', 'run_id'}
+            or marker['purpose'] not in {PURPOSE, COMMUNITY_PURPOSE}):
         raise ValueError('INVALID_PROBE_IDENTITY')
     if str(UUID(marker['run_id'])) != marker['run_id']:
         raise ValueError('INVALID_PROBE_IDENTITY')
@@ -214,6 +216,9 @@ def execute_probe(node, marker, journal):
                       'PROBE_ADDRESS_OCCUPIED', 'IDENTITY_MISMATCH', 'GUEST_MUST_BE_STOPPED',
                       'FEATURES_NOT_CONFIRMED', 'UNSAFE_APPARMOR', 'UNEXPECTED_BRIDGE_PORT',
                       'GUEST_PROBE_FAILED', 'FIREWALL_COUNTERS_NOT_CONFIRMED'}
+        safe_codes |= {'COMMUNITY_' + code for code in ['SOURCE_REJECTED', 'UNDECLARED_HELPER', 'UNDECLARED_DOWNLOAD',
+            'UNRESOLVED_PROMPT', 'INSTALLER_FAILED', 'PRODUCT_PROBE_FAILED', 'MEDIUM_NOT_CONFIRMED',
+            'LOGIN_OR_LOG_POLICY', 'APT_SOURCES_CHANGED', 'APT_RELEASE_CHANGED', 'INFRASTRUCTURE_NOT_CONFIRMED']}
         failure = str(error) if str(error) in safe_codes else 'INFRASTRUCTURE_NOT_CONFIRMED'
         if hasattr(node, 'confinement_observations'):
             observations = {'confinement': node.confinement_observations}
@@ -273,17 +278,31 @@ def require_unused_address(address):
 
 
 class Node:
-    def __init__(self, bootstrap, manifest, config, marker):
-        bootstrap.validate_config(manifest, config)
+    def __init__(self, bootstrap, manifest, config, marker, *, profile_id='docker-ubuntu24', program_path=None):
+        validate_marker(marker)
+        if profile_id not in {'docker-ubuntu24', 'community-mariadb', 'community-caddy'}:
+            raise ValueError('INVALID_PROBE_ORIGIN')
+        docker = profile_id == 'docker-ubuntu24'
+        if marker['purpose'] != (PURPOSE if docker else COMMUNITY_PURPOSE):
+            raise ValueError('INVALID_PROBE_ORIGIN')
+        if docker:
+            bootstrap.validate_config(manifest, config)
+        else:
+            if (not isinstance(config, dict) or set(config) != {'schema_version', 'network'}
+                    or config['schema_version'] != 'nap-community-probe/1'):
+                raise ValueError('INVALID_BOOTSTRAP')
+            bootstrap.validate_network(manifest, config['network'])
         self.bootstrap, self.config_data, self.manifest, self.marker = bootstrap, config, manifest, marker
-        self.profile = next(p for p in manifest['profiles'] if p['id'] == 'docker-ubuntu24')
+        self.profile = next(p for p in manifest['profiles'] if p['id'] == profile_id)
+        self.is_docker = docker
+        self.hostname = 'nap011-' + ('docker' if docker else profile_id.removeprefix('community-')) + '-spike'
         slot = config['network']['slots'][0]
         self.address, self.mac = slot['address'], slot['mac']
         self.rules = firewall_policy(marker, self.address, self.mac)
         self.table = 'nap011_' + UUID(marker['run_id']).hex
-        self.program = Path(__file__).with_name('guest_docker_probe.py').read_bytes()
-        public = {'manifest': manifest, 'slot': slot, 'policy': self.rules,
-                  'registry_ca': config['registry']['ca_pem'], 'program': self.program.decode()}
+        self.program = (Path(program_path) if program_path else Path(__file__).with_name('guest_docker_probe.py')).read_bytes()
+        public = {'manifest': manifest, 'slot': slot, 'policy': self.rules, 'profile_id': profile_id,
+                  'registry_ca': config.get('registry', {}).get('ca_pem'), 'program': self.program.decode()}
         self.fingerprint = hashlib.sha256(json.dumps(public, sort_keys=True).encode() + Path(__file__).read_bytes()).hexdigest()
 
     def require_prerequisites(self):
@@ -324,7 +343,7 @@ class Node:
         # PVE crea directorios que luego debe recorrer el UID mapeado del LXC.
         # Sólo su subproceso usa 022; el journal, paquete y secretos conservan 077/0600.
         command(['/usr/sbin/pct', 'create', str(VMID), 'local:vztmpl/' + self.profile['base'],
-            '--hostname', 'nap011-docker-spike', '--description', json.dumps(marker, separators=(',', ':')),
+            '--hostname', self.hostname, '--description', json.dumps(marker, separators=(',', ':')),
             '--rootfs', 'local-lvm:8', '--memory', '1024', '--swap', '0', '--cores', '2',
             '--unprivileged', '1', '--start', '0', '--nameserver', '172.16.36.2',
             '--net0', f'name=eth0,bridge=vmbr0,hwaddr={self.mac},ip={self.address}/24,gw=172.16.36.2,firewall=0'],
@@ -336,14 +355,18 @@ class Node:
         command(['/usr/sbin/nft', '-f', '-'], data=self.rules.encode())
 
     def configure_features(self, marker):
-        self.owned(marker)
+        cfg = self.owned(marker)
         if b'stopped' not in command(['/usr/sbin/pct', 'status', str(VMID)], capture=True):
             raise ValueError('GUEST_MUST_BE_STOPPED')
-        command(['/usr/sbin/pct', 'set', str(VMID), '--features', 'nesting=1,keyctl=1'])
+        if self.is_docker:
+            command(['/usr/sbin/pct', 'set', str(VMID), '--features', 'nesting=1,keyctl=1'])
+        elif cfg.get('features') not in {None, ''}:
+            raise ValueError('FEATURES_NOT_CONFIRMED')
 
     def start(self, marker):
         cfg = self.owned(marker)
-        if cfg.get('features') != 'keyctl=1,nesting=1' and cfg.get('features') != 'nesting=1,keyctl=1':
+        if (self.is_docker and cfg.get('features') not in {'keyctl=1,nesting=1', 'nesting=1,keyctl=1'}
+                or not self.is_docker and cfg.get('features') not in {None, ''}):
             raise ValueError('FEATURES_NOT_CONFIRMED')
         if any('unconfined' in str(v) for k, v in cfg.items() if 'apparmor' in k or k == 'lxc'):
             raise ValueError('UNSAFE_APPARMOR')
@@ -396,6 +419,11 @@ class Node:
                 self.failed_guest_phase = phase
                 print('Ensayo detenido en: ' + phase, file=sys.stderr, flush=True)
             raise ValueError('GUEST_PROBE_FAILED')
+        data['external_firewall_counters'] = self.firewall_counters()
+        data['confinement'] = self.confinement_observations
+        return data
+
+    def firewall_counters(self):
         rules = json.loads(command(['/usr/sbin/nft', '-j', 'list', 'table', 'bridge', self.table], capture=True))
         counters = {}
         for entry in rules['nftables']:
@@ -404,9 +432,7 @@ class Node:
                 counters[rule['comment']] = sum(v.get('counter', {}).get('packets', 0) for v in rule.get('expr', []))
         if any(counters.get(name, 0) < 1 for name in ['nap011_node_block', 'nap011_peer_block']):
             raise ValueError('FIREWALL_COUNTERS_NOT_CONFIRMED')
-        data['external_firewall_counters'] = counters
-        data['confinement'] = self.confinement_observations
-        return data
+        return counters
 
     def cleanup(self, marker):
         self.owned(marker)

@@ -26,9 +26,9 @@
 - [X] T002 [P] Crear la imagen de ensayo propia con salud y lectura/escritura persistente en `infra/applications/fixtures/campus-demo/Dockerfile`, `infra/applications/fixtures/campus-demo/app.py` y `infra/applications/fixtures/campus-demo/README.md`; documentar publicación en registry de ensayo sin incorporar un build al portal.
 - [X] T003 [P] Preparar el manifiesto de candidatos y el preflight de sólo lectura en `infra/laboratorio/011/candidatos.json` e `infra/laboratorio/011/preflight.py`: versiones/base/hashes, recursos, systemd, red, registry/CA y permisos; parámetros privados fuera del repositorio y perfiles inicialmente pendientes.
 - [X] T004 Tras T003, crear y ejecutar el bootstrap técnico en `infra/laboratorio/011/preparar_entorno.py`: preparar registry de ensayo TLS/acceso privado, CA/DNS/slots disjuntos/firewall, bases candidatas y permisos de ensayo con respaldo e idempotencia; verificar con `infra/laboratorio/011/preflight.py` antes de los spikes, sin habilitar perfiles ni modificar servicios existentes. No depender de paquetes definitivos aún no construidos; instalarlos después en T028/T050/T061 y conservar parámetros privados fuera del repositorio.
-- [ ] T005 Tras T004, construir y ejecutar el spike controlado Docker en `infra/laboratorio/011/spike_docker.py`; verificar LXC no privilegiado, nesting/keyctl cerrados, AppArmor/seccomp activos, filesystem, pull público/privado, retirada del login y encaje en Medium; registrar resultado seguro en `docs/evidencia/011/factibilidad-docker.md`, sin fallback privilegiado o unconfined.
-- [ ] T006 Tras T004, construir y ejecutar el spike del instalador guest/Core fijado en `infra/laboratorio/011/spike_community.py`; comprobar carga local, dependencias cerradas, ausencia de prompts/logs crudos/telemetría/autologin y de efectos en el nodo para MariaDB/Caddy; registrar límites y recursos en `docs/evidencia/011/factibilidad-community.md`.
-- [ ] T007 Consolidar los resultados de T005/T006 y las condiciones de parada en `docs/evidencia/011/compuertas.md`: perfil/plataforma pendiente, habilitable o bloqueado y motivo; distinguir laboratorio de universidad y no habilitar perfiles de producción por estos prototipos.
+- [X] T005 Tras T004, construir y ejecutar el spike controlado Docker en `infra/laboratorio/011/spike_docker.py`; verificar LXC no privilegiado, nesting/keyctl cerrados, AppArmor/seccomp activos, filesystem, pull público/privado, retirada del login y encaje en Medium; registrar resultado seguro en `docs/evidencia/011/factibilidad-docker.md`, sin fallback privilegiado o unconfined.
+- [X] T006 Tras T004, construir y ejecutar el spike del instalador guest/Core fijado en `infra/laboratorio/011/spike_community.py`; comprobar carga local, dependencias cerradas, ausencia de prompts/logs crudos/telemetría/autologin y de efectos en el nodo para MariaDB/Caddy; registrar límites y recursos en `docs/evidencia/011/factibilidad-community.md`.
+- [X] T007 Consolidar los resultados de T005/T006 y las condiciones de parada en `docs/evidencia/011/compuertas.md`: perfil/plataforma pendiente, habilitable o bloqueado y motivo; distinguir laboratorio de universidad y no habilitar perfiles de producción por estos prototipos.
 
 **Checkpoint**: fixtures disponibles y factibilidad conocida. Las verificaciones de producción se repiten con el paquete definitivo antes de habilitar perfiles en T050/T061. Si no hay infraestructura, conservar explícitamente pendientes T004–T007 y las aceptaciones dependientes.
 
@@ -309,15 +309,14 @@ Todas las tareas comienzan pendientes. Marcar una tarea sólo después de implem
 
 ## Avance de implementación — 2026-10-26
 
-T001–T004 completadas: registry TLS local verificado en sólo lectura y bootstrap del nodo
-confirmado por recibo root con perfiles pendientes. T005/T006 requieren sus ensayos reales;
-la política candidata debe imponerse y comprobarse antes de arrancar un invitado. Ver `docs/evidencia/011/setup-inicial.md` y `docs/evidencia/011/bootstrap-inicial.md`.
-T005 tiene prototipo y recuperación. El primer ensayo falló al extraer Ubuntu por permisos y
-confirmó retirada del disco/CT. El segundo extrajo Ubuntu y dejó un CT detenido; el prototipo no
-reconocía el marcador codificado por pct y conservó el recurso. El tercer intento confirmó
-recuperación, arranque y limpieza, pero se detuvo antes de Docker al comprobar AppArmor desde
-el guest. La comprobación actualizada usa la vista del nodo y guarda diagnóstico (57 pruebas
-locales, 23 del spike); falta su ejecución real y la aceptación del runtime.
-No se habilitó ningún perfil nuevo ni se acreditaron T005/T006. Ver también
-`docs/evidencia/011/factibilidad-docker.md`. La implementación restante y sus aceptaciones
-continúan pendientes. Los lanzadores y datos privados están en nap011 fuera de Git.
+T001–T007 completadas. Bootstrap TLS verificado y factibilidad real local aprobada para
+Docker/Ubuntu 24.04 y Core/MariaDB+Caddy sobre Debian 13. Los CT, discos y reglas temporales
+quedaron retirados; Draw.io se conservó. Los perfiles definitivos permanecen pendientes.
+
+Selección de laboratorio: 98 pruebas locales aprobadas; incluyen Core real aislado, sin red,
+política Bash y regresiones de fuentes/ownership. No se confunden con los ensayos de Proxmox.
+Ver `docs/evidencia/011/compuertas.md`, `factibilidad-docker.md` y `factibilidad-community.md`.
+
+La base común, las cinco historias y sus aceptaciones siguen pendientes desde T008. Los paquetes,
+recibos privados y credenciales se conservan en nap011 fuera de Git. No se certificó el clúster
+universitario ni se habilitaron ofertas nuevas por estos prototipos.

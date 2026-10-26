@@ -2,7 +2,7 @@
 
 Fecha: 2026-10-26. Laboratorio local; no acredita el clúster universitario.
 
-**Estado: creación, arranque y limpieza confirmados; la comprobación de confinamiento requiere repetición con vista del nodo. T005 continúa abierta.**
+**Estado: ensayo real aprobado. T005 completada; perfil definitivo y habilitación siguen pendientes de T044/T050.**
 
 ## Preparado y verificado sin Proxmox
 
@@ -104,7 +104,37 @@ interior, host realmente unconfined, perfil ausente/ajeno/complain, PID cambiado
 desactivado. La API real confirmó que el status expone PID; el paquete pasó plan sin cambios
 y coincide con las fuentes. Falta ejecutar la comprobación actualizada en el nodo.
 
-## Resultado real requerido
+## Cuarto intento real — aprobado
+
+El recibo [docker-cuarto-intento.json](docker-cuarto-intento.json) confirmó `probe_passed` y
+`resource_absent: true`. No se habilitó ningún perfil. Se verificaron:
+
+- LXC no privilegiado, UID mapeado, nesting/keyctl exactos, perfil externo LXC en enforce y
+  filtro seccomp. La etiqueta interior fue `unconfined` y la exterior contenía el perfil
+  LXC apilado en enforce: se confirmó la diferencia de vistas del namespace.
+- Docker **29.1.3**, paquete `29.1.3-0ubuntu3~24.04.2`, containerd `2.2.1-0ubuntu1~24.04.4`
+  y runc `1.3.4-0ubuntu1~24.04.1`, sobre Ubuntu 24.04; storage driver overlayfs y ext4.
+- Pull público de whoami y privado de campus-demo con CA propia. El authfile se retiró antes
+  del arranque; la aplicación usó el digest observado y no recibió credenciales del registry.
+- Aplicación no root, rootfs de lectura, capabilities retiradas, no-new-privileges, logs none,
+  perfil AppArmor Docker y seccomp. Escritura y lectura persistentes tras reiniciar el container.
+- Bloqueo de administración y de otro invitado, con dos paquetes contabilizados en cada regla
+  externa del nodo. DNS y pulls permitidos; no se cambió el firewall general.
+- Consumo observado **1 403 764 736 bytes de disco** (1,31 GiB) y pico de memoria cgroup
+  **1 066 070 016 bytes** (1016,68 MiB). Cabe en Medium por un margen de sólo 7,32 MiB de RAM.
+  El pico incluye instalación y cachés: no acredita margen para otra aplicación ni permite
+  habilitar Small. Los mínimos reales se revalidan para el paquete y cada aplicación.
+- CT, disco y tabla nftables del ensayo retirados. La API confirmó únicamente Draw.io corriendo.
+
+No se instaló Docker en Proxmox, se cambió a privilegiado ni se desactivó AppArmor/seccomp.
+El acceso SSH autorizado para consultar el avance se cerró al terminar; no se modificaron SSH,
+cuentas o claves del nodo. El laboratorio universitario sigue requiriendo su propia validación.
+
+T005 acredita la factibilidad del prototipo local. T050 debe repetir el gate con el paquete
+definitivo, sus fuentes/versiones cerradas y el flujo real del portal; este ensayo no publica
+una oferta, no modifica pedidos y no acredita todavía el gateway HTTPS de NAP.
+
+## Condiciones para el paquete definitivo
 
 Registrar el recibo seguro del nodo y comprobar: LXC no privilegiado; nesting/keyctl exactos;
 AppArmor/seccomp activos; filesystem/runtime y versiones; pull público y privado con CA;

@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# Política institucional común del prototipo; no contiene lógica de MariaDB/Caddy.
+# El proceso padre verifica el bundle por hash antes de cargar cualquier helper.
+
+_nap_silent() { "$@" >/dev/null 2>&1; }
+set_std_mode() { STD=_nap_silent; export STD; }
+silent() { _nap_silent "$@"; }
+
+# No copiar mensajes/argumentos upstream a consola, journal o archivos de log.
+msg_info() { :; }
+msg_ok() { :; }
+msg_warn() { :; }
+msg_error() { :; }
+msg_custom() { :; }
+msg_debug() { :; }
+msg_dev() { :; }
+log_msg() { :; }
+log_section() { :; }
+error_handler() { exit 91; }
+
+catch_errors() {
+  # install.func vuelve a cargar error_handler; el bloqueo readonly conserva esta
+  # política. Durante ese bootstrap no activar errexit por sus redefiniciones.
+  [[ "${NAP_BOOTSTRAPPING:-1}" == 1 ]] && return 0
+  set -Ee -o pipefail
+  trap 'exit 91' ERR
+  trap - EXIT
+  trap 'exit 92' INT TERM HUP
+}
+
+_nap_quiet_diagnostics() {
+  debug_log() { :; }
+  # El contexto es nuevo y sus fuentes ya están cerradas; no buscar espejos ni
+  # borrar repositorios como recuperación implícita de un fallo de red.
+  ensure_apt_working() { /usr/local/sbin/apt-get update; }
+  # El helper conserva su interfaz; el resolver usa sólo el artefacto ya fijado,
+  # sin otra consulta de latest ni un instalador nuevo por aplicación.
+  fetch_and_deploy_gh_release() {
+    python3 "${NAP_HARNESS_DIR}/community_guard.py" release "$@" "${var_appversion:-}"
+  }
+}
+
+_cs_source_func() {
+  case "${1:-}" in
+    lib/system.func|lib/forge.func|lib/runtime.func|lib/db.func|lib/hwaccel.func|lib/tools.func|lib/alpine.func)
+      [[ -n "${NAP_CORE_DIR:-}" && -f "${NAP_CORE_DIR}/$1" && ! -L "${NAP_CORE_DIR}/$1" ]] || exit 84
+      source "${NAP_CORE_DIR}/$1" || exit 84
+      _nap_quiet_diagnostics
+      ;;
+    *) exit 84 ;;
+  esac
+}
+
+# Los parsers internos conservan builtin read; una pregunta nunca toma un valor
+# implícito ni puede ignorarse con || true. El proceso se ejecuta sin PTY/stdin.
+read() {
+  local argument
+  for argument in "$@"; do
+    [[ "$argument" == -- ]] && break
+    case "$argument" in -*p*) exit 90 ;; esac
+  done
+  builtin read "$@"
+}
+reclaim_tty() { exit 90; }
+prompt_confirm() { exit 90; }
+curl() { exit 85; }
+wget() { exit 85; }
+write_update_entrypoint() { :; }
+ensure_profile_loaded() { :; }
+
+readonly -f _nap_silent set_std_mode silent msg_info msg_ok msg_warn msg_error
+readonly -f msg_custom msg_debug msg_dev log_msg log_section error_handler catch_errors
+readonly -f _cs_source_func read reclaim_tty prompt_confirm
+readonly -f curl wget write_update_entrypoint ensure_profile_loaded
+set_std_mode
+_nap_quiet_diagnostics
