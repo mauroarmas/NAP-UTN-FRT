@@ -61,12 +61,17 @@ def create_credentials(root):
           .not_valid_before(now - timedelta(minutes=5)).not_valid_after(now + timedelta(days=60))
           .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
           .add_extension(x509.KeyUsage(True, False, False, False, False, True, True, False, False), critical=True)
+          .add_extension(x509.SubjectKeyIdentifier.from_public_key(ca_key.public_key()), critical=False)
+          .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()), critical=False)
           .sign(ca_key, hashes.SHA256()))
     certificate = (x509.CertificateBuilder().subject_name(x509.Name([
         x509.NameAttribute(NameOID.COMMON_NAME, '172.16.36.1')])).issuer_name(ca_name)
         .public_key(server_key.public_key()).serial_number(x509.random_serial_number())
         .not_valid_before(now - timedelta(minutes=5)).not_valid_after(now + timedelta(days=30))
         .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+        .add_extension(x509.KeyUsage(True, False, False, False, False, False, False, False, False), critical=True)
+        .add_extension(x509.SubjectKeyIdentifier.from_public_key(server_key.public_key()), critical=False)
+        .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()), critical=False)
         .add_extension(x509.SubjectAlternativeName([x509.IPAddress(ipaddress.ip_address('172.16.36.1'))]), critical=False)
         .add_extension(x509.ExtendedKeyUsage([x509.oid.ExtendedKeyUsageOID.SERVER_AUTH]), critical=False)
         .sign(ca_key, hashes.SHA256()))
@@ -155,6 +160,7 @@ def verify(root, *, readonly):
         raise ValueError('REGISTRY_ISOLATION_NOT_CONFIRMED')
     accounts = json.loads((root / 'accounts.json').read_text())
     context = ssl.create_default_context(cafile=str(root / 'pki' / 'ca.crt'))
+    context.verify_flags |= ssl.VERIFY_X509_STRICT
     opener = build_opener(ProxyHandler({}), HTTPSHandler(context=context), NoRedirect())
     auth = 'Basic ' + base64.b64encode(('nap011reader:' + accounts['nap011reader']).encode()).decode()
     def status(path, *, authenticated=False, method='GET'):

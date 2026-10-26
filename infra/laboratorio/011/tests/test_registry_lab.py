@@ -1,6 +1,7 @@
 import importlib.util
 from pathlib import Path
 import subprocess
+import ssl
 
 import pytest
 
@@ -9,6 +10,37 @@ ROOT = Path(__file__).parents[1]
 spec = importlib.util.spec_from_file_location('registry_lab011', ROOT / 'registry_lab.py')
 registry = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(registry)
+
+
+def test_generated_chain_passes_strict_tls_without_network(tmp_path):
+    """Misma validación estricta de Python 3.13/OpenSSL, usando BIO en memoria."""
+    root = tmp_path / 'registry'
+    registry.create_credentials(root)
+    client_context = ssl.create_default_context(cafile=str(root / 'pki/ca.crt'))
+    client_context.verify_flags |= ssl.VERIFY_X509_STRICT
+    server_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    server_context.load_cert_chain(root / 'pki/server.crt', root / 'pki/server.key')
+    incoming_client, outgoing_client = ssl.MemoryBIO(), ssl.MemoryBIO()
+    incoming_server, outgoing_server = ssl.MemoryBIO(), ssl.MemoryBIO()
+    client = client_context.wrap_bio(incoming_client, outgoing_client, server_hostname='172.16.36.1')
+    server = server_context.wrap_bio(incoming_server, outgoing_server, server_side=True)
+    done = set()
+    for _ in range(20):
+        for name, endpoint in [('client', client), ('server', server)]:
+            if name in done:
+                continue
+            try:
+                endpoint.do_handshake(); done.add(name)
+            except ssl.SSLWantReadError:
+                pass
+        if outgoing_client.pending:
+            incoming_server.write(outgoing_client.read())
+        if outgoing_server.pending:
+            incoming_client.write(outgoing_server.read())
+        if len(done) == 2:
+            break
+    assert done == {'client', 'server'}
+    assert client.getpeercert()['subjectAltName'] == (('IP Address', '172.16.36.1'),)
 
 
 def test_registry_plan_does_not_create_secrets_or_docker_resources(tmp_path):

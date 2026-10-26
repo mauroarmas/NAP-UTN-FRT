@@ -1,0 +1,11 @@
+{
+  "scope": "laboratorio_local",
+  "state": "node_bootstrap_staged",
+  "profiles_enabled": [],
+  "network_policy_staged": true,
+  "guest_network_enforced": false,
+  "observed_template_sha256": {
+    "debian-13-standard_13.6-1_amd64.tar.zst": "1a5e43d088b430a1fca0531a2283ae2949ff0b40d383d0836d4a309e192b3244",
+    "ubuntu-24.04-standard_24.04-2_amd64.tar.zst": "75a827c4ea4b2bef42e0521f51ed869e398f56b0e6b131c3cd5d284a2e0e08b5"
+  }
+}

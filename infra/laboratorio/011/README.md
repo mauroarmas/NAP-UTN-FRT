@@ -54,6 +54,17 @@ El instalador deja exclusivamente `/etc/nap/applications-011/`, con permisos pri
 - CA pública del registry y referencia al endpoint; sin contraseña ni claves privadas.
 - Inventario estable y política candidata de red para `.81–.88`, separada de rangos legacy.
 
+Si falla la conexión, usar el lanzador privado de diagnóstico o `--diagnose` con el mismo
+manifest/configuración. Este modo consulta TCP, TLS/autenticación e inventario sin aplicar ni
+crear el namespace del nodo; no se combina con `--apply`. Devuelve códigos cerrados para timeout,
+ruta, rechazo de certificado, autenticación y redirecciones, sin mensajes o cuerpos externos.
+No repetir el instalador hasta conocer la causa; nunca omitir la verificación TLS.
+
+La CA y el certificado incluyen identificadores SKI/AKI y usos de clave. Tanto controlador como
+nodo usan verificación X.509 estricta. Una prueba TLS con BIO en memoria reproduce el intercambio
+completo con esa política, sin red. Ver [SSL de Python](https://docs.python.org/3.13/library/ssl.html)
+y [extensiones X.509](https://cryptography.io/en/latest/x509/reference/).
+
 El modo de plan no crea archivos. Aplicar exige root y prerrequisitos comprobados; un archivo
 existente distinto, enlace o permisos inseguros detiene el proceso antes de copiar. No sobrescribe
 datos anteriores. Un fallo de escritura retira sólo archivos propios de ese intento. Repetir
@@ -63,6 +74,35 @@ La política candidata **no cambia puentes, firewall global, DNS, cuentas, SSH, 
 Su aislamiento debe imponerse y comprobarse antes de arrancar los invitados de ensayo y luego
 cada instancia. `preflight` sólo acredita inventario de nodo; no anuncia red, registry o perfiles
 operativos por encontrar binarios. Las habilitaciones siguen dependiendo de los gates reales.
+
+## Ensayo Docker (T005)
+
+`spike_docker.py` usa únicamente el VMID de laboratorio `900011` y la primera dirección
+candidata (`172.16.36.81`). Se detiene si están ocupados, no coincide el hash de la base o
+falta capacidad. Guarda primero su identidad y crea un LXC **detenido y no privilegiado**.
+Instala reglas nftables limitadas a ese veth antes de arrancar, con nesting/keyctl exactos;
+no cambia políticas generales ni instala Docker en el host. Las reglas bloquean administración,
+otros invitados y redes privadas, salvo DNS y el registry autorizados. La sintaxis se verifica
+antes de crear el guest y los contadores del nodo deben confirmar los bloqueos ejercitados.
+El uso de hooks bridge sigue la [documentación de nftables](https://wiki.nftables.org/wiki-nftables/index.php/Bridge_filtering).
+
+`guest_docker_probe.py` comprueba pull público/privado, AppArmor/seccomp, persistencia tras
+reinicio y uso de RAM/disco dentro de Medium. El secreto del registry llega sólo por stdin;
+su authfile temporal se retira antes de arrancar la aplicación, que usa el digest observado.
+La salida contiene únicamente resultados y medidas; no se retienen logs de Docker.
+Las versiones candidatas se instalan en el guest, sin que esto constituya el perfil definitivo.
+
+Al terminar se elimina sólo el CT con el marcador exacto del ensayo, se confirma ausencia de
+sus volúmenes y se retira su tabla nftables. Una respuesta perdida no autoriza otro create.
+El journal root permite `--apply --cleanup-only` con el mismo paquete e identidad para
+recuperar una interrupción o limpieza pendiente; este modo nunca crea ni arranca invitados.
+Si aparece un recurso ajeno, se conserva y el ensayo exige diagnóstico.
+
+El operador usa `~/.local/share/nap011/ensayar-docker.sh`; sólo tras diagnosticar una limpieza
+pendiente, `limpiar-ensayo-docker.sh`. Ambos verifican paquete y hostkey, transmiten siete
+archivos regulares exactos a un directorio root temporal y retiran el secreto al salir.
+El journal queda en `/var/lib/nap-lab011/`, sin credenciales. Los resultados se registran en
+`docs/evidencia/011/factibilidad-docker.md`; el ensayo **no habilita perfiles**.
 
 ## Pruebas sin nodo
 

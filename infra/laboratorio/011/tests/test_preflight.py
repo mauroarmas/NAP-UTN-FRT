@@ -19,7 +19,7 @@ def inventory():
     return {'schema_version': 'nap-node-preflight/1', 'read_only': True,
             'node': 'proxmox', 'tools': {k: True for k in ['python3', 'pct', 'systemd', 'nft']},
             'apparmor_enabled': True, 'available_bytes': 50 * 1024**3,
-            'templates': {p['base']: 'a' * 64 for p in manifest()['profiles']}}
+            'templates': {p['base']: p['base_sha256'] or 'a' * 64 for p in manifest()['profiles']}}
 
 
 def test_candidate_inventory_never_enables_profile():

@@ -8,6 +8,7 @@ La política de red se deja pendiente: debe imponerse antes de arrancar cada gue
 import argparse
 import base64
 from copy import deepcopy
+import errno
 import fcntl
 import importlib.util
 import ipaddress
@@ -15,10 +16,11 @@ import json
 import os
 from pathlib import Path
 import re
+import socket
 import ssl
 import stat
 import subprocess
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, build_opener, HTTPSHandler, HTTPRedirectHandler, ProxyHandler
 
 
@@ -73,17 +75,59 @@ class NoRedirect(HTTPRedirectHandler):
         return None
 
 
-def verify_registry(config):
+def registry_opener(public_ca):
+    context = ssl.create_default_context(cadata=public_ca)
+    context.verify_flags |= ssl.VERIFY_X509_STRICT
+    return build_opener(ProxyHandler({}), HTTPSHandler(context=context), NoRedirect())
+
+
+def probe_registry(config):
+    """Devuelve un código cerrado; nunca mensajes, cabeceras o cuerpos externos."""
     registry = config['registry']
-    context = ssl.create_default_context(cadata=registry['ca_pem'])
-    opener = build_opener(ProxyHandler({}), HTTPSHandler(context=context), NoRedirect())
     auth = 'Basic ' + base64.b64encode((registry['username'] + ':' + registry['password']).encode()).decode()
     request = Request(ENDPOINT + '/v2/', headers={'Authorization': auth})
     try:
-        with opener.open(request, timeout=5) as response:
-            return response.status == 200
-    except (OSError, HTTPError):
-        return False
+        with registry_opener(registry['ca_pem']).open(request, timeout=5) as response:
+            if response.status == 200:
+                return {'ok': True, 'code': 'REGISTRY_OK'}
+            code = 'REGISTRY_HTTP_REJECTED'
+    except HTTPError as error:
+        code = ('REGISTRY_AUTH_REJECTED' if error.code in {401, 403} else
+                'REGISTRY_REDIRECT_REJECTED' if 300 <= error.code < 400 else 'REGISTRY_HTTP_REJECTED')
+        error.close()
+    except (URLError, OSError, ValueError) as error:
+        reason = error.reason if isinstance(error, URLError) else error
+        if isinstance(reason, ssl.SSLCertVerificationError):
+            code = 'REGISTRY_CERTIFICATE_REJECTED'
+        elif isinstance(reason, ssl.SSLError):
+            code = 'REGISTRY_TLS_FAILED'
+        elif isinstance(reason, TimeoutError):
+            code = 'REGISTRY_TIMEOUT'
+        elif isinstance(reason, ConnectionRefusedError):
+            code = 'REGISTRY_CONNECTION_REFUSED'
+        elif isinstance(reason, OSError) and reason.errno in {errno.ENETUNREACH, errno.EHOSTUNREACH}:
+            code = 'REGISTRY_ROUTE_UNAVAILABLE'
+        else:
+            code = 'REGISTRY_CONNECTION_FAILED'
+    return {'ok': False, 'code': code}
+
+
+def verify_registry(config):
+    return probe_registry(config)['ok']
+
+
+def probe_registry_tcp():
+    """Destino fijo de laboratorio; no envía credenciales ni acepta hosts del cliente."""
+    try:
+        with socket.create_connection(('172.16.36.1', 5443), timeout=3):
+            return {'ok': True, 'code': 'REGISTRY_TCP_OK'}
+    except TimeoutError:
+        code = 'REGISTRY_TIMEOUT'
+    except ConnectionRefusedError:
+        code = 'REGISTRY_CONNECTION_REFUSED'
+    except OSError:
+        code = 'REGISTRY_ROUTE_UNAVAILABLE'
+    return {'ok': False, 'code': code}
 
 
 def safe_directory(path):
@@ -126,7 +170,11 @@ def prepare_node(manifest, config, *, apply=False, root=Path('/'),
     root = Path(root)
     if root == Path('/') and os.geteuid() != 0:
         raise ValueError('ROOT_REQUIRED_ON_NODE')
-    if not (registry_verifier or verify_registry)(config):
+    if registry_verifier is None:
+        probe = probe_registry(config)
+        if not probe['ok']:
+            raise ValueError(probe['code'])
+    elif not registry_verifier(config):
         raise ValueError('REGISTRY_NOT_CONFIRMED')
     destination = root / 'etc/nap/applications-011'
     for folder in (root, root / 'etc', root / 'etc/nap', destination):
@@ -182,7 +230,10 @@ def main():
     parser.add_argument('--manifest', type=Path, default=Path(__file__).with_name('candidatos.json'))
     parser.add_argument('--config', type=Path)
     parser.add_argument('--apply', action='store_true')
+    parser.add_argument('--diagnose', action='store_true', help='Inventario y conexión de sólo lectura, sin aplicar')
     args = parser.parse_args()
+    if args.diagnose and (args.controller or args.apply):
+        parser.error('--diagnose no se combina con --controller o --apply')
     try:
         if args.controller:
             registry = sibling('registry_lab')
@@ -205,7 +256,17 @@ def main():
         else:
             if args.config is None:
                 raise ValueError('PRIVATE_CONFIG_REQUIRED')
-            result = prepare_node(preflight.read_json(args.manifest), preflight.read_json(args.config), apply=args.apply)
+            manifest = preflight.read_json(args.manifest)
+            config = preflight.read_json(args.config)
+            if args.diagnose:
+                validate_config(manifest, config)
+                inventory = preflight.collect_node(manifest)
+                tcp = probe_registry_tcp()
+                result = {'state': 'bootstrap_diagnosed', 'read_only': True, 'profiles_enabled': [],
+                          'node_inventory': inventory, 'tcp_registry': tcp,
+                          'registry': probe_registry(config) if tcp['ok'] else tcp}
+            else:
+                result = prepare_node(manifest, config, apply=args.apply)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
@@ -214,6 +275,9 @@ def main():
                  'REGISTRY_NOT_CONFIRMED', 'UNTRUSTED_LOCK', 'EXISTING_FILE_DIFFERS', 'PRIVATE_CONFIG_REQUIRED',
                  'REGISTRY_NAME_OCCUPIED', 'REGISTRY_PRIVATE_STATE_MISSING', 'UNTRUSTED_PRIVATE_DIRECTORY',
                  'REGISTRY_ISOLATION_NOT_CONFIRMED',
+                 'REGISTRY_TIMEOUT', 'REGISTRY_CONNECTION_REFUSED', 'REGISTRY_ROUTE_UNAVAILABLE',
+                 'REGISTRY_CERTIFICATE_REJECTED', 'REGISTRY_TLS_FAILED', 'REGISTRY_AUTH_REJECTED',
+                 'REGISTRY_REDIRECT_REJECTED', 'REGISTRY_HTTP_REJECTED', 'REGISTRY_CONNECTION_FAILED',
                  'REGISTRY_TLS_AUTH_NOT_CONFIRMED', 'REGISTRY_READ_ONLY_NOT_CONFIRMED', 'REGISTRY_IMAGE_NOT_CONFIRMED'}
         print(json.dumps({'state': 'bootstrap_not_confirmed', 'profiles_enabled': [],
                           'code': str(error) if str(error) in codes else 'BOOTSTRAP_IO_NOT_CONFIRMED',
