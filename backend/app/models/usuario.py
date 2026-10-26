@@ -52,7 +52,7 @@ class Usuario(Base):
     # una baja lógica, pero la declaración queda para que ningún camino futuro
     # vuelva a pelearse con la base.
     pedidos: Mapped[list["Pedido"]] = relationship(
-        back_populates="solicitante", passive_deletes=True
+        back_populates="solicitante", passive_deletes=True, foreign_keys="Pedido.solicitante_id"
     )
 
     def __repr__(self) -> str:

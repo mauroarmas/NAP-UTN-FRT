@@ -64,6 +64,9 @@ class Pedido(Base):
     __tablename__ = "pedidos"
     __table_args__ = (
         CheckConstraint('revision >= 1 AND revision_decision >= 0',name='ck_pedido_revisiones'),
+        CheckConstraint('definicion_version_id IS NULL OR configuracion_despliegue_id IS NULL', name='ck_pedidos_origen_exclusivo'),
+        CheckConstraint('despliegue_revision_programada IS NULL OR despliegue_revision_programada > 0', name='ck_pedido_agenda_revision'),
+        Index('ix_pedido_despliegue_programado', 'despliegue_programado_at', postgresql_where=text('despliegue_programado_at IS NOT NULL')),
         CheckConstraint("tipo = 'ALTA' OR (tipo = 'RENOVACION' AND servicio_id IS NOT NULL)",name='ck_pedido_tipo_servicio'),
         # Índice parcial: los listados solo consultan filas vigentes.
         Index(
@@ -145,6 +148,11 @@ class Pedido(Base):
     revision_decision: Mapped[int] = mapped_column(Integer, default=0, server_default='0')
     anio_lectivo: Mapped[int | None] = mapped_column(Integer)
     definicion_version_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey('definiciones_servicio.id'))
+    configuracion_despliegue_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey('configuraciones_despliegue.id', name='fk_pedidos_configuracion'), index=True)
+    despliegue_solicitado_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    despliegue_programado_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    despliegue_revision_programada: Mapped[int | None] = mapped_column(Integer)
+    despliegue_solicitado_por: Mapped[int | None] = mapped_column(ForeignKey('usuarios.id', name='fk_pedido_solicitante_despliegue'))
     seleccion_oferta_snapshot: Mapped[dict | None] = mapped_column(JSON)
     asignacion_snapshot: Mapped[dict | None] = mapped_column(JSON)
     destino_snapshot: Mapped[dict | None] = mapped_column(JSON)
@@ -153,7 +161,7 @@ class Pedido(Base):
 
     # Relaciones
     catedra: Mapped["Catedra"] = relationship(back_populates="pedidos")
-    solicitante: Mapped["Usuario"] = relationship(back_populates="pedidos")
+    solicitante: Mapped["Usuario"] = relationship(back_populates="pedidos", foreign_keys=[solicitante_id])
     template: Mapped["RecursoTemplate"] = relationship(back_populates="pedidos")
     historial: Mapped[list["PedidoHistorial"]] = relationship(
         back_populates="pedido", order_by="PedidoHistorial.created_at"

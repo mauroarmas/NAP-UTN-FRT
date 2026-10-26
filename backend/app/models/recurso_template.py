@@ -14,7 +14,10 @@ class TipoRecurso(str, enum.Enum):
 
 class RecursoTemplate(Base):
     __tablename__ = "recurso_templates"
-    __table_args__ = (CheckConstraint('default_vcpus > 0 AND default_ram_mb > 0 AND default_disk_gb > 0',name='ck_template_recursos_positivos'),)
+    __table_args__ = (
+        CheckConstraint('default_vcpus > 0 AND default_ram_mb > 0 AND default_disk_gb > 0',name='ck_template_recursos_positivos'),
+        CheckConstraint('definicion_version_id IS NULL OR configuracion_despliegue_id IS NULL', name='ck_recurso_templates_origen_exclusivo'),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     nombre: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
@@ -41,6 +44,7 @@ class RecursoTemplate(Base):
     activo: Mapped[bool] = mapped_column(Boolean, default=True)
     revision: Mapped[int] = mapped_column(Integer, default=1, server_default='1')
     definicion_version_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey('definiciones_servicio.id'), index=True)
+    configuracion_despliegue_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey('configuraciones_despliegue.id', name='fk_recurso_templates_configuracion'), index=True)
 
     # Relaciones
     pedidos: Mapped[list["Pedido"]] = relationship(back_populates="template")

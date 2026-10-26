@@ -32,6 +32,7 @@ class Servicio(Base):
     __tablename__ = "servicios"
     __table_args__ = (
         CheckConstraint('vcpus_asignados > 0 AND ram_asignada_mb > 0 AND disk_asignado_gb > 0',name='ck_servicio_recursos_positivos'),
+        CheckConstraint('definicion_version_id IS NULL OR configuracion_despliegue_id IS NULL', name='ck_servicios_origen_exclusivo'),
         CheckConstraint("modelo_servicio IS NULL OR modelo_servicio IN ('iaas','paas','saas')",name='ck_servicio_modelo'),
         CheckConstraint("disponibilidad_aplicacion IN ('no_verificada','preparando','utilizable','degradada','error')",name='ck_servicio_disponibilidad'),
         # Índice parcial: los listados solo consultan filas vigentes.
@@ -96,6 +97,7 @@ class Servicio(Base):
     modelo_servicio: Mapped[str | None] = mapped_column(String(10))
     nombre_snapshot: Mapped[str | None] = mapped_column(String(150))
     definicion_version_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey('definiciones_servicio.id'))
+    configuracion_despliegue_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey('configuraciones_despliegue.id', name='fk_servicios_configuracion'), index=True)
     asignacion_snapshot: Mapped[dict | None] = mapped_column(JSON)
     identidad_infraestructura_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey('identidades_infraestructura.id'), unique=True)
     disponibilidad_aplicacion: Mapped[str] = mapped_column(String(20), default='no_verificada', server_default='no_verificada')

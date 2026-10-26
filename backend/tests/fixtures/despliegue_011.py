@@ -184,3 +184,23 @@ async def catedras_011(db):
     catedras = [await factories.crear_catedra(db, nombre=f'Cátedra 011 {n}', titular_id=u.id)
                 for n, u in enumerate(titulares, 1)]
     return SimpleNamespace(titulares=titulares, catedras=catedras)
+
+
+@pytest.fixture
+def documento_docker():
+    return {
+        'schema_version': 'nap-deployment/1', 'origen': 'imagen_docker', 'modelo_servicio': 'saas',
+        'perfil': {'id': 'docker-ubuntu24', 'revision': 1, 'sha256': 'a' * 64},
+        'base': {'os': 'ubuntu', 'version': '24.04', 'arquitectura': 'amd64',
+                 'volumen_lxc': 'local:vztmpl/ubuntu-24.04.tar.zst', 'sha256': 'b' * 64},
+        'minimum_resources': {'vcpus': 2, 'ram_mb': 1024, 'disk_gb': 8},
+        'access': {'tipo': 'web', 'puerto': 8080, 'politica': 'web-managed', 'upstream': 'http',
+                   'probe': {'tipo': 'http', 'path': '/health', 'estados': [200], 'timeout_segundos': 5},
+                   'websocket': False},
+        'variables': {'COURSE_NAME': 'Introducción'},
+        'secretos': [{'nombre': 'APP_PASSWORD', 'etiqueta': 'Acceso inicial', 'modo': 'generado'}],
+        'persistencia': ['/data'],
+        'imagen': {'repositorio': 'registry.example.edu/nap/campus-demo', 'tag_original': '1.0',
+                   'manifest_digest': 'sha256:' + 'c' * 64, 'config_digest': 'sha256:' + 'd' * 64,
+                   'os': 'linux', 'arquitectura': 'amd64', 'registry_profile_id': 'campus-registry'},
+    }

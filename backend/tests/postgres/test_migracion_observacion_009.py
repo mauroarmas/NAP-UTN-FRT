@@ -2,19 +2,20 @@
 from datetime import datetime, timezone
 
 from sqlalchemy import inspect, text
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from tests import factories
 from tests.postgres.test_migracion_base_009 import migrate
 
 
 async def service_id(conn):
-    async with AsyncSession(bind=conn, expire_on_commit=False, join_transaction_mode='create_savepoint') as db:
-        owner = await factories.crear_usuario(db, 'observacion-migracion')
-        catedra = await factories.crear_catedra(db, titular_id=owner.id)
-        template = await factories.crear_template(db)
-        service = await factories.crear_servicio(db, catedra.id, template.id)
-        return service.id
+    # Esquema congelado en 009_10; no insertar con modelos de una versión futura.
+    await conn.execute(text("""INSERT INTO usuarios(id,username,nombre,password_hash,rol,activo,
+        totp_habilitado,created_at) VALUES (1,'observacion-migracion','Fixture','fixture','ADMIN',true,false,CURRENT_TIMESTAMP)"""))
+    await conn.execute(text("INSERT INTO catedras(id,nombre,titular_id,activa,created_at) VALUES (1,'Fixture',1,true,CURRENT_TIMESTAMP)"))
+    await conn.execute(text("""INSERT INTO recurso_templates(id,nombre,tipo,modelo_servicio,
+        default_vcpus,default_ram_mb,default_disk_gb,activo,revision)
+        VALUES (1,'Fixture','LXC','iaas',1,512,4,true,1)"""))
+    return await conn.scalar(text("""INSERT INTO servicios(catedra_id,template_id,tipo,estado,
+        vcpus_asignados,ram_asignada_mb,disk_asignado_gb,exento_pausado)
+        VALUES (1,1,'lxc','RUNNING',1,512,4,false) RETURNING id"""))
 
 
 async def test_upgrade_keeps_duplicates_and_original_float_values_without_claiming_coverage(empty_pg_schema):

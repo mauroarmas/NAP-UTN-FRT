@@ -11,7 +11,7 @@ async def test_upgrade_009_preserva_historia_y_esquema_010(empty_pg_schema):
         await conn.run_sync(lambda c:migrate(c,'009_14_restauracion'))
         before=(await conn.execute(text('SELECT id,asignacion_snapshot FROM pedidos ORDER BY id'))).all()
         await conn.run_sync(lambda c:migrate(c,'head'))
-        assert await conn.scalar(text('SELECT version_num FROM alembic_version'))=='010_06_acceso_aplicacion'
+        assert await conn.scalar(text('SELECT version_num FROM alembic_version'))=='011_01_despliegue_aplicaciones'
         after=(await conn.execute(text('SELECT id,asignacion_snapshot FROM pedidos ORDER BY id'))).all()
         assert before==after
         assert await conn.scalar(text('SELECT count(*) FROM pedidos WHERE seleccion_oferta_snapshot IS NOT NULL'))==0

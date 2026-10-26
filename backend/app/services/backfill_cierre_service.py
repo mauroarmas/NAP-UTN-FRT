@@ -111,12 +111,18 @@ def _known_decision(request,history):
 async def _collect(db,*,sondear=False,pve=None,locked=False):
     def query(model):
         q=select(model).order_by(model.id)
-        # Este ejecutor debe poder trabajar antes de aplicar 010. Los campos
+        # Este ejecutor debe poder trabajar antes de aplicar 010/011. Los campos
         # nuevos no participan del backfill 009 ni se infieren del estado actual.
         if model in {CompromisoCapacidad, IdentidadInfraestructura}:
             q=q.options(defer(model.recurso_ensayo_id))
         if model is Pedido and hasattr(Pedido, "seleccion_oferta_snapshot"):
             q=q.options(defer(Pedido.seleccion_oferta_snapshot))
+        if model in {Pedido, Servicio}:
+            q=q.options(defer(model.configuracion_despliegue_id))
+        if model is Pedido:
+            q=q.options(*(defer(getattr(Pedido, name)) for name in (
+                'despliegue_solicitado_at', 'despliegue_programado_at',
+                'despliegue_revision_programada', 'despliegue_solicitado_por')))
         return q.with_for_update().execution_options(populate_existing=True) if locked else q
     # Cantidades de servicios/pedidos, nunca millones de snapshots de métricas.
     users=list((await db.scalars(query(Usuario))).all())

@@ -1,6 +1,9 @@
 """Cifrado autenticado con claves externas y contexto de uso verificable."""
 
 from copy import deepcopy
+import base64
+import hashlib
+import hmac
 import json
 import re
 
@@ -19,6 +22,8 @@ class Keyring:
             if active not in keys or not keys or any(not re.fullmatch(r'[A-Za-z0-9_-]{1,40}', key) for key in keys):
                 raise ValueError()
             self._keys = {name: Fernet(value.encode()) for name, value in keys.items()}
+            self._hmac_keys = {name: hmac.new(base64.urlsafe_b64decode(value),
+                b'nap:contextual-idempotency:v1', hashlib.sha256).digest() for name, value in keys.items()}
             self.active = active
         except (ValueError, TypeError, AttributeError):
             raise SecretError('Keyring ausente o inválido') from None
@@ -44,6 +49,18 @@ class Keyring:
 
     def rotate(self, token, *, context):
         return self.encrypt(self.decrypt(token, context=context), context=context)
+
+    def fingerprint(self, value, *, context, key_id=None):
+        """Huella privada contextual; no usar hashes simples de contraseñas."""
+        key_id = self.active if key_id is None else key_id
+        try:
+            if key_id not in self._hmac_keys or not isinstance(context, str) or not 1 <= len(context) <= 200:
+                raise ValueError()
+            raw = json.dumps({'context': context, 'value': value}, ensure_ascii=False,
+                             sort_keys=True, separators=(',', ':'), allow_nan=False).encode('utf-8')
+            return 'h1:' + key_id + ':' + hmac.new(self._hmac_keys[key_id], raw, hashlib.sha256).hexdigest()
+        except (ValueError, TypeError, UnicodeError):
+            raise SecretError('No se pudo calcular la huella privada') from None
 
 
 def configured_keyring(settings=None):

@@ -1,6 +1,7 @@
 from pydantic_settings import BaseSettings
 from pydantic import Field, model_validator
 from app.schemas.biblioteca_config import FuenteBiblioteca, BuilderHost, PerfilEnsayo
+from app.schemas.application_profiles import ProfileRegistry, ProfileError
 from functools import lru_cache
 import json
 import os
@@ -42,6 +43,7 @@ class Settings(BaseSettings):
     application_gateway_domain: str = ''
     application_gateway_port: int = Field(default=443, ge=1, le=65535)
     application_gateway_ca_file: str = ''
+    application_profiles: dict = Field(default_factory=dict)
 
     biblioteca_fuente: FuenteBiblioteca = Field(default_factory=FuenteBiblioteca)
     builder_hosts: dict[str, BuilderHost] = Field(default_factory=dict, repr=False)
@@ -49,6 +51,10 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validar_biblioteca(self):
+        try:
+            ProfileRegistry(self.application_profiles)
+        except ProfileError:
+            raise ValueError('Registro institucional de aplicaciones inválido') from None
         if self.artifact_registry_directory and (not Path(self.artifact_registry_directory).is_absolute() or ".." in Path(self.artifact_registry_directory).parts):
             raise ValueError("El registro de artefactos requiere directorio institucional absoluto")
         scopes = {}

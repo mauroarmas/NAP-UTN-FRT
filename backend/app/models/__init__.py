@@ -57,3 +57,8 @@ from app.models.presupuesto_builder import PresupuestoBuilder
 from app.models.reserva_espacio_builder import ReservaEspacioBuilder
 from app.models.publicacion_oferta import PublicacionOferta
 from app.models.acceso_aplicacion import AccesoAplicacion
+from app.models.configuracion_despliegue import ConfiguracionDespliegue
+from app.models.secreto_despliegue import SecretoDespliegue
+from app.models.intento_despliegue import IntentoDespliegue
+from app.models.consola_operacion import ConsolaOperacion, ConsolaFragmento
+from app.models.reserva_red_aplicacion import ReservaRedAplicacion

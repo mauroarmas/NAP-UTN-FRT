@@ -22,6 +22,7 @@ class OperacionInfraestructura(UUIDPrimaryKey, Base):
         Index('ix_operacion_poll', 'estado', 'next_poll_at'),
     )
     tipo: Mapped[str] = mapped_column(String(20))
+    operacion_raiz_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey('operaciones_infraestructura.id', name='fk_operacion_raiz'), index=True)
     pedido_id: Mapped[int | None] = mapped_column(ForeignKey('pedidos.id'))
     servicio_id: Mapped[int | None] = mapped_column(ForeignKey('servicios.id'))
     identidad_infraestructura_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey('identidades_infraestructura.id'))
