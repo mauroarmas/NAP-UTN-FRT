@@ -138,6 +138,52 @@ def test_cleanup_accepts_exact_previous_package_only_and_never_recreates(tmp_pat
     assert 'create' not in node.events and 'start' not in node.events
 
 
+@pytest.mark.parametrize('label', [
+    'lxc-900011_</var/lib/lxc> (enforce)',
+    'lxc-900011_</var/lib/lxc>//&:lxc-900011_<-var-lib-lxc>:unconfined (enforce)',
+])
+def test_apparmor_requires_enforced_host_profile_even_with_inner_namespace(label):
+    profiles = 'lxc-900011_</var/lib/lxc> (enforce)\ndocker-default (enforce)\n'
+    assert spike.require_host_apparmor(label, profiles) == 'lxc-900011_</var/lib/lxc>'
+
+
+@pytest.mark.parametrize('label,profiles', [
+    ('unconfined', 'lxc-900011_</var/lib/lxc> (enforce)'),
+    ('lxc-900011_</var/lib/lxc> (complain)', 'lxc-900011_</var/lib/lxc> (complain)'),
+    ('lxc-900011_</var/lib/lxc> (enforce)', ''),
+    ('lxc-100_</var/lib/lxc>//&:lxc-900011_<-var-lib-lxc>:unconfined',
+     'lxc-900011_</var/lib/lxc> (enforce)'),
+    ('lxc-900011_</var/lib/lxc>-other (enforce)', 'lxc-900011_</var/lib/lxc> (enforce)'),
+])
+def test_apparmor_rejects_unconfined_missing_complain_or_foreign_host_profile(label, profiles):
+    with pytest.raises(ValueError, match='UNSAFE_APPARMOR'):
+        spike.require_host_apparmor(label, profiles)
+
+
+@pytest.mark.parametrize('second_pid,seccomp,expected_error', [
+    (42, '2', None), (43, '2', 'IDENTITY_MISMATCH'), (42, '0', 'UNSAFE_APPARMOR'),
+])
+def test_confinement_uses_node_process_not_guest_view(tmp_path, monkeypatch, second_pid, seccomp, expected_error):
+    expected = marker(); node = spike.Node.__new__(spike.Node)
+    node.owned = lambda received: {} if received == expected else pytest.fail('Identidad ajena')
+    label = 'lxc-900011_</var/lib/lxc>//&:lxc-900011_<-var-lib-lxc>:unconfined (enforce)'
+    files = {'proc/42/attr/apparmor/current': label,
+             'proc/42/status': f'Uid:\t100000\t100000\t100000\t100000\nSeccomp:\t{seccomp}\n',
+             'sys/kernel/security/apparmor/profiles': 'lxc-900011_</var/lib/lxc> (enforce)\n'}
+    for path, text in files.items():
+        p = tmp_path / path; p.parent.mkdir(parents=True, exist_ok=True); p.write_text(text)
+    monkeypatch.setattr(spike, 'Path', lambda path: tmp_path / str(path).lstrip('/'))
+    replies = iter([{'status': 'running', 'pid': 42}, {'status': 'running', 'pid': second_pid}])
+    monkeypatch.setattr(spike, 'pvesh', lambda path: next(replies))
+    monkeypatch.setattr(spike, 'command', lambda *_a, **_kw: b'unconfined\n')
+    if expected_error:
+        with pytest.raises(ValueError, match=expected_error): node.check_confinement(expected)
+    else:
+        node.check_confinement(expected)
+        assert node.confinement_observations['host_lxc_profile_enforced']
+        assert node.confinement_observations['guest_label'] == 'unconfined'
+
+
 def test_bridge_policy_is_scoped_to_probe_and_rejects_injection():
     expected = marker()
     rules = spike.firewall_policy(expected, '172.16.36.81', '02:11:00:00:00:51')

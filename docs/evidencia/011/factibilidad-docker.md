@@ -2,7 +2,7 @@
 
 Fecha: 2026-10-26. Laboratorio local; no acredita el clúster universitario.
 
-**Estado: extracción de Ubuntu confirmada en el segundo intento; recuperación y prueba del runtime pendientes. T005 continúa abierta.**
+**Estado: creación, arranque y limpieza confirmados; la comprobación de confinamiento requiere repetición con vista del nodo. T005 continúa abierta.**
 
 ## Preparado y verificado sin Proxmox
 
@@ -75,6 +75,34 @@ Verificación posterior: **47 pruebas locales aprobadas**, trece del spike; incl
 JSON y recuperación con huella anterior exacta, sin autorizar recreaciones ni recursos ajenos.
 El paquete coincide con las fuentes y pasó el modo de plan sin cambios. La recuperación real
 y la factibilidad de Docker permanecen pendientes; ningún perfil fue habilitado.
+
+## Tercer intento real
+
+El recibo confirmó `previous_probe_cleaned: true`: se recuperó el segundo intento, se creó y
+arrancó otro LXC y se detuvo el ensayo en fase `probing` con `UNSAFE_APPARMOR`. La comprobación
+ocurría antes de instalar Docker. La limpieza terminó con `resource_absent: true`; una consulta
+posterior por API mostró únicamente Draw.io (VMID 100) corriendo, sin VMID 900011.
+Ver [docker-tercer-intento.json](docker-tercer-intento.json).
+
+La sonda anterior exigía que `/proc/1/attr/current`, leído desde el guest, comenzara por `lxc-`
+y no contuviera `unconfined`. No guardó esa etiqueta, por lo que **no se puede concluir todavía**
+si había una configuración insegura o una vista parcial del namespace. La documentación de
+[AppArmor sobre stacking y namespaces](https://www.apparmor.net/advanced/AppArmorStacking/)
+explica que una política externa puede quedar oculta desde el namespace interior. El
+[código de LXC](https://github.com/lxc/lxc/blob/main/src/lxc/lsm/apparmor.c) genera el perfil
+externo con el nombre del contenedor y apila el namespace interno cuando está disponible.
+
+Se actualizó la comprobación para obtener el PID desde PVE y leer su etiqueta **desde el nodo**,
+exigir el perfil exacto del VMID cargado en modo enforce, UID mapeado y filtro seccomp activo.
+Revalida identidad/PID antes de aceptar la observación. La vista interior queda sólo como
+diagnóstico seguro, con longitud/caracteres limitados. Un host sin perfil, con perfil ajeno o
+modo complain sigue rechazado; no se agrega configuración unconfined ni un CT privilegiado.
+Las comprobaciones posteriores del perfil de la aplicación Docker permanecen vigentes.
+
+**57 pruebas locales aprobadas**, 23 del spike. Las nuevas cubren stacking con namespace
+interior, host realmente unconfined, perfil ausente/ajeno/complain, PID cambiado y seccomp
+desactivado. La API real confirmó que el status expone PID; el paquete pasó plan sin cambios
+y coincide con las fuentes. Falta ejecutar la comprobación actualizada en el nodo.
 
 ## Resultado real requerido
 

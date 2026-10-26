@@ -36,6 +36,20 @@ def validate_marker(marker):
         raise ValueError('INVALID_PROBE_IDENTITY')
 
 
+def require_host_apparmor(label, profiles):
+    """Una vista interna unconfined no elimina el perfil externo apilado de LXC."""
+    expected = f'lxc-{VMID}_</var/lib/lxc>'
+    outer = label.strip().split('//&', 1)[0]
+    if outer not in {expected, expected + ' (enforce)'} or expected + ' (enforce)' not in profiles.splitlines():
+        raise ValueError('UNSAFE_APPARMOR')
+    return expected
+
+
+def safe_label(value):
+    value = value.strip()
+    return value if re.fullmatch(r'[a-zA-Z0-9_./<>&:() -]{1,512}', value) else 'UNSUPPORTED_LABEL'
+
+
 def firewall_policy(marker, address, mac):
     validate_marker(marker)
     if address != '172.16.36.81' or not re.fullmatch(r'02:11(?::[0-9a-f]{2}){4}', mac):
@@ -201,9 +215,11 @@ def execute_probe(node, marker, journal):
                       'FEATURES_NOT_CONFIRMED', 'UNSAFE_APPARMOR', 'UNEXPECTED_BRIDGE_PORT',
                       'GUEST_PROBE_FAILED', 'FIREWALL_COUNTERS_NOT_CONFIRMED'}
         failure = str(error) if str(error) in safe_codes else 'INFRASTRUCTURE_NOT_CONFIRMED'
+        if hasattr(node, 'confinement_observations'):
+            observations = {'confinement': node.confinement_observations}
         guest_phase = getattr(node, 'failed_guest_phase', None)
         if guest_phase in {'prepare_runtime', 'isolation', 'public_pull', 'private_pull', 'application'}:
-            observations = {'guest_failed_phase': guest_phase}
+            observations['guest_failed_phase'] = guest_phase
     try:
         existing = node.config()
         if existing is not None:
@@ -336,11 +352,35 @@ class Node:
         if not master.exists() or master.resolve().name != 'vmbr0':
             raise ValueError('UNEXPECTED_BRIDGE_PORT')
 
-    def probe(self, marker):
+    def check_confinement(self, marker):
+        """Leer el PID y perfil desde el nodo, fuera del namespace AppArmor del guest."""
         self.owned(marker)
-        confinement = command(['/usr/sbin/pct', 'exec', str(VMID), '--', 'cat', '/proc/1/attr/current'], capture=True)
-        if b'unconfined' in confinement or not confinement.startswith(b'lxc-'):
+        status_path = f'/nodes/proxmox/lxc/{VMID}/status/current'
+        status = pvesh(status_path); pid = status.get('pid')
+        if status.get('status') != 'running' or type(pid) is not int or not 1 < pid < 2**31:
+            raise ValueError('IDENTITY_MISMATCH')
+        process = Path('/proc') / str(pid)
+        attr = process / 'attr/apparmor/current'
+        if not attr.exists(): attr = process / 'attr/current'
+        label = attr.read_text()
+        profiles = Path('/sys/kernel/security/apparmor/profiles').read_text()
+        process_status = dict(line.split(':', 1) for line in (process / 'status').read_text().splitlines() if ':' in line)
+        seccomp = process_status.get('Seccomp', '').strip()
+        uid = process_status.get('Uid', '').split()
+        guest_label = command(['/usr/sbin/pct', 'exec', str(VMID), '--', 'cat', '/proc/1/attr/current'], capture=True).decode()
+        self.confinement_observations = {'host_label': safe_label(label), 'guest_label': safe_label(guest_label),
+            'host_lxc_profile_enforced': False, 'host_seccomp_filter': seccomp == '2',
+            'host_uid_mapped': bool(uid) and uid[0] == '100000'}
+        self.owned(marker)
+        again = pvesh(status_path)
+        if again.get('status') != 'running' or again.get('pid') != pid: raise ValueError('IDENTITY_MISMATCH')
+        require_host_apparmor(label, profiles)
+        if seccomp != '2' or not uid or uid[0] != '100000':
             raise ValueError('UNSAFE_APPARMOR')
+        self.confinement_observations['host_lxc_profile_enforced'] = True
+
+    def probe(self, marker):
+        self.check_confinement(marker)
         # Todas las instalaciones quedan dentro de este guest sin datos académicos.
         command(['/usr/sbin/pct', 'exec', str(VMID), '--', 'passwd', '-l', 'root'])
         for args in [['apt-get', 'update', '-qq'],
@@ -365,6 +405,7 @@ class Node:
         if any(counters.get(name, 0) < 1 for name in ['nap011_node_block', 'nap011_peer_block']):
             raise ValueError('FIREWALL_COUNTERS_NOT_CONFIRMED')
         data['external_firewall_counters'] = counters
+        data['confinement'] = self.confinement_observations
         return data
 
     def cleanup(self, marker):

@@ -116,6 +116,11 @@ codifica description. Para recuperar un journal tras corregir el programa, la op
 del paquete anterior respaldado. No autoriza ejecutar una petición modificada. El lanzador
 de recuperación detiene la secuencia si no confirma la ausencia del ensayo anterior.
 
+El confinamiento se comprueba desde el nodo: PID de PVE revalidado, etiqueta externa del
+proceso, perfil LXC exacto cargado en enforce, UID mapeado y seccomp activo. La etiqueta vista
+desde dentro se conserva sólo como diagnóstico, porque los namespaces AppArmor pueden ocultar
+el perfil externo. No se acepta un host unconfined ni un perfil ajeno/ausente/complain.
+
 ## Pruebas sin nodo
 
 ```bash

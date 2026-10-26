@@ -314,8 +314,10 @@ confirmado por recibo root con perfiles pendientes. T005/T006 requieren sus ensa
 la política candidata debe imponerse y comprobarse antes de arrancar un invitado. Ver `docs/evidencia/011/setup-inicial.md` y `docs/evidencia/011/bootstrap-inicial.md`.
 T005 tiene prototipo y recuperación. El primer ensayo falló al extraer Ubuntu por permisos y
 confirmó retirada del disco/CT. El segundo extrajo Ubuntu y dejó un CT detenido; el prototipo no
-reconocía el marcador codificado por pct y conservó el recurso. La lectura JSON y su recuperación
-están corregidas (47 pruebas locales, trece del spike); falta ejecutar recuperación y runtime.
+reconocía el marcador codificado por pct y conservó el recurso. El tercer intento confirmó
+recuperación, arranque y limpieza, pero se detuvo antes de Docker al comprobar AppArmor desde
+el guest. La comprobación actualizada usa la vista del nodo y guarda diagnóstico (57 pruebas
+locales, 23 del spike); falta su ejecución real y la aceptación del runtime.
 No se habilitó ningún perfil nuevo ni se acreditaron T005/T006. Ver también
 `docs/evidencia/011/factibilidad-docker.md`. La implementación restante y sus aceptaciones
 continúan pendientes. Los lanzadores y datos privados están en nap011 fuera de Git.
