@@ -1885,3 +1885,28 @@ select option:disabled { color: var(--color-neutral-600); }
   .deployment-progress__bar > span { transition: none; }
   .deployment-progress .library-spinner { animation: none; }
 }
+
+/* Aplicación propia: tres campos principales; detalles sólo si hacen falta. */
+.own-application-source { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+.own-application-form, .own-application-form > fieldset, .own-application-option-fields { display: grid; gap: var(--space-5); min-width: 0; }
+.own-application-form > fieldset { border: 0; padding: 0; margin: 0; }
+.own-application-intro { display: flex; gap: var(--space-3); align-items: flex-start; padding: var(--space-4); background: var(--wizard-blue-bg, var(--hover-tint)); border-radius: var(--radius-lg); color: var(--wizard-blue, var(--text-strong)); }
+.own-application-intro h3 { margin: 0 0 var(--space-1); }
+.own-application-intro p { color: var(--text-soft); margin: 0; }
+.own-application-main-fields { display: grid; grid-template-columns: minmax(0, 2fr) minmax(180px, 1fr); gap: var(--space-4); }
+.own-application-form .field { display: grid; gap: var(--space-2); min-width: 0; }
+.own-application-options { border: 1px solid var(--color-divider); border-radius: var(--radius-lg); padding: var(--space-4); }
+.own-application-options > summary { cursor: pointer; font-weight: 600; color: var(--text-strong); }
+.own-application-options[open] > summary { margin-bottom: var(--space-5); }
+.own-application-checkbox { display: flex; align-items: center; gap: var(--space-3); }
+.own-application-data { display: grid; gap: var(--space-3); border-top: 1px solid var(--color-divider); padding-top: var(--space-4); }
+.own-application-data h4, .own-application-data p { margin: 0; }
+.own-application-data > button { justify-self: start; }
+.own-application-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.4fr) auto; gap: var(--space-2); align-items: start; }
+.own-application-secret-row { grid-template-columns: minmax(0,1fr) minmax(0,1fr) minmax(0,1.3fr) auto; }
+.own-application-submit { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap; border-top: 1px solid var(--color-divider); padding-top: var(--space-4); }
+@media (max-width: 640px) {
+  .own-application-main-fields, .own-application-row { grid-template-columns: minmax(0,1fr); }
+  .own-application-source > button, .own-application-submit > button { width: 100%; justify-content: center; }
+  .own-application-row > button { justify-self: end; }
+}

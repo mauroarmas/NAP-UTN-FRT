@@ -87,21 +87,21 @@ si el cambio siguiente no la afecta. No eliminar pruebas existentes por este aju
 ### Pruebas primero
 
 - [ ] T037 [P] [US1] Crear `backend/tests/test_templates_aplicaciones_011.py` y `backend/tests/test_orquestacion_aplicaciones_011.py` para POST alta/cambio de configuración, admin/CSRF/idempotencia, revisión esperada, datos inválidos, cero creación/reserva al agregar y decisiones previas conservadas; probar entrega comprobada y fallo de pull/probe sin éxito falso antes de implementar la estrategia.
-- [ ] T038 [P] [US1] Crear `backend/tests/test_oci_registry_011.py` para imagen/index/manifest/config digest, arquitectura, tag cambiado, registry privado/CA, token realm/redirect/DNS maliciosos y ausencia de credenciales en errores.
+- [X] T038 [P] [US1] Crear `backend/tests/test_oci_registry_011.py` para imagen/index/manifest/config digest, arquitectura, tag cambiado, registry privado/CA, token realm/redirect/DNS maliciosos y ausencia de credenciales en errores.
 - [ ] T039 [P] [US1] Crear `infra/applications/tests/test_docker_runtime.py` para pull por digest, ENTRYPOINT/CMD intactos, volúmenes declarados identificados, límites/features, recursos insuficientes, secretos efímeros, logs none y HEALTHCHECK sin retención insegura.
-- [ ] T040 [P] [US1] Crear `frontend/tests/aplicacion-propia.test.jsx` con campos básicos, configuración sólo cuando se necesita, error que conserva valores, alta pendiente/éxito y control exclusivo de admin, sin preparar/publicar.
+- [X] T040 [P] [US1] Crear `frontend/tests/aplicacion-propia.test.jsx` con campos básicos, configuración sólo cuando se necesita, error que conserva valores, alta pendiente/éxito y control exclusivo de admin, sin preparar/publicar.
 
 ### Implementación
 
-- [ ] T041 [US1] Implementar `backend/app/services/oci_registry_service.py`: resolver OCI sin ejecutar imágenes, distinguir digests de índice/manifest/config, validar plataforma y CA/endpoints autorizados en cada conexión, limitar descargas y no seguir credenciales a destinos ajenos.
-- [ ] T042 [US1] Implementar alta/revisión inmutable en `backend/app/services/configuracion_despliegue_service.py`: validación externa acotada, mínimos reales y Config.Volumes explícitos, revalidación de perfil/rol al commit y configuración+template atómicos sin invitado/reserva/borrador visible.
-- [ ] T043 [US1] Implementar POST `/templates/aplicaciones` y `/templates/{id}/configuracion` en `backend/app/routers/templates.py` y `backend/app/schemas/template.py`; respuestas compatibles, idempotencia y estado «Disponible para solicitar», conservando rutas históricas.
+- [X] T041 [US1] Implementar `backend/app/services/oci_registry_service.py`: resolver OCI sin ejecutar imágenes, distinguir digests de índice/manifest/config, validar plataforma y CA/endpoints autorizados en cada conexión, limitar descargas y no seguir credenciales a destinos ajenos.
+- [X] T042 [US1] Implementar alta/revisión inmutable en `backend/app/services/configuracion_despliegue_service.py`: validación externa acotada, mínimos reales y Config.Volumes explícitos, revalidación de perfil/rol al commit y configuración+template atómicos sin invitado/reserva/borrador visible.
+- [X] T043 [US1] Implementar POST `/templates/aplicaciones` y `/templates/{id}/configuracion` en `backend/app/routers/templates.py` y `backend/app/schemas/template.py`; respuestas compatibles, idempotencia y estado «Disponible para solicitar», conservando rutas históricas.
 - [ ] T044 [US1] Empaquetar perfil/base runtime en `infra/applications/profiles/docker/ubuntu24.json` e `infra/applications/docker/runtime.py`; fijar versiones/features/storage/política y registrar su alcance en `docs/evidencia/011/perfil-docker.md`. Mantener perfil pendiente hasta instalar y validar la estrategia definitiva en T050, sin habilitarlo con módulos todavía incompletos.
 - [ ] T045 [US1] Implementar estrategia genérica en `infra/applications/docker/deploy.py`: pull del digest aprobado, container/labels y volúmenes deterministas dentro del rootfs, recursos/capabilities/no-new-privileges, secretos por instancia y retirada de credencial del registry antes de arrancar; sin overrides de comando, montajes del nodo o daemon compartido.
 - [ ] T046 [US1] Implementar borde y probes del origen Docker en `infra/applications/docker/access.py` e `infra/applications/docker/probes.py`: upstream local, HTTPS gestionado, puerto/probe aprobado, salida segura de arranque y comprobación de acceso; TCP requiere política nativa admitida, no una apertura genérica de puerto.
 - [ ] T047 [US1] Conectar estrategia y confirmación final en `backend/app/services/orquestacion_service.py` y `backend/tests/test_orquestacion_aplicaciones_011.py`: job persistido, fases reales, salud/acceso y configuración comprobados antes de `pedido_service.transicionar`, aviso habitual y acceso del servicio; cubrir fallo de pull/probe sin éxito falso.
-- [ ] T048 [US1] Crear `frontend/src/components/AplicacionPropiaForm.jsx` y llamadas tipadas en `frontend/src/services/api.js`: nombre/imagen/puerto, opcionales plegados sólo cuando necesarios, feedback inmediato y errores conservando datos, sin parámetros internos.
-- [ ] T049 [US1] Integrar las dos entradas en `frontend/src/components/AgregarServicioModal.jsx` y `frontend/src/pages/Definiciones.jsx`: una ventana amplia/simple, catálogo administrativo sólo admin, filtros IaaS/PaaS/SaaS, ofertas IaaS/Draw.io intactas y mensaje de disponibilidad para pedir, sin Guardadas ni preparación/publicación.
+- [X] T048 [US1] Crear `frontend/src/components/AplicacionPropiaForm.jsx` y llamadas tipadas en `frontend/src/services/api.js`: nombre/imagen/puerto, opcionales plegados sólo cuando necesarios, feedback inmediato y errores conservando datos, sin parámetros internos.
+- [X] T049 [US1] Integrar las dos entradas en `frontend/src/components/AgregarServicioModal.jsx` y `frontend/src/pages/Definiciones.jsx`: una ventana amplia/simple, catálogo administrativo sólo admin, filtros IaaS/PaaS/SaaS, ofertas IaaS/Draw.io intactas y mensaje de disponibilidad para pedir, sin Guardadas ni preparación/publicación.
 - [ ] T050 [US1] Tras T044–T047, instalar el paquete Docker definitivo con `infra/laboratorio/011/preparar_entorno.py`, revalidar T005 y habilitar el perfil sólo si pasa; después ejecutar aceptación de campus-demo, whoami y registry privado según `quickstart.md`. Registrar en `docs/evidencia/011/us1-imagenes.md` alta <=3 min, cero reserva/CT por oferta, digest congelado, dato persistente y acceso sin cookies NAP filtradas, distinguiendo prueba real de simulación.
 
 **Checkpoint**: US1 demostrable sin Community. Un perfil bloqueado explica el impedimento; no se anuncia instalación por validar sólo una referencia OCI.
@@ -392,3 +392,12 @@ con revocación cada 5 s, destino TLS/IP fijado y sin redirects WS. T034 parcial
 entrega web automática conectada al worker después de cursor final+ACK, observación
 PVE y probe HTTPS; transacción única de entrega/aviso. TCP autenticado sigue cerrado
 hasta MariaDB. Evidencia y selecciones afectadas en `docs/evidencia/011/base-comun.md`.
+
+Checkpoint de alta propia: **38/105 tareas verificadas**. T038/T040–T043/T048–T049
+completadas: resolver OCI con DNS/IP/TLS y fuentes cerradas, alta/revisión atómicas
+e idempotentes sin reserva/invitado, UI breve en el mismo modal, errores/progreso y
+edición de metadata compatible. Consulta real Docker Hub verificada sin ejecución;
+una carrera PostgreSQL y pruebas afectadas API/UI aprobadas, con inspección visual
+móvil/escritorio. No se habilitan perfiles por fixtures. T037 conserva pendientes
+las pruebas ligadas al runtime definitivo, y T039/T044–T047/T050 siguen pendientes.
+Ver `docs/evidencia/011/us1-imagenes.md`.

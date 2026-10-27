@@ -61,3 +61,16 @@ test('el perfil solo elige definiciones publicadas compatibles y respeta sus mí
   await waitFor(() => expect(api.createTemplate).toHaveBeenCalledWith(expect.objectContaining({
     definicion_version_id: 'pg', tipo: 'lxc', tamano: 'medium', modelo_servicio: 'paas', default_vcpus: 2, default_ram_mb: 1024, default_disk_gb: 8 })));
 });
+
+test('una imagen propia permite editar su oferta sin elegir otra definición ni alterar su origen', async () => {
+  const user = userEvent.setup();
+  api.updateTemplate.mockResolvedValue({ data: { id: 12 } });
+  render(<TemplatesAdmin open template={{ id: 12, nombre: 'Campus', descripcion: 'Prácticas', tipo: 'lxc', configuracion_despliegue_id: 'own-config',
+    minimum_resources: { vcpus: 2, ram_mb: 1024, disk_gb: 8 }, tamano_recomendado: 'medium' }} onClose={vi.fn()} onGuardado={vi.fn()}/>);
+  expect(await screen.findByLabelText('Nombre del servicio')).toHaveValue('Campus');
+  expect(api.getDefiniciones).not.toHaveBeenCalled();
+  expect(screen.queryByLabelText('Servicio')).not.toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'Guardar cambios' }));
+  await waitFor(() => expect(api.updateTemplate).toHaveBeenCalledWith(12, expect.objectContaining({ nombre: 'Campus', tamano: 'medium' })));
+  expect(api.updateTemplate.mock.calls[0][1]).not.toHaveProperty('definicion_version_id');
+});

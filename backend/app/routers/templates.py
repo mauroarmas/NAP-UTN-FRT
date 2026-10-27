@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Header
+from fastapi.responses import JSONResponse
+from app.schemas.aplicacion import AgregarAplicacion, RevisarAplicacion
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from types import SimpleNamespace
@@ -34,6 +36,24 @@ async def sincronizar_iaas(current_user: Usuario = Depends(require_admin), db: A
     count = await sincronizar(db)
     await db.commit()
     return {'disponibles': count}
+
+
+@router.post('/aplicaciones',status_code=201)
+async def agregar_aplicacion(data:AgregarAplicacion,clave:str=Header(alias='Idempotency-Key'),
+        current_user:Usuario=Depends(require_admin),db:AsyncSession=Depends(get_db)):
+    from app.services.configuracion_despliegue_service import change
+    result=await change(db,actor=current_user,body=data,clave=clave)
+    await db.commit()
+    return JSONResponse(result.resultado,status_code=result.status_code,headers={'Cache-Control':'no-store'})
+
+
+@router.post('/{template_id}/configuracion')
+async def cambiar_configuracion_aplicacion(template_id:int,data:RevisarAplicacion,clave:str=Header(alias='Idempotency-Key'),
+        current_user:Usuario=Depends(require_admin),db:AsyncSession=Depends(get_db)):
+    from app.services.configuracion_despliegue_service import change
+    result=await change(db,actor=current_user,body=data,clave=clave,template_id=template_id)
+    await db.commit()
+    return JSONResponse(result.resultado,status_code=result.status_code,headers={'Cache-Control':'no-store'})
 
 
 @router.get("/", response_model=list[TemplateResponse])

@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     application_gateway_ca_file: str = ''
     application_profiles: dict = Field(default_factory=dict)
     application_network_profiles: dict = Field(default_factory=dict)
+    application_registry_profiles: dict = Field(default_factory=lambda:{'docker-hub':{
+        'registry':{'host':'registry-1.docker.io','allow_public':True},
+        'reference_hosts':['docker.io'],'repository_prefixes':[''],
+        'token_endpoint':{'host':'auth.docker.io','allow_public':True},'token_service':'registry.docker.io',
+        'blob_endpoints':[{'host':'production.cloudfront.docker.com','allow_public':True}]}},repr=False)
 
     biblioteca_fuente: FuenteBiblioteca = Field(default_factory=FuenteBiblioteca)
     builder_hosts: dict[str, BuilderHost] = Field(default_factory=dict, repr=False)
@@ -56,6 +61,19 @@ class Settings(BaseSettings):
             ProfileRegistry(self.application_profiles)
         except ProfileError:
             raise ValueError('Registro institucional de aplicaciones inválido') from None
+        try:
+            from app.schemas.oci_registry import RegistryProfile
+            import re
+            if len(self.application_registry_profiles)>50:raise ValueError()
+            references=set()
+            for name,value in self.application_registry_profiles.items():
+                if not re.fullmatch(r'[a-z][a-z0-9-]{0,63}',name):raise ValueError()
+                profile=RegistryProfile.model_validate(value)
+                for host in profile.reference_hosts:
+                    if host in references:raise ValueError()
+                    references.add(host)
+        except (ValueError,TypeError,AttributeError):
+            raise ValueError('Registro institucional de imágenes inválido') from None
         if self.artifact_registry_directory and (not Path(self.artifact_registry_directory).is_absolute() or ".." in Path(self.artifact_registry_directory).parts):
             raise ValueError("El registro de artefactos requiere directorio institucional absoluto")
         scopes = {}

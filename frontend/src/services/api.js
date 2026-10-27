@@ -37,6 +37,9 @@ api.interceptors.response.use((response) => {
 });
 
 // Auth
+export const agregarAplicacionPropia = (data, clave = crypto.randomUUID()) => api.post('/templates/aplicaciones', data, { ...ordenHeaders(clave), timeout: 45000 });
+export const cambiarConfiguracionAplicacion = (id, data, clave = crypto.randomUUID()) => api.post(`/templates/${id}/configuracion`, data, { ...ordenHeaders(clave), timeout: 45000 });
+
 export const login = (username, password) =>
   api.post('/auth/login', new URLSearchParams({ username, password }), {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
