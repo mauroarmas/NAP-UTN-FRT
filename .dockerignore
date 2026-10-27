@@ -56,3 +56,8 @@ frontend/blob-report/
 Dockerfile*
 *dockerfile
 .dockerignore
+*.dump
+*.backup
+*.sql.gz
+keyring.json
+handoff-private/

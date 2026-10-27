@@ -4,6 +4,9 @@ API del portal que media entre las cátedras y la infraestructura (Proxmox VE).
 La gestión ocurre dentro del portal; la consola del contenedor propio es la
 excepción acotada definida en la constitución y requiere aislamiento institucional.
 
+Para continuar la spec 011 desde otra PC, seguir primero el
+[traspaso](../docs/traspaso-011.md): entorno, datos privados y pendientes reales.
+
 ## Puesta en marcha
 
 ```bash
@@ -141,7 +144,9 @@ para que el administrador vea qué sigue ocupando disco.
 
 ## Trabajos periódicos
 
-Cuatro, en `app/services/scheduler.py` (APScheduler, arrancado en el `lifespan`):
+El registro vive en `app/services/scheduler.py` y `app/worker.py`; APScheduler
+se inicia exclusivamente en el worker independiente, nunca en el `lifespan`
+de la API. Entre los trabajos de mantenimiento están:
 
 | Trabajo | Cadencia |
 |---|---|
@@ -176,7 +181,8 @@ duplicado. Un lock abandonado (proceso caído a mitad de camino) se recupera a l
 
 ## Documentos de referencia
 
-- `.specify/memory/constitution.md` — principios del proyecto (v2.0.0)
+- `.specify/memory/constitution.md` — principios del proyecto (v4.2.0)
+- `specs/011-desplegar-servicios-universitarios/` — implementación activa
 - `specs/004-unificar-usuario-catedra/` — spec, plan y decisiones de diseño del
   modelo de capacidad vigente
 
@@ -233,7 +239,9 @@ El portal emite notificaciones institucionales automáticas (HTML con identidad 
 1. **Alta de usuario**: Generación automática de contraseña provisoria y despacho de credenciales.
 2. **Ciclo de pedidos**: Alerta de nuevo pedido/reenvío a administradores, solicitud de ajuste a docentes, rechazo fundamentado, servicio activo con datos de acceso y errores técnicos de despliegue.
 
-El despacho se ejecuta de forma asíncrona no bloqueante mediante `BackgroundTasks` de FastAPI y `aiosmtplib` (o `smtplib` estándar). En entorno de pruebas (`pytest`), las llamadas se capturan en memoria mediante fixture `mock_email` sin salida a la red.
+Los avisos se guardan en una cola durable y el worker de notificaciones los
+despacha por SMTP. La API no depende de un envío en memoria para confirmar la
+acción. Las pruebas usan dobles y bloquean las conexiones reales por defecto.
 
 ### Variables de entorno SMTP
 

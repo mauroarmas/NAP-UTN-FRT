@@ -1,5 +1,9 @@
 # Plan de Trabajo y Pendientes - Proxmox Orchestration Workflow
 
+> Antecedente histórico. El avance y los pendientes vigentes están en
+> [spec 011](specs/011-desplegar-servicios-universitarios/tasks.md) y
+> [el traspaso](docs/traspaso-011.md); no reiniciar este plan como backlog actual.
+
 El proyecto ha alcanzado un núcleo operativo sólido, incluyendo orquestación real con Proxmox, máquina de estados para pedidos, gestión de usuarios (CRUD/Roles), y observabilidad con captura de métricas y gráficos. 
 
 A continuación se detalla el plan de trabajo para llevar el sistema a un nivel de producción "Enterprise", desglosado por tareas de **Frontend** y **Backend**.

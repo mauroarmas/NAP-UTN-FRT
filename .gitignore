@@ -54,3 +54,10 @@ coverage/
 frontend/test-results/
 frontend/playwright-report/
 frontend/blob-report/
+
+# Copias de datos y claves privadas: compartir fuera de Git.
+*.dump
+*.backup
+*.sql.gz
+keyring.json
+handoff-private/

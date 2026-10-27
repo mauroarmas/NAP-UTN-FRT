@@ -1,0 +1,66 @@
+# Portal para continuar el desarrollo en otra PC. Sin workers ni credenciales PVE.
+# No combinar con los overrides privados del laboratorio de Mauro.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ps_user
+      POSTGRES_PASSWORD: ps_password
+      POSTGRES_DB: ps_db
+    ports: ["127.0.0.1:5434:5432"]
+    volumes: ["handoff_data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ps_user -d ps_db"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  mailpit:
+    image: axllent/mailpit:latest
+    ports: ["127.0.0.1:8025:8025"]
+  api:
+    build:
+      context: .
+      dockerfile: dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://ps_user:ps_password@db:5432/ps_db
+      APP_FRONTEND_URL: http://localhost:5174
+      APP_RELOAD: "true"
+      NAP_SETTINGS_FILE: ""
+      PROXMOX_HOST: 127.0.0.1
+      PROXMOX_TOKEN_VALUE: ""
+      INFRASTRUCTURE_PROFILE: "{}"
+      RUNNER_NODES: "{}"
+      BUILDER_HOSTS: "{}"
+      PERFILES_ENSAYO: "{}"
+      APPLICATION_PROFILES: "{}"
+      APPLICATION_NETWORK_PROFILES: "{}"
+      NETWORK_PROFILES: "{}"
+      SERVICE_ARTIFACTS: "{}"
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      SMTP_USER: ""
+      SMTP_PASSWORD: ""
+      SMTP_TLS: "false"
+      SMTP_SSL: "false"
+    volumes:
+      - ./backend/app:/app/app
+      - ./backend/alembic:/app/alembic
+      - ./backend/scripts:/app/scripts
+      - ./backend/alembic.ini:/app/alembic.ini
+    ports: ["127.0.0.1:8001:8000"]
+    depends_on:
+      db: {condition: service_healthy}
+      mailpit: {condition: service_started}
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend.dockerfile
+      target: dev
+    environment:
+      NAP_BACKEND_PROXY: http://api:8000
+    volumes: ["./frontend:/app", "/app/node_modules"]
+    ports: ["127.0.0.1:5174:5173"]
+    depends_on: [api]
+volumes:
+  handoff_data:

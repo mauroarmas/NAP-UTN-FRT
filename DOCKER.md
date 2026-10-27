@@ -1,5 +1,9 @@
 # Ejecución con Docker
 
+Para un clon nuevo que continuará la 011, usar el
+[entorno de traspaso](docs/traspaso-011.md). No requiere los overrides privados
+del laboratorio y permite restaurar sus datos sin conectar a Proxmox.
+
 ## Desarrollo local
 
 `docker compose up --build` usa `docker-compose.yml` y, si existe, su override de desarrollo. Publica el frontend Vite en http://localhost:5174, API en http://localhost:8001 y PostgreSQL en el puerto 5434. Mailpit es un buzón de prueba. Este entorno tiene valores de demostración y conexión PVE de desarrollo; no se publica como instalación operativa.

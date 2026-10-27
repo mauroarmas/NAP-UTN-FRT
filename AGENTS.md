@@ -1,5 +1,14 @@
 # Instrucciones y memoria del proyecto NAP
 
+## Traspaso y continuación de 011 (27/10/2026)
+
+Antes de continuar en otro equipo, leer [docs/traspaso-011.md](docs/traspaso-011.md).
+El runtime Docker definitivo sigue pendiente de gate real; la corrección de
+`net0.type=veth` está en Git pero aún no distribuida. Se limpió el ensayo temporal
+y se conservó su resultado incierto. El Compose de traspaso no inicia workers ni
+conecta infraestructura; la copia privada de DB/keyring se entrega fuera de Git.
+Usar rutas relativas del clon para las habilidades, no las rutas de Mauro.
+
 ## Preferencias acordadas con Mauro
 
 - **Propósito del producto: un pequeño AWS simple para la universidad.** Community Scripts es una

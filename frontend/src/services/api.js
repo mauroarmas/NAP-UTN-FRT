@@ -120,9 +120,6 @@ export const guardarCalendario = (anio, data, clave = crypto.randomUUID()) => ap
 export const consultarPreparacion = (id) => api.get(`/biblioteca/incorporaciones/${id}/preparacion`);
 export const agregarAplicacion = (id, data, clave) => api.post(`/biblioteca/incorporaciones/${id}/agregar`, data, ordenHeaders(clave));
 export const sincronizarIaas = () => api.post('/templates/sincronizar-iaas');
-export const prepararAplicacion = (id, data, clave) => api.post(`/biblioteca/incorporaciones/${id}/preparar`, data, ordenHeaders(clave));
-export const confirmarFuncionamiento = (id, funciona, clave) => api.post(`/biblioteca/incorporaciones/${id}/confirmar-funcionamiento`, { funciona }, ordenHeaders(clave));
-export const publicarAplicacion = (id, data, clave) => api.post(`/biblioteca/incorporaciones/${id}/publicar`, data, ordenHeaders(clave));
 export const eliminarPreparacion = (id, clave) => api.post(`/biblioteca/incorporaciones/${id}/eliminar`, {}, ordenHeaders(clave));
 export const getTamanos = () => api.get('/templates/tamanos');
 export const getTemplates = (incluirRetiradas = false, modeloServicio = null, options = {}) =>
@@ -133,13 +130,11 @@ export const getTemplates = (incluirRetiradas = false, modeloServicio = null, op
       ...(modeloServicio ? { modelo_servicio: modeloServicio } : {}),
     },
   });
-export const getTemplate = (id) => api.get(`/templates/${id}`);
 export const createTemplate = (data) => api.post('/templates/', data);
 export const updateTemplate = (id, data) => api.patch(`/templates/${id}`, data);
 // Retirar no borra: la plantilla sale del catálogo pero los pedidos y servicios
 // que la referencian la siguen resolviendo.
 export const retirarTemplate = (id) => api.delete(`/templates/${id}`);
-export const deleteTemplate = (id) => api.delete(`/templates/${id}`);
 export const reactivarTemplate = (id) => api.patch(`/templates/${id}`, { activo: true });
 
 // Servicios / Orquestación
@@ -179,7 +174,6 @@ export const getServiciosExentosInactivos = () => api.get('/servicios/exentos-in
 export const getStatusServicio = (id) => api.get(`/servicios/${id}/status`);
 // URL base de Proxmox, para que el admin abra la consola nativa en otra pestaña.
 export const getBaseConsolaProxmox = () => api.get('/servicios/consola/proxmox-base');
-// Consola embebida — EN PAUSA, sin uso hoy. Ver DUDAS-ENTREVISTA.md.
 
 // Usuarios
 export const getUsuarios = (incluirBajas = false) =>
@@ -188,7 +182,6 @@ export const createUsuario = (data) => api.post('/usuarios/', data);
 export const updateUsuario = (id, data) => api.patch(`/usuarios/${id}`, data, { headers: { 'Idempotency-Key': crypto.randomUUID() } });
 // El retiro conserva identidad e historial y puede quedar pendiente de revocación.
 export const retirarUsuario = (id, revision) => api.delete(`/usuarios/${id}`, { params: { revision_esperada: revision }, headers: { 'Idempotency-Key': crypto.randomUUID() } });
-export const deleteUsuario = retirarUsuario;
 
 // La evidencia se envía como texto para conservar las claves originales.
 export const registrarEvidencia = (documento, clave = crypto.randomUUID()) => api.post('/evidencias', documento, ordenHeaders(clave));

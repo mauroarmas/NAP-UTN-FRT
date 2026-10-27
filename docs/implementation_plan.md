@@ -1,5 +1,9 @@
 # Plan de Implementación: Software de Gestión y Orquestación de Servicios — Nube Privada UTN FRT
 
+> Plan inicial conservado como antecedente académico. Para implementar ahora,
+> seguir [el traspaso 011](traspaso-011.md) y las tareas de esa spec. La infraestructura
+> descrita aquí es objetivo del proyecto, no inventario universitario ya configurado.
+
 ## Resumen del Contexto
 
 ### El Proyecto General
