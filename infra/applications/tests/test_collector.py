@@ -53,13 +53,14 @@ def test_drains_both_streams_with_bounded_reads_and_short_polling(monkeypatch):
     assert sum(bool(kw.get('final')) for _,_,kw in captured) == 2
 
 
-def test_failed_console_consumer_does_not_block_the_child():
+@pytest.mark.parametrize('failure',[OSError,MemoryError])
+def test_failed_console_consumer_does_not_block_the_child(failure):
     process = PipeProcess()
     def producer():
         try:
             for _ in range(100): os.write(process.out_writer, b'x'*16384)
         finally: process.finish()
-    def full(*args, **kwargs): raise OSError('fixture: console disk full')
+    def full(*args, **kwargs): raise failure('fixture: console storage unavailable')
     thread = Thread(target=producer); thread.start()
     try: result = collect_output(process, full, timeout=5)
     finally: thread.join(timeout=2); process.finish()

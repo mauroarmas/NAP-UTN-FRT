@@ -40,7 +40,7 @@
 
 - [ ] T008 [P] Crear `backend/tests/test_configuracion_despliegue_011.py` con contratos estrictos, exclusión legacy/configuración, revisiones inmutables, límites de variables/rutas, perfiles bloqueados y prohibición de comandos/secretos en documentos públicos; crear `backend/tests/test_application_gateway_011.py` para aislamiento de cookies/destinos, revocación y acceso web/TCP según los contratos comunes.
 - [X] T009 [P] Crear `infra/applications/tests/test_job_protocol.py` y `infra/applications/tests/test_job_supervisor.py` para replay, fingerprint distinto, lease obsoleto, respuesta perdida, SSH caído, reboot, identidad ajena y rechazo de comandos/rutas/unidades libres; conservar pruebas de protocolos históricos en `infra/runner/tests/test_runner.py`.
-- [ ] T010 [P] Crear `infra/applications/tests/test_redaction.py`, `infra/applications/tests/test_spool.py` y `backend/tests/test_ingesta_consola_011.py`: secretos partidos en cada frontera, representaciones declaradas, UTF-8, salida desconocida, ANSI/OSC, memoria/disco lleno, límites/retención y ACK sólo tras commit; probar eventos portal sin job, colisiones de claves locales entre productores, replay de hitos y orden causal sin retención cruda.
+- [X] T010 [P] Crear `infra/applications/tests/test_redaction.py`, `infra/applications/tests/test_spool.py` y `backend/tests/test_ingesta_consola_011.py`: secretos partidos en cada frontera, representaciones declaradas, UTF-8, salida desconocida, ANSI/OSC, memoria/disco lleno, límites/retención y ACK sólo tras commit; probar eventos portal sin job, colisiones de claves locales entre productores, replay de hitos y orden causal sin retención cruda.
 - [X] T011 [P] Crear `backend/tests/postgres/test_migracion_011.py` para upgrade desde `010_06_acceso_aplicacion`, constraints/FK/índices y conservación de usuarios, cátedras, pedidos, servicios y marcadores legacy; incluir política de downgrade seguro sin pérdida silenciosa.
 - [ ] T012 [P] Crear `backend/tests/postgres/test_jobs_011.py` para admisión/takeover concurrentes, unicidad de intento/execution_id, slots disjuntos y reserva de red; comprobar que reclamar lease no incrementa el intento efectivo ni duplica compromisos.
 
@@ -64,7 +64,7 @@
 - [X] T028 Completar canal privado y distribución del paquete común en `infra/applications/job/credentials.py`, `infra/runner/install.sh` e `infra/runner/README.md`; instalar el paquete construido mediante `infra/laboratorio/011/preparar_entorno.py` antes de sus pruebas reales, con respaldo/rollback y perfiles pendientes. Credenciales efímeras /run cargadas por systemd y retiradas del origen; ningún secreto en argv, propiedades de unidad, journal, spool o repositorio.
 - [X] T029 Implementar `backend/app/services/application_job_client.py` con llamadas cortas, JSON acotado, hostkey fijada, reintento sólo de consultas y correlación de identidad/generación; timeout de start produce reconciliación, nunca otra ejecución automática.
 - [ ] T030 Integrar la rama declarativa en `backend/app/services/perfiles_service.py`, `backend/app/services/evaluacion_service.py` y `backend/app/services/admision_service.py`: revalidación bajo locks, snapshot aprobado inmutable con hash/perfil/fuentes/red/referencias sensibles y reserva única; conservar verificación legacy e IaaS y el flujo inmediato actual para permitir el MVP antes de US3.
-- [ ] T031 Implementar ingesta canónica, emisor de hitos portal y retención en `backend/app/services/consola_operacion_service.py`: lock de cabecera, deduplicación (execution_id, source, source_key), source_key derivada de source_seq para runner y estable por intento/fase/hito para portal, secuencia por raíz y evento portal con fase en la misma transacción. Sólo runner recibe ACK tras commit; si hubo job, ingerir su cursor final antes del hito final del portal. Cuota compartida 10 000 000 bytes/30 días con resultado/historia conservados; consulta sin job válida.
+- [X] T031 Implementar ingesta canónica, emisor de hitos portal y retención en `backend/app/services/consola_operacion_service.py`: lock de cabecera, deduplicación (execution_id, source, source_key), source_key derivada de source_seq para runner y estable por intento/fase/hito para portal, secuencia por raíz y evento portal con fase en la misma transacción. Sólo runner recibe ACK tras commit; si hubo job, ingerir su cursor final antes del hito final del portal. Cuota compartida 10 000 000 bytes/30 días con resultado/historia conservados; consulta sin job válida.
 - [ ] T032 Integrar creación de exactamente un CT detenido en `backend/app/services/orquestacion_service.py`, `backend/app/services/identidad_infra_service.py`, `backend/app/services/proxmox_client.py` e `infra/runner/node_executor.py`: tras T031, persistir identidad/intento/cabecera y hito seguro antes del efecto; guardar hitos con cambios de fase incluso ante fallo sin job. Marcador propio, start=0, firewall externo y acción fija nesting/keyctl sólo para CT propio/detenido Docker; no elevar el token.
 - [ ] T033 Integrar trabajos cortos de ingesta cada 1 s y purga en `backend/app/worker.py`, manteniendo tick de orquestación de 5 s y límite de dos instalaciones activas por nodo; no sostener transacciones SQL durante SSH, pull o instalación y no depender del navegador.
 - [ ] T034 Extender `backend/app/services/service_access_service.py` y `backend/app/services/verificacion_acceso_service.py` con acceso/probes web y TCP tipados, pertenencia vigente, TLS/certificado por instancia y comprobaciones automáticas registradas; credenciales nativas por instancia y ningún éxito por un mero exit 0 o puerto abierto.
@@ -322,8 +322,16 @@ modelos y migración aditiva, secretos por pedido y biblioteca de depuración in
 La migración local se aplicó con respaldo privado verificado; el portal responde 200.
 Ver `docs/evidencia/011/base-comun.md` para alcance y límites.
 
-T008 sigue parcial: faltan pruebas del gateway genérico. T009 conserva pendiente el supervisor;
-T010, spool/ingesta; T012, admisión/asignación reales más allá de las restricciones probadas.
+T009, T010, T024, T025, T027–T029 y T031 completadas: supervisor/worker durables,
+paquete y credenciales efímeras, spool/colector, cliente SSH e ingesta/retención del portal.
+El paquete se instaló en la VM con respaldo; autocomprobación real de systemd/credenciales,
+spool/ACK y journal aprobada, sin CT nuevos ni perfiles habilitados. Consulta real por cuenta
+limitada aprobada; Draw.io CT 100 sigue corriendo y no quedan unidades temporales.
+
+T008 sigue parcial: faltan pruebas del gateway genérico. T012 conserva pendiente la
+admisión real más allá de las restricciones y la asignación concurrente ya probadas.
+T033/T081 unirán la ingesta al worker/UI. T078 parcial: tres pruebas PostgreSQL cubren
+concurrencia, cuota entre intentos y claves locales por productor; falta exportación concurrente.
 T023 parcial: asignador transaccional de slots y liberación con ausencia probados; falta unir
 la identidad/nonce y TLS por instancia al camino definitivo. Red nueva vacía por defecto.
 Selecciones finales: 55 backend 011; 79 infra/runner aprobadas y 5 omitidas; 22 red nueva/legacy;
@@ -334,3 +342,9 @@ Los módulos nuevos todavía requieren integración con el ejecutor y sus acepta
 Las cinco historias y sus aceptaciones siguen pendientes. Paquetes, recibos y credenciales
 se conservan en nap011 fuera de Git. No se certificó el clúster universitario ni se habilitaron
 ofertas nuevas por estos prototipos.
+
+Último checkpoint: **27/105 tareas verificadas**. Regresión posterior: **903 pruebas
+ordinarias de backend aprobadas** (124 PostgreSQL excluidas), tres PostgreSQL nuevas
+aprobadas y health local 200. No hay pruebas manuales pendientes de Mauro en este
+punto; continúan pendientes la integración de admisión/orquestación y los paquetes
+definitivos por origen antes de las aceptaciones completas.

@@ -53,7 +53,8 @@ El spool guarda sólo texto admitido, con secuencia/cursor transaccionales, lím
 bytes/filas/páginas, recorte explícito, replay y eliminación segura por ACK. Una
 escritura fallida no publica secuencias; al recuperarse comunica los mensajes que
 no pudo confirmar, sin inventar contadores durables tras una caída de disco/proceso.
-Faltan la ingesta en PostgreSQL y la comprobación durante despliegues completos.
+La ingesta en PostgreSQL está implementada; falta conectarla al tick del worker y
+comprobarla durante despliegues completos.
 
 ## Supervisor y distribución — T009/T024/T025/T027/T028/T029
 
@@ -123,6 +124,40 @@ cliente histórico y contrato del backend. Laboratorio + infra en contenedor ais
 y lock de actualización; selección posterior de instalador/autocomprobación/bootstrap:
 **17 aprobadas**, más una nueva prueba de manifiesto corrupto (instalador: **7 aprobadas**).
 Estos conteos son ejecuciones distintas y no se suman como pruebas únicas.
+
+## Ingesta y retención — T010/T031
+
+`consola_operacion_service.py` conserva una cabecera por raíz y serializa productores
+con locks de operación/intento/cabecera. El runner usa source_seq como clave; los
+hitos del portal derivan su clave del intento/fase/evento y sólo admiten textos
+cerrados. El evento del portal y su cambio de fase se guardan en la misma transacción.
+Se retienen tombstones de hitos en el contexto seguro y el cursor del runner en el
+intento: purgar texto no permite volver a insertarlo al repetir una consulta.
+
+El helper de ingesta verifica identidad, lease/generación, fingerprint, boot, cursores
+y contrato del lote; rechaza huecos sin declaración de pérdida. Un descarte del nodo
+agrega aviso y contador probado. No inventa bytes para una parte de un rango original
+que también contiene mensajes ya ingeridos. Un resultado final del portal espera
+haber ingerido el cursor final anunciado por el nodo; sin job se admite el resultado
+de un fallo de creación, pero nunca anunciar una aplicación disponible.
+
+La cuota de 10 000 000 bytes UTF-8 y los 30 días se aplican a la raíz compartida por
+todos los intentos/productores. La purga usa lotes acotados y conserva cabecera,
+cursor, resultado y filas de historia. `ingerir_y_confirmar` cierra la transacción
+antes de usar SSH para ACK. Un commit fallido no envía ACK; un ACK perdido se puede
+repetir después de ingerir idempotentemente el mismo lote. No hay SSH bajo locks SQL.
+
+Verificación: **17 pruebas ordinarias** de ingesta; **3 pruebas PostgreSQL** con
+sesiones concurrentes, cuota compartida entre intentos y claves locales iguales de
+productores diferentes. Depuración/colector/spool: **20 aprobadas**, incluida falta
+de memoria del consumidor sin bloquear el drenaje. La prueba PostgreSQL de exportación
+y la integración al worker/UI siguen pendientes en T033/T078/T081; no se atribuye a
+estas pruebas la aceptación completa de la consola visible.
+
+Regresión ordinaria completa posterior: **903 aprobadas, 124 PostgreSQL excluidas**
+en 8 min 49 s. Las tres pruebas PostgreSQL nuevas se ejecutaron por separado en
+el servicio aislado (puerto 55432); no representan una nueva ejecución completa
+de aquella suite. API local: health 200 tras las verificaciones.
 
 ## Asignador de red — T023 parcial
 

@@ -1,0 +1,220 @@
+"""Canonical, sanitized console ingestion. Database commit precedes node ACK.
+
+Helpers with a db argument never commit: a portal milestone and its operation
+phase belong to the caller's same transaction. Network I/O is outside that scope.
+"""
+from datetime import datetime, timedelta
+from uuid import UUID
+
+from sqlalchemy import select,func
+
+from app.models.consola_operacion import ConsolaOperacion,ConsolaFragmento
+from app.models.identidad_infraestructura import IdentidadInfraestructura
+from app.models.intento_despliegue import IntentoDespliegue
+from app.models.operacion_infraestructura import OperacionInfraestructura
+from app.services.operacion_service import condicion_lease
+from app.utils.clock import clock
+from app.utils.errors import error
+from infra.applications.job.protocol import JobError,canonical,parse_request,parse_response,PHASES
+
+MAX_BYTES=10000000
+RETENTION_DAYS=30
+EVENTS={
+    'preparando':('preparacion','Preparando el despliegue.'),
+    'creando_recurso':('creacion','Creando el recurso de la aplicación.'),
+    'recurso_creado':('creacion','Recurso creado.'),
+    'entorno_listo':('entorno','Entorno preparado.'),
+    'instalacion_solicitada':('instalacion','Instalación solicitada al nodo.'),
+    'comprobando':('comprobacion','Comprobando el funcionamiento de la aplicación.'),
+    'disponible':('finalizada','La aplicación está disponible.'),
+    'fallo':('finalizada','No se pudo completar el despliegue.'),
+    'sin_confirmacion':('finalizada','No se pudo confirmar el resultado del despliegue.'),
+}
+FINAL={'disponible','fallo','sin_confirmacion'}
+
+
+def _conflict():
+    return error(409,'consola_no_confirmada','No se pudo confirmar la información de este despliegue')
+
+
+async def _locked(db,lease):
+    operation=await db.scalar(select(OperacionInfraestructura).where(*condicion_lease(lease))
+        .with_for_update().execution_options(populate_existing=True))
+    if operation is None:raise _conflict()
+    attempt=await db.scalar(select(IntentoDespliegue).where(IntentoDespliegue.operacion_id==operation.id)
+        .with_for_update().execution_options(populate_existing=True))
+    root=operation.operacion_raiz_id or operation.id
+    if attempt is None or attempt.operacion_raiz_id!=root:raise _conflict()
+    if root!=operation.id:
+        parent=await db.scalar(select(OperacionInfraestructura).where(OperacionInfraestructura.id==root).with_for_update())
+        if parent is None:raise _conflict()
+    header=await db.scalar(select(ConsolaOperacion).where(ConsolaOperacion.operacion_raiz_id==root)
+        .with_for_update().execution_options(populate_existing=True))
+    if header is None:
+        header=ConsolaOperacion(operacion_raiz_id=root);db.add(header);await db.flush()
+    return operation,attempt,header
+
+
+def _text(value):
+    try:
+        if (type(value) is not str or not 1<=len(value.encode('utf-8'))<=8192
+                or any(ord(c)<32 and c not in '\n\t' or 127<=ord(c)<=159
+                    or '\u202a'<=c<='\u202e' or '\u2066'<=c<='\u2069' for c in value)):raise ValueError()
+        return len(value.encode('utf-8'))
+    except (ValueError,UnicodeError):raise _conflict() from None
+
+
+async def _append(db,header,attempt,*,source,key,source_seq,fase,stream,text,captured_at):
+    size=_text(text)
+    if fase not in PHASES or stream not in {'sistema','stdout','stderr'}:raise _conflict()
+    row=ConsolaFragmento(operacion_raiz_id=header.operacion_raiz_id,seq=header.next_seq,
+        intento_id=attempt.id,execution_id=attempt.execution_id,source=source,source_key=key,
+        source_seq=source_seq,captured_at=captured_at,ingested_at=clock.now(),fase=fase,
+        stream=stream,texto_depurado=text,utf8_bytes=size)
+    db.add(row)
+    header.last_seq=header.next_seq;header.next_seq+=1;header.retained_bytes+=size
+    header.last_captured_at=captured_at;header.last_ingested_at=clock.now()
+    header.expired=False
+    await db.flush()
+
+
+async def _trim(db,header):
+    cutoff=clock.now()-timedelta(days=RETENTION_DAYS)
+    # Bounded batches avoid loading a whole retained console into Python.
+    for expired in (True,False):
+        while True:
+            if not expired and header.retained_bytes<=MAX_BYTES:break
+            query=select(ConsolaFragmento).where(ConsolaFragmento.operacion_raiz_id==header.operacion_raiz_id)
+            if expired:query=query.where(ConsolaFragmento.captured_at<cutoff)
+            rows=list((await db.scalars(query.order_by(ConsolaFragmento.seq).limit(1000))).all())
+            if not rows:break
+            for row in rows:
+                if not expired and header.retained_bytes<=MAX_BYTES:break
+                header.retained_bytes-=row.utf8_bytes
+                header.dropped_bytes+=row.utf8_bytes;header.dropped_messages+=1;header.truncated=True
+                if expired:header.expired=True
+                await db.delete(row)
+            await db.flush()
+    first=await db.scalar(select(func.min(ConsolaFragmento.seq)).where(
+        ConsolaFragmento.operacion_raiz_id==header.operacion_raiz_id))
+    header.first_retained_seq=first if first is not None else header.next_seq
+
+
+async def emitir_hito(db,lease,*,hito):
+    if type(hito) is not str or hito not in EVENTS:raise _conflict()
+    operation,attempt,header=await _locked(db,lease)
+    phase,text=EVENTS[hito]
+    key=f'hito:{attempt.id}:{phase}:{hito}'
+    context=dict(operation.contexto_seguro)
+    seen=list(context.get('consola_hitos',[]))
+    if key in seen:return False  # Tombstone survives text quota/expiry.
+    if len(seen)>=len(EVENTS):raise _conflict()
+    if hito=='disponible' and attempt.runner_job_id is None:raise _conflict()
+    if hito in FINAL and attempt.runner_job_id is not None:
+        final=context.get('consola_job_final')
+        if (type(final) is not dict or attempt.ultimo_source_seq<final.get('last_source_seq',2**63)):
+            raise _conflict()
+        if hito=='disponible':
+            result=final.get('resultado') or {}
+            checks=set(result.get('comprobaciones',[]))
+            if (final.get('estado')!='confirmado' or result.get('recurso_configurado') is not True
+                    or not {'aislamiento','runtime','salud'}<=checks
+                    or not checks & {'acceso_web','autenticacion_tcp'}):raise _conflict()
+        elif hito=='fallo' and final.get('estado')!='fallido':raise _conflict()
+    if any(key.endswith(':'+last) for key in seen for last in FINAL):raise _conflict()
+    phases=('preparacion','creacion','entorno','instalacion','configuracion','arranque','comprobacion','finalizada')
+    if operation.fase in phases and phases.index(phase)<phases.index(operation.fase):raise _conflict()
+    await _append(db,header,attempt,source='portal',key=key,source_seq=None,
+        fase=phase,stream='sistema',text=text,captured_at=clock.now())
+    operation.fase=phase;operation.updated_at=clock.now()
+    context['consola_hitos']=[*seen,key];operation.contexto_seguro=context
+    if hito in FINAL:header.ultimo_resultado_seguro={'hito':hito,'texto':text}
+    await _trim(db,header);await db.flush()
+    return True
+
+
+async def ingerir(db,lease,*,request,response):
+    """Caller commits before using through_seq to request node ACK."""
+    try:
+        request=parse_request(canonical(request))
+        if request['action']!='read':raise ValueError()
+        response=parse_response(canonical(response),request=request)
+        if response['ok'] is not True:raise ValueError()
+        data=response['data']
+    except (JobError,ValueError,TypeError,KeyError,UnicodeError,RecursionError):raise _conflict() from None
+    operation,attempt,header=await _locked(db,lease)
+    identity=await db.get(IdentidadInfraestructura,attempt.identidad_infraestructura_id)
+    if (identity is None or operation.identidad_infraestructura_id!=identity.id
+            or request['operation_id']!=str(operation.id) or request['operacion_raiz_id']!=str(header.operacion_raiz_id)
+            or request['intento_id']!=str(attempt.id) or request['execution_id']!=str(attempt.execution_id)
+            or request['lease_generation']!=lease.generation or request['cluster_uuid']!=identity.cluster_id
+            or request['node']!=identity.nodo or request['vmid']!=identity.vmid
+            or request['pool']!=identity.pool_catedra or request['resource_uuid']!=str(identity.resource_uuid)
+            or request['configuracion_sha256']!=attempt.configuracion_sha256
+            or data['fingerprint']!=operation.contexto_seguro.get('job_fingerprint')
+            or data['acknowledged_seq']>attempt.ultimo_source_seq):raise _conflict()
+    if attempt.node_boot_id is not None and str(attempt.node_boot_id)!=data['node_boot_id']:raise _conflict()
+    cursor=attempt.ultimo_source_seq
+    # Build and validate the complete prefix before any fragment/cursor changes.
+    pending=[(item['source_seq'],item['source_seq'],'item',item) for item in data['items'] if item['source_seq']>cursor]
+    pending += [(max(cursor+1,r['from_seq']),r['through_seq'],'loss',r) for r in data['dropped_ranges'] if r['through_seq']>cursor]
+    pending.sort(key=lambda item:item[0])
+    end=cursor
+    for start,through,kind,item in pending:
+        if start!=end+1:raise _conflict()
+        if kind=='item':_text(item['texto_depurado'])
+        end=through
+    if end>data['last_source_seq']:raise _conflict()
+    context=dict(operation.contexto_seguro)
+    prior=context.get('consola_job_final')
+    if prior and prior['estado'] in {'confirmado','fallido'}:
+        if prior!={'estado':data['estado'],'last_source_seq':data['last_source_seq'],'resultado':data['resultado']}:
+            raise _conflict()
+    if pending and any(key.endswith(':'+last) for key in context.get('consola_hitos',[]) for last in FINAL):
+        raise _conflict()
+    for start,through,kind,item in pending:
+        if kind=='loss':
+            count=through-start+1
+            await _append(db,header,attempt,source='portal',key=f'perdida:{start}:{through}',source_seq=None,
+                fase=data['fase'],stream='sistema',text=f'El nodo omitió {count} mensajes de consola.',captured_at=clock.now())
+            header.dropped_messages+=count;header.truncated=True
+            # Never invent bytes for a partially overlapping original loss range.
+            if start==item['from_seq']:header.dropped_bytes+=item['bytes']
+        else:
+            await _append(db,header,attempt,source='runner',key=str(start),source_seq=start,
+                fase=item['fase'],stream=item['stream'],text=item['texto_depurado'],
+                captured_at=datetime.fromisoformat(item['captured_at'].replace('Z','+00:00')))
+    attempt.ultimo_source_seq=end
+    attempt.node_boot_id=UUID(data['node_boot_id']);attempt.runner_job_id=str(attempt.execution_id)
+    if data['estado'] in {'confirmado','fallido','incierto'}:
+        operation.contexto_seguro={**operation.contexto_seguro,'consola_job_final':{
+            'estado':data['estado'],'last_source_seq':data['last_source_seq'],'resultado':data['resultado']}}
+    elif 'consola_job_final' in context:
+        context.pop('consola_job_final');operation.contexto_seguro=context
+    await _trim(db,header);await db.flush()
+    return {'through_seq':end,'inserted':len(pending)}
+
+
+async def ingerir_y_confirmar(sessions,lease,*,request,response,client):
+    try:
+        request=parse_request(canonical(request))
+        response=parse_response(canonical(response),request=request)
+    except (JobError,ValueError,TypeError,KeyError,UnicodeError,RecursionError):raise _conflict() from None
+    async with sessions() as db,db.begin():
+        result=await ingerir(db,lease,request=request,response=response)
+    # No SQL transaction or row lock remains during SSH. A failed ACK is safe to
+    # replay after committing the same batch again, without duplicated fragments.
+    ack={k:v for k,v in request.items() if k not in {'after','limit_bytes'}}
+    ack.update(action='ack',through_seq=result['through_seq'])
+    confirmed=False
+    try:
+        reply=await client.execute(ack,expected_fingerprint=response['data']['fingerprint'])
+        confirmed=reply['ok'] is True
+    except (JobError,TimeoutError,OSError):pass
+    return {**result,'ack_confirmed':confirmed}
+
+
+async def purgar(db,root_id):
+    header=await db.scalar(select(ConsolaOperacion).where(ConsolaOperacion.operacion_raiz_id==root_id)
+        .with_for_update().execution_options(populate_existing=True))
+    if header is not None:await _trim(db,header);await db.flush()
