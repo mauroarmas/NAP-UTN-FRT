@@ -131,7 +131,7 @@ async def enviar_o_consultar(sessions,lease,*,pve,runner):
     await flow._defer(sessions,lease,uncertain=data['estado']=='incierto',code=data['error_codigo'])
 
 
-async def ingerir_trabajo(sessions,lease,*,runner=None):
+async def ingerir_trabajo(sessions,lease,*,runner=None,pve=None,probe=None):
     """A bounded console tick. It cannot start or restart an installation."""
     from app.services import orquestacion_service as flow
     from app.services.consola_operacion_service import ingerir_y_confirmar
@@ -157,6 +157,9 @@ async def ingerir_trabajo(sessions,lease,*,runner=None):
             await emitir_hito(db,lease,hito='fallo')
     if finished and data['estado']=='fallido' and result['ack_confirmed']:
         await flow._finish_failure(sessions,lease,data['error_codigo'] or 'instalacion_fallida')
+    elif finished and data['estado']=='confirmado' and result['ack_confirmed']:
+        from app.services.application_verification_service import verify
+        await verify(sessions,lease,pve=pve,probe=probe)
     else:
         async with flow._locked(sessions,lease) as (db,op,identity,service,pedido,ledger):
             if data['estado']=='incierto' and ledger:ledger.estado='incierto'

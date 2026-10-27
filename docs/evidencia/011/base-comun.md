@@ -321,3 +321,54 @@ permisos y ausencia de entrada al instalador tras fallo de aislamiento.
 T023/T032/T034 continúan parciales: faltan configurar CA/red reales en el nodo,
 conectar el borde/probes y registrar entrega automática; no se instaló este paquete
 nuevo en Proxmox ni se habilitó un perfil con estas pruebas locales.
+
+## Gateway genérico y entrega web automática — T035 / T034 parcial
+
+Se conserva el adaptador Draw.io y se agrega una rama distinta para configuraciones
+011. La apertura usa el código de un uso/sesión vigente de NAP y redirige a `/`, sin
+parámetros del editor. El destino se deriva de identidad, asignación aprobada y slot
+activo; revalida perfil/red y no usa URLs del navegador ni resolución DNS upstream.
+Las lecturas largas de WebSocket refrescan identidad/pedido/slot desde la DB.
+
+`application_proxy_service.py` conserva autenticación y cookies nativas, elimina
+nombres NAP, rechaza dominios ajenos y convierte las cookies aceptadas a host-only
+Secure. El cliente compartido no retiene cookies. Admite los siete métodos previstos,
+con Origin propio obligatorio para escrituras, carga <=20 MiB y descarga <=32 MiB
+en streaming; exceso de descarga corta el stream y cierra upstream. Host/SNI y CA
+siguen fijados sobre la IP institucional. Redirecciones sólo al origen propio,
+con rutas `_nap` reservadas. Conserva CSP nativa además de la política del gateway,
+no inspecciona HTML como si todas las aplicaciones fueran Draw.io y no oculta
+respuestas de login 401/403 de la aplicación. Sigue bloqueando service workers.
+
+`application_websocket_service.py` comprueba declaración/origen antes del upgrade,
+pone límites de mensajes/colas, usa TLS por host sobre IP fija y revalida acceso
+cada 5 s. La pérdida de sesión cierra el canal; no hay fallback a otra URI, proxy
+ambiental ni redirects, tampoco del mismo host. Se usa la API fijada de websockets
+16 ([documentación primaria](https://websockets.readthedocs.io/en/16.1/reference/asyncio/client.html)).
+Es tráfico de la aplicación; no sirve para escribir comandos en la consola.
+
+La ingesta puede cerrar entrega web automáticamente sólo con cursor final guardado,
+ACK confirmado, prueba terminal del job que incluya aislamiento/runtime/salud/acceso,
+PVE fresco propio y arrancado, asignación/cobertura vigentes y probe HTTPS externo
+del destino exacto. El probe tiene presupuesto total, TLS estricto, redirecciones
+deshabilitadas y cuerpo acotado. Se confirma pedido/servicio/compromiso/consola/aviso
+en una transacción, sin SQL abierto durante la conexión. No se duplican secretos
+ni se exige evidencia manual. Un job exitoso con probe/destino incorrecto sigue sin
+entrega y conserva recursos. La UI de acceso usa instrucciones genéricas.
+
+Verificación proporcional: primera selección **36 aprobadas** (proxy y regresión
+Draw.io); ampliación WebSocket/chunked **17 aprobadas**. Circuito de entrega con PVE
+y probe dobles: los fallos de destino/prueba/estado no entregan; se corrigieron sólo
+dos expectativas de fixture (objeto expirado y dominio bajo el portal de prueba).
+El éxito corregido + selección gateway dio **18 aprobadas**; probes acotados **4**;
+entrada HTTP real de la API/gateway con transport simulado y límites/CSP **3**.
+La entrada integrada verifica cookie nativa, página propia, código NAP y revocación.
+No se repitió una suite general; no se presenta MockTransport como conexión Proxmox.
+
+**T035 completada; T034 sigue parcial**: el acceso TCP necesita configuración nativa
+MariaDB y SELECT 1 autenticado/TLS desde red autorizada. Se mantiene cerrado hasta
+esa implementación; un puerto abierto no entrega un pedido. T008/T036 conservan
+pendiente ese alcance y las compuertas completas. Las estrategias finales y sus
+pruebas físicas siguen pendientes antes de habilitar ofertas nuevas.
+La selección final por cambios de refresco de identidad y acceso incluyó regresión
+legacy de entrega y las cinco mutaciones de destino: **15 aprobadas en 13,57 s**.

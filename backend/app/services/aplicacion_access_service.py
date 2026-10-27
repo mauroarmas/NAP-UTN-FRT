@@ -73,6 +73,18 @@ async def sesion_vigente(db, identity):
 async def autorizar(db, actor, servicio_id):
     # El alcance se comprueba antes de recuperar credenciales o construir destinos.
     service = await requiere_acceso_servicio(db, actor, servicio_id)
+    if service.configuracion_despliegue_id:
+        from app.services.application_target_service import destination
+        from app.services.service_access_service import preparacion_confirmada
+        from app.services.vigencia_service import exigir_cobertura
+        await exigir_cobertura(db,service.id,clock.now())
+        if (service.estado!=EstadoServicio.RUNNING or service.disponibilidad_aplicacion!='utilizable'
+                or not await preparacion_confirmada(db,service)):
+            raise error(409,'aplicacion_no_disponible','La aplicación debe estar disponible antes de abrirla.')
+        identity,instance=await destination(db,service)
+        if instance['access']['tipo']!='web':
+            raise error(409,'aplicacion_no_compatible','Este servicio utiliza acceso nativo.')
+        return service,identity,instance
     definition = await db.get(DefinicionServicio, service.definicion_version_id) if service.definicion_version_id else None
     if not definition or definition.producto != 'drawio':
         raise error(409, 'aplicacion_no_compatible', 'Este servicio no admite acceso con NAP.')

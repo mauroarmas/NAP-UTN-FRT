@@ -73,7 +73,7 @@ si el cambio siguiente no la afecta. No eliminar pruebas existentes por este aju
 - [ ] T032 Integrar creación de exactamente un CT detenido en `backend/app/services/orquestacion_service.py`, `backend/app/services/identidad_infra_service.py`, `backend/app/services/proxmox_client.py` e `infra/runner/node_executor.py`: tras T031, persistir identidad/intento/cabecera y hito seguro antes del efecto; guardar hitos con cambios de fase incluso ante fallo sin job. Marcador propio, start=0, firewall externo y acción fija nesting/keyctl sólo para CT propio/detenido Docker; no elevar el token.
 - [X] T033 Integrar trabajos cortos de ingesta cada 1 s y purga en `backend/app/worker.py`, manteniendo tick de orquestación de 5 s y límite de dos instalaciones activas por nodo; no sostener transacciones SQL durante SSH, pull o instalación y no depender del navegador.
 - [ ] T034 Extender `backend/app/services/service_access_service.py` y `backend/app/services/verificacion_acceso_service.py` con acceso/probes web y TCP tipados, pertenencia vigente, TLS/certificado por instancia y comprobaciones automáticas registradas; credenciales nativas por instancia y ningún éxito por un mero exit 0 o puerto abierto.
-- [ ] T035 Añadir adaptador web genérico separado en `backend/app/application_gateway.py` según `contracts/acceso-ui.md`: origen por servicio, destino TLS fijado, métodos/streaming acotados, cookies nativas aisladas sin cookie jar compartido ni credenciales NAP upstream, redirects propios y WebSocket sólo declarado con revalidación cada 5 s; conservar adaptador Draw.io y bloqueo de service workers.
+- [X] T035 Añadir adaptador web genérico separado en `backend/app/application_gateway.py` según `contracts/acceso-ui.md`: origen por servicio, destino TLS fijado, métodos/streaming acotados, cookies nativas aisladas sin cookie jar compartido ni credenciales NAP upstream, redirects propios y WebSocket sólo declarado con revalidación cada 5 s; conservar adaptador Draw.io y bloqueo de service workers.
 - [ ] T036 Ejecutar las pruebas comunes T008–T012, incluidas `backend/tests/test_application_gateway_011.py` y `backend/tests/test_ingesta_consola_011.py`; verificar cookies/headers eco, origen/redirect/SSRF, revocación HTTP/WebSocket, TCP, ACK y regresión del protocolo legacy, registrando resultados y límites en `docs/evidencia/011/base-comun.md`.
 
 **Checkpoint**: contratos/migración/identidad/jobs/registro seguro disponibles y pruebas comunes verdes. Un trabajo no confirmado conserva contabilidad; el resultado del nodo no entrega por sí solo el pedido. Perfiles siguen pendientes hasta la comprobación real correspondiente.
@@ -385,3 +385,10 @@ IP/MAC del slot. TLS por identidad en `job/tls.py`, CA local privada, persistenc
 atómica/replay y redacción de claves de instancia. Validación afectada: 45 aprobadas,
 una integración omitida; selección posterior TLS/adaptador 12 aprobadas. T023/T032/T034
 siguen parciales hasta configurar el nodo y completar borde/probes/gates reales.
+
+Checkpoint de acceso web: **31/105 tareas verificadas**, T035 completada. Gateway
+genérico separado de Draw.io, cookies nativas aisladas, streaming acotado, WS declarado
+con revocación cada 5 s, destino TLS/IP fijado y sin redirects WS. T034 parcial:
+entrega web automática conectada al worker después de cursor final+ACK, observación
+PVE y probe HTTPS; transacción única de entrega/aviso. TCP autenticado sigue cerrado
+hasta MariaDB. Evidencia y selecciones afectadas en `docs/evidencia/011/base-comun.md`.

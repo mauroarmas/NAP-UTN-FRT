@@ -35,6 +35,8 @@ async def preparacion_confirmada(db, service):
 async def _context(db, actor, service_id):
     service = await requiere_acceso_servicio(db, actor, service_id)
     actor = await usuario_actual(db, actor)
+    if service.configuracion_despliegue_id:
+        return await _application_context(db,actor,service)
     definition = await db.get(DefinicionServicio, service.definicion_version_id) if service.definicion_version_id else None
     metadata = service.acceso_metadata or {}
     raw_iaas = bool(service.modelo_servicio == 'iaas' and (service.asignacion_snapshot or {}).get('origen') == 'proxmox_iaas')
@@ -83,6 +85,31 @@ async def _context(db, actor, service_id):
             'preparacion_id': str(preparation.id), 'resource_uuid': str(identity.resource_uuid) if identity else None,
             'nonce_sha256': metadata.get('nonce_sha256'), 'endpoint': metadata.get('endpoint')}
     return actor, service, result
+
+
+async def _application_context(db,actor,service):
+    from app.services.application_target_service import destination
+    from app.services.aplicacion_access_service import configurado,origen
+    preparation=await preparacion_confirmada(db,service)
+    covered=resumir_cobertura(await periodos_vigentes(db,service.id),clock.now())['cubierto']
+    ready=bool(preparation and (service.acceso_metadata or {}).get('automatic_access_verified') is True
+        and service.disponibilidad_aplicacion=='utilizable')
+    instance=None
+    if ready:_,instance=await destination(db,service)
+    web=bool(instance and instance['access']['tipo']=='web')
+    running=service.estado==EstadoServicio.RUNNING
+    may_open=bool(ready and running and covered and web and configurado())
+    state='entregado' if ready and running and covered else 'no_disponible' if ready else 'no_preparado'
+    instructions=('Abrí la aplicación con tu sesión de NAP. Si tiene su propio login, usá las cuentas de esa aplicación.'
+        if may_open else 'El acceso se habilitará al terminar la instalación y las comprobaciones automáticas.'
+        if not ready else 'Iniciá el servicio con vigencia autorizada antes de abrirlo.')
+    result={'servicio_id':service.id,'modelo_servicio':service.modelo_servicio,'producto':'aplicacion' if web else None,
+        'disponibilidad':service.disponibilidad_aplicacion,'verificado_at':service.acceso_red_verificado_at,
+        'metodo':'https' if web else None,'direccion':origen(service.id) if may_open else None,
+        'puerto':instance['port'] if instance else None,'puede_revelar_credenciales':False,
+        'estado_entrega':state,'instrucciones':instructions,'acceso_con_nap':bool(web and configurado()),
+        'puede_abrir_con_nap':may_open}
+    return actor,service,result
 
 
 async def metadatos(db, *, actor, servicio_id):

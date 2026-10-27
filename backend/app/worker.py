@@ -107,7 +107,7 @@ async def procesar_operaciones(db):
     return {'afectados': sum(results)}
 
 
-async def procesar_ingesta_una(sessions=AsyncSessionLocal,*,owner=None,runner=None):
+async def procesar_ingesta_una(sessions=AsyncSessionLocal,*,owner=None,runner=None,pve=None,probe=None):
     async with sessions() as db:
         from app.services.restauracion_service import exigir_habilitacion
         await exigir_habilitacion(db,componente='worker')
@@ -117,7 +117,7 @@ async def procesar_ingesta_una(sessions=AsyncSessionLocal,*,owner=None,runner=No
     heartbeat=asyncio.create_task(_heartbeat(sessions,lease))
     try:
         from app.services.application_execution_service import ingerir_trabajo
-        await ingerir_trabajo(sessions,lease,runner=runner)
+        await ingerir_trabajo(sessions,lease,runner=runner,pve=pve,probe=probe)
     except Exception:
         logger.error('Consulta de consola no confirmada; el instalador conserva su estado')
         async with sessions() as db:

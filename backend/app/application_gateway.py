@@ -5,13 +5,14 @@ import ssl
 from urllib.parse import parse_qs, urlsplit, urljoin
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from starlette.middleware.gzip import GZipMiddleware
 
 from app.config import get_settings
 from app.database import get_db
 from app.services import aplicacion_access_service as access
+from app.services import application_proxy_service as generic
 from app.utils.clock import clock, db_utc
 from app.utils.errors import error
 
@@ -23,7 +24,8 @@ MAX_RESPONSE = 32 * 1024**2
 async def lifespan(app):
     settings = get_settings()
     context = ssl.create_default_context(cafile=settings.application_gateway_ca_file)
-    async with httpx.AsyncClient(verify=context, trust_env=False, follow_redirects=False,
+    app.state.application_ssl_context = context
+    async with httpx.AsyncClient(verify=context, trust_env=False, follow_redirects=False, cookies=generic.NoCookieJar(),
         timeout=httpx.Timeout(30, connect=5, pool=5), limits=httpx.Limits(max_connections=24,max_keepalive_connections=12)) as client:
         app.state.http_client = client
         yield
@@ -66,8 +68,10 @@ async def entrar(request:Request,db=Depends(get_db)):
         if set(fields)!={'codigo'} or len(fields['codigo'])!=1:raise ValueError()
     except (ValueError,UnicodeError):raise error(400,'apertura_invalida','Abrí la aplicación desde NAP.') from None
     cookie,session=await access.consumir_codigo(db,request,fields['codigo'][0])
+    from app.models.servicio import Servicio
+    service=await db.get(Servicio,access.servicio_del_host(request))
     await db.commit()
-    response=RedirectResponse('/?offline=1&local=1&pwa=0&lang=es',status_code=303,headers=safety_headers())
+    response=RedirectResponse('/' if service.configuracion_despliegue_id else '/?offline=1&local=1&pwa=0&lang=es',status_code=303,headers=safety_headers())
     response.set_cookie(access.COOKIE,cookie,secure=True,httponly=True,samesite='lax',path='/',
         max_age=max(0,int((db_utc(session.expira_at)-clock.now()).total_seconds())))
     return response
@@ -77,7 +81,18 @@ async def get_http_client(request:Request):
     return request.app.state.http_client
 
 
-@app.api_route('/{path:path}',methods=['GET','HEAD','POST'])
+async def get_websocket_connector():
+    from app.services.application_websocket_service import FixedConnect
+    return FixedConnect
+
+
+@app.websocket('/{path:path}')
+async def application_websocket(websocket:WebSocket,path:str,db=Depends(get_db),connector=Depends(get_websocket_connector)):
+    from app.services.application_websocket_service import relay
+    await relay(websocket,path=path,db=db,connector=connector,ssl_context=websocket.app.state.application_ssl_context)
+
+
+@app.api_route('/{path:path}',methods=['GET','HEAD','POST','PUT','PATCH','DELETE','OPTIONS'])
 async def application(request:Request,path:str,db=Depends(get_db),client=Depends(get_http_client)):
     # Un service worker podría responder desde caché después del cierre de NAP.
     # Los workers de cálculo normales del editor siguen disponibles.
@@ -87,6 +102,12 @@ async def application(request:Request,path:str,db=Depends(get_db),client=Depends
         raise error(404,'ruta_no_disponible','Ruta no disponible.')
     actor,session,service,identity,instance=await access.autenticar_aplicacion(db,request)
     own_origin=access.origen(service.id)
+    if service.configuracion_despliegue_id:
+        await db.commit()
+        return await generic.relay(request,path=path,instance=instance,own_origin=own_origin,
+            client=client,safety_headers=safety_headers)
+    if request.method not in {'GET','HEAD','POST'}:
+        raise error(405,'metodo_no_permitido','Método no permitido.')
     if request.method=='POST' and request.headers.get('origin')!=own_origin:
         raise error(403,'origen_no_permitido','Solicitud de aplicación no permitida.')
     username,password=access.credenciales(service)
