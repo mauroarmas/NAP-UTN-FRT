@@ -1,34 +1,44 @@
 import { useEffect, useRef, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
-  Activity, Building2, ChevronDown, ClipboardCheck, LogOut,
-  Moon, Package, Server, Settings, Sun, Users,
+  Activity, Building2, ChevronDown, ClipboardCheck, Home, LogOut,
+  Moon, Package, Server, Settings, Sun, Users, CalendarDays, Shield, Menu, X,
 } from 'lucide-react';
 import useTheme from '../hooks/useTheme';
 import { iniciales } from './ui';
 import utnLogo from '../assets/utn-logo.jpeg';
+import Notificaciones from './Notificaciones';
 
 const LINKS = [
+  { to: '/catalogo', label: 'Catálogo', icon: Package },
   { to: '/pedidos', label: 'Pedidos', icon: ClipboardCheck },
   { to: '/servicios', label: 'Servicios', icon: Server },
   { to: '/metricas', label: 'Métricas', icon: Activity },
 ];
 
-const ADMIN_LINKS = [
-  { to: '/catedras', label: 'Cátedras', icon: Building2 },
-  { to: '/templates', label: 'Templates', icon: Package },
-  { to: '/usuarios', label: 'Usuarios', icon: Users },
+const CATEDRA_LINKS = [
+  { to: '/catalogo', label: 'Catálogo', icon: Package },
+  { to: '/pedidos', label: 'Pedidos', icon: ClipboardCheck },
 ];
 
-export default function TopNav({ user }) {
+const ADMIN_LINKS = [
+  { to: '/calendario', label: 'Calendario', icon: CalendarDays },
+  { to: '/catedras', label: 'Cátedras', icon: Building2 },
+  { to: '/usuarios', label: 'Usuarios', icon: Users },
+  { to: '/admin/cambios-consola', label: 'Accesos a consola', icon: Settings },
+];
+
+export default function TopNav({ user, onLogout }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { theme, toggle: toggleTheme } = useTheme();
   const [adminOpen, setAdminOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const [hidden, setHidden] = useState(false);
   const adminRef = useRef(null);
   const menuRef = useRef(null);
+  const mobileTrigger = useRef(null);
   const lastY = useRef(0);
 
   const isAdmin = user?.rol === 'admin';
@@ -50,7 +60,18 @@ export default function TopNav({ user }) {
   useEffect(() => {
     setAdminOpen(false);
     setMenuOpen(false);
+    setMobileOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    const onKey = (event) => {
+      if (event.key === 'Escape' && mobileOpen) {
+        setMobileOpen(false); setAdminOpen(false); mobileTrigger.current?.focus();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [mobileOpen]);
 
   useEffect(() => {
     const onClick = (e) => {
@@ -61,11 +82,8 @@ export default function TopNav({ user }) {
     return () => document.removeEventListener('mousedown', onClick);
   }, []);
 
-  const logout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    navigate('/login');
-    window.location.reload();
+  const logout = async () => {
+    if (await onLogout()) navigate('/login');
   };
 
   const misCatedras = user?.catedras || [];
@@ -90,8 +108,8 @@ export default function TopNav({ user }) {
 
         <div className="topnav-divider" />
 
-        <nav className="topnav-links">
-          {LINKS.map(({ to, label, icon: Icon }) => (
+        <nav id="portal-navigation" aria-label="Navegación principal" className={`topnav-links ${mobileOpen ? 'is-mobile-open' : ''}`}>
+          {(isAdmin ? LINKS : CATEDRA_LINKS).map(({ to, label, icon: Icon }) => (
             <NavLink key={to} to={to} className={({ isActive }) => `topnav-link ${isActive ? 'active' : ''}`}>
               <Icon size={16} />
               {label}
@@ -99,10 +117,11 @@ export default function TopNav({ user }) {
           ))}
 
           {isAdmin && (
-            <div className="menu" ref={adminRef} style={{ marginLeft: 6 }}>
+            <div className="menu topnav-admin" ref={adminRef}>
               <button
                 className={`topnav-menu-trigger ${ADMIN_LINKS.some((l) => location.pathname.startsWith(l.to)) ? 'active' : ''}`}
                 onClick={() => setAdminOpen((v) => !v)}
+                aria-expanded={adminOpen}
               >
                 <Settings size={16} />
                 Administración
@@ -122,7 +141,12 @@ export default function TopNav({ user }) {
           )}
         </nav>
 
-        <div className="topnav-right">
+        <div className="topnav-right" style={{ marginLeft: 'auto' }}>
+          {user?.id && <Notificaciones key={`${user.id}:${user.rol}`} user={user}/>}
+          <button ref={mobileTrigger} className="btn-icon topnav-mobile-trigger" aria-label={mobileOpen ? 'Cerrar navegación' : 'Abrir navegación'}
+            aria-expanded={mobileOpen} aria-controls="portal-navigation" onClick={() => { setMobileOpen((value) => !value); setMenuOpen(false); }}>
+            {mobileOpen ? <X size={19} /> : <Menu size={19} />}
+          </button>
           <div className="menu" ref={menuRef}>
             <button
               className="avatar"
@@ -141,6 +165,32 @@ export default function TopNav({ user }) {
                     <span className="role" title={rolLabel}>{rolLabel}</span>
                   </span>
                 </div>
+
+                {/* Separador */}
+                <div style={{ height: 1, background: 'var(--color-divider)', margin: '4px 0' }} />
+
+                {/* Para cátedra, acceso directo a Inicio */}
+                {!isAdmin && (
+                  <NavLink
+                    to="/"
+                    end
+                    className={({ isActive }) => `menu-item ${isActive ? 'active' : ''}`}
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    <Home size={15} />
+                    Inicio
+                  </NavLink>
+                )}
+
+                {/* Seguridad (para admin y cátedra) */}
+                <NavLink
+                  to="/seguridad"
+                  className={({ isActive }) => `menu-item ${isActive ? 'active' : ''}`}
+                  onClick={() => setMenuOpen(false)}
+                >
+                  <Shield size={15} />
+                  Seguridad
+                </NavLink>
 
                 {/* Separador */}
                 <div style={{ height: 1, background: 'var(--color-divider)', margin: '4px 0' }} />

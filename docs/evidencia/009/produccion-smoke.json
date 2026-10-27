@@ -1,0 +1,32 @@
+{
+  "fecha": "2026-10-21",
+  "entorno": "simulado",
+  "imagen_api": "sha256:07b75211159b39e8fa2677cf7f9611d06d0ca579b74614d268caf579ce718e1a",
+  "imagen_proxy": "sha256:518a1947f08a313a2f63287df54461ac8464f897dbab37be021d11e00a6a43c5",
+  "base_python": "sha256:cb33f7f771ecec2ef1225cf39b159591a040391bd73e4c01f00fdfc4c47611d2",
+  "base_nginx": "sha256:f5116ed4606f3eb015dd4a8e28cb9b351476dc0ad4bc6e9f93b19cec130cdf03",
+  "https": {
+    "entorno": "simulado",
+    "tls_verificado": true,
+    "spa_y_cabeceras": true,
+    "assets_inmutables": true,
+    "cookie_segura": true,
+    "login_cambio_inicial_2fa_opcional": true,
+    "api_misma_origin": true,
+    "csrf_exigido": true,
+    "logout_revoque_sesion": true,
+    "redireccion_https": true
+  },
+  "reinicio_conserva_cuentas": true,
+  "cuentas_fixture": 1,
+  "operaciones_infraestructura": 0,
+  "revision": "009_13_cierre_constraints",
+  "api_y_proxy_sin_root_readonly_cap_drop": true,
+  "db_y_api_sin_puerto_publicado": true,
+  "rol_runtime_sin_ddl_y_auditoria_solo_agregado": true,
+  "preflight_datos_apto_sin_sondeo_pve": true,
+  "parametros_url_ausentes_logs_finales": true,
+  "api_respondio_tras_cambiar_ip_docker": true,
+  "worker_no_iniciado": true,
+  "pve_y_smtp_reales_no_probados": true
+}

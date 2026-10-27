@@ -8,11 +8,14 @@ Un falso positivo acá es más caro que no pausar nunca nada: no pausar solo
 desperdicia capacidad, apagar de más interrumpe el trabajo de alguien.
 """
 
-from datetime import datetime, timedelta
+from datetime import timedelta
+
+from sqlalchemy import insert
 
 from app.models.metrica import MetricaSnapshot
 from app.models.servicio import EstadoServicio
 from app.services import inactividad_service
+from app.utils.clock import clock
 from tests import factories
 
 
@@ -26,23 +29,30 @@ async def _servicio_corriendo(db, catedra, template, vmid="300"):
     )
 
 
-async def _sembrar_metricas(db, servicio_id, cantidad, cpu=0.0, net=0.0):
-    """Reparte `cantidad` de muestras a lo largo de la ventana de observación."""
-    ahora = datetime.utcnow()
-    paso = inactividad_service.VENTANA_INACTIVIDAD / max(cantidad, 1)
-    for i in range(cantidad):
-        db.add(
-            MetricaSnapshot(
-                servicio_id=servicio_id,
-                cpu_usage_percent=cpu,
-                ram_usage_mb=128,
-                disk_usage_gb=1,
-                net_in_bytes=net,
-                net_out_bytes=0,
-                timestamp=ahora - paso * i,
-            )
+async def _sembrar_metricas(db, servicio_id, cantidad, cpu=0.0, net_delta=0):
+    """Reparte `cantidad` de intervalos confirmados de 60s hasta el minuto actual."""
+    fin = clock.now().replace(second=0, microsecond=0) - timedelta(minutes=1)
+    filas = [
+        dict(
+            servicio_id=servicio_id,
+            timestamp=fin - timedelta(minutes=cantidad - i - 1),
+            intervalo_at=fin - timedelta(minutes=cantidad - i - 1),
+            calidad="confirmada",
+            estado_observado="running",
+            cpu_usage_percent=cpu,
+            ram_usage_mb=128,
+            disk_usage_gb=1,
+            net_in_bytes=1000,
+            net_out_bytes=1000,
+            net_in_delta=net_delta if i == 0 else 0,
+            net_out_delta=0,
+            duracion_observada_s=60,
         )
-    await db.commit()
+        for i in range(cantidad)
+    ]
+    if filas:
+        await db.execute(insert(MetricaSnapshot), filas)
+        await db.commit()
 
 
 async def test_sin_ninguna_metrica_no_se_pausa(db, proxmox, catedra, template):
@@ -69,13 +79,13 @@ async def test_con_cobertura_insuficiente_no_se_pausa(db, proxmox, catedra, temp
         inactividad_service.VENTANA_INACTIVIDAD
     )
     # La mitad de lo esperado: por debajo del umbral de cobertura.
-    await _sembrar_metricas(db, servicio.id, esperadas // 2, cpu=0.0, net=0.0)
+    await _sembrar_metricas(db, servicio.id, esperadas // 2, cpu=0.0, net_delta=0)
 
     veredicto = await inactividad_service.evaluar_actividad(db, servicio)
 
     assert veredicto["inactivo"] is False
     assert veredicto["motivo"] == "sin_cobertura"
-    assert "no es inactividad" in veredicto["detalle"]
+    assert "intervalos confirmados" in veredicto["detalle"]
 
 
 async def test_el_motivo_de_no_pausar_queda_registrado(db, proxmox, catedra, template):
@@ -100,7 +110,7 @@ async def test_con_cobertura_suficiente_y_sin_uso_si_se_evalua_inactivo(
     esperadas = inactividad_service._muestras_esperadas(
         inactividad_service.VENTANA_INACTIVIDAD
     )
-    await _sembrar_metricas(db, servicio.id, esperadas, cpu=0.0, net=0.0)
+    await _sembrar_metricas(db, servicio.id, int(esperadas * 0.8), cpu=0.0, net_delta=0)
 
     veredicto = await inactividad_service.evaluar_actividad(db, servicio)
 

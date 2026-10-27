@@ -41,3 +41,16 @@ backend/.ipynb_checkpoints/
 *.njsproj
 *.sln
 *.swp
+
+# Resultados de herramientas y builds
+*.log
+*.tmp
+*.egg-info/
+build/
+dist/
+coverage/
+**/.pytest_cache/
+**/.coverage
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/

@@ -1,0 +1,19 @@
+# US3 — compromiso por destino y concurrencia
+
+Validación local del 20/10/2026, con PostgreSQL 16 desechable y dobles de PVE. No se consultó ni modificó el clúster institucional.
+
+- 25 casos nuevos de contrato aprobados: inventario local/compartido y rootdir, recursos externos QEMU, unión de recurso propio verificado y compromiso, estados inciertos, selección efectiva, replay, token vencido/modificado, justificación, límite físico, reserva futura, snapshot, inicio/reactivación y liberación/revocación de períodos.
+- 53 casos PostgreSQL aprobados: diez repeticiones de cada una de cinco carreras (dos aprobaciones de pedidos distintos, dos del mismo pedido, aprobar/revertir/expirar, dos inicios y aprobación contra inicio), más tres comprobaciones de migración desde cero/legado. Cada carrera usa barrera y sesiones independientes. La aprobación/inicio que gana conserva un único compromiso; no se duplica el evento de aprobación ni la liberación.
+- Las pruebas HTTP reciben 202/Location al admitir despliegue/inicio y comprueban que todavía no se llamó a create/start. Una orden pendiente no se anuncia terminada. El ejecutor/consulta/polling se completan en US4.
+
+La contabilidad usa compromisos_capacidad e inventario configurado por nodo y pool. CPU/RAM incorporan configuración de recursos externos, incluidos QEMU históricos; solo un stopped explícito libera el cómputo observado. Un recurso propio se une al compromiso por identidad, UUID/nonce y pool verificados. La contribución conserva el máximo necesario; un resultado incierto no libera su compromiso. Los discos físicos ya observados no se restan otra vez del espacio libre. El pendiente todavía no representado sí se descuenta, y los pools compartidos se deduplican por scope/volumen.
+
+No se usa el disco raíz del nodo como storage LXC. El perfil exige nodos, márgenes, storages y alcance compartido/local explícitos; el ejemplo institucional no habilita destinos por sí solo. Información incompleta produce 502. Los totales globales son informativos: aprobar e iniciar consultan el destino concreto bajo lock 4001 y releen el recurso con bloqueo de fila. La evaluación HMAC dura sesenta segundos y liga actor, selección, revisiones, calendario e inventario/compromisos. Cambiar una cifra exige evaluar otra vez. Una justificación no permite ignorar la imposibilidad física.
+
+La reserva futura se retiene al aprobar y vence como máximo al final aprobado, calculada desde el inicio si este aún no llegó. Desplegar antes del inicio o con reserva caducada se deniega inmediatamente. Ajustar/revertir/bajar una alta sin dispatch libera el ledger y revoca su período en una transacción; conserva cantidades/snapshots e historia autorizados. Si la preparación ya estaba en cola, se cancela antes del dispatch. Tras envío iniciado o incierto se exige reconciliación. Expirar otra vez no agrega historia ni libera dos veces.
+
+Start/reactivar comparten clave y admisión; comprueban cobertura actual y capacidad, conservan identidad/disco y dejan el servicio pausado si no hay saldo. Una renovación futura no habilita un inicio durante el receso.
+
+Referencias primarias consultadas para el adaptador: [PVE Storage Status](https://raw.githubusercontent.com/proxmox/pve-storage/master/src/PVE/API2/Storage/Status.pm) y [configuración LXC](https://github.com/proxmox/pve-docs/blob/master/generated/pct.conf.5-opts.adoc). No acreditan compatibilidad con una versión institucional no ensayada.
+
+Pendiente: ejecutar observación/perfiles reales y contrastar storage/identidad en la integración institucional. Las suites anteriores que invocan evaluación GET o aprobación sin selección/token usan el contrato retirado; se adaptan a las rutas definitivas antes de la regresión completa de T134. Este corte no acredita esas suites ni habilita despliegue operativo. El límite de transporte y el ejecutor durable se cierran en T064–T068; catálogo/formularios y renovación histórica se completan en US5/US6.

@@ -1,14 +1,15 @@
 # Backend — Portal de Gestión (UTN FRT)
 
 API del portal que media entre las cátedras y la infraestructura (Proxmox VE).
-Nadie fuera del portal recibe credenciales de Proxmox ni accede a su interfaz.
+La gestión ocurre dentro del portal; la consola del contenedor propio es la
+excepción acotada definida en la constitución y requiere aislamiento institucional.
 
 ## Puesta en marcha
 
 ```bash
 cd backend
 python3 -m venv venv
-./venv/bin/pip install -r requirements.txt
+./venv/bin/pip install --require-hashes -r requirements.lock
 ./venv/bin/alembic upgrade head
 ./venv/bin/uvicorn app.main:app --reload
 ```
@@ -17,9 +18,57 @@ Documentación interactiva en `/api/docs`.
 
 ## Pruebas
 
+Para SC-008 hay un laboratorio independiente con PostgreSQL dedicado, cien
+servicios y12,96M muestras; no usa la configuración operativa. Seguir
+[rendimiento-laboratorio.md](../docs/evidencia/009/rendimiento-laboratorio.md).
+El p95 de navegador se mide por separado del diagnóstico HTTP/DB.
+
+Python 3.12. El lock incluye dependencias transitivas con hashes. Para actualizarlo
+deliberadamente desde la raíz: `uv pip compile backend/requirements.txt --python-version 3.12 --generate-hashes --no-strip-extras -o backend/requirements.lock`.
+
 ```bash
 ./venv/bin/python -m pytest
 ```
+
+La suite ordinaria usa SQLite en memoria y dobles de PVE/SMTP/runner. Sin
+TEST_DATABASE_URL omite explícitamente las pruebas marcadas postgres; el job
+PostgreSQL de CI es obligatorio y no las omite. Hay un bloqueo de DNS/conexiones
+reales por defecto, con excepción exclusiva del PostgreSQL aislado configurado.
+
+Desde la raíz, iniciar el servicio temporal (no usa volúmenes persistentes):
+
+```bash
+docker compose -f docker-compose.test.yml up -d --wait
+```
+
+Después, desde backend:
+
+```bash
+export TEST_DATABASE_URL=postgresql+asyncpg://nap_test:nap_test_local_only@127.0.0.1:55432/nap_test_009
+./venv/bin/python -m pytest --require-postgres -q tests/postgres
+```
+
+Las credenciales anteriores son solo del contenedor local de pruebas. Cada test
+crea un esquema aleatorio propio y al terminar elimina únicamente ese esquema;
+las conexiones son independientes. Antes de conectar, el helper rechaza hosts
+externos, otra cuenta, nombres sin prefijo nap_test_, opciones libres y el destino
+operativo. NAP_TEST_PORT permite elegir otro puerto local si 55432 está ocupado.
+No usar una copia de producción ni apuntar DATABASE_URL a ese servicio.
+
+Desde la raíz se ejecutan por separado las suites infra; backend/pytest.ini no
+las recoge:
+
+```bash
+backend/venv/bin/python -m pytest -c infra/pytest.ini -q infra/runner/tests
+backend/venv/bin/python -m pytest -c infra/pytest.ini -q infra/services/tests
+```
+
+El modo por defecto bloquea red y procesos reales en infra. Las integraciones
+marcadas integration requieren habilitación explícita NAP_INFRA_INTEGRATION=1
+y entorno institucional de ensayo; no se habilitan en CI. Desde la raíz,
+`docker compose -f docker-compose.test.yml down` detiene y descarta el PostgreSQL
+temporal. En entornos restringidos puede ser necesario ejecutar las suites fuera
+del sandbox por las restricciones de sockets/threads locales.
 
 Corren sobre SQLite en memoria y con un doble del cliente de Proxmox
 (`tests/fakes.py`): **ninguna prueba sale a la red**. La constitución exige
@@ -176,3 +225,65 @@ El bloqueo por cátedras a cargo **aplica aunque la cátedra esté dada de baja*
 darla de baja no detiene sus servicios, así que sigue necesitando responsable. Es
 la razón por la que el mensaje dice "reasignalas" y no "dalas de baja" — lo
 segundo no destraba nada.
+
+## Notificaciones por Correo Electrónico (feature 008)
+
+El portal emite notificaciones institucionales automáticas (HTML con identidad UTN FRT y alternativa en texto plano) ante eventos del ciclo de vida de usuarios y pedidos:
+
+1. **Alta de usuario**: Generación automática de contraseña provisoria y despacho de credenciales.
+2. **Ciclo de pedidos**: Alerta de nuevo pedido/reenvío a administradores, solicitud de ajuste a docentes, rechazo fundamentado, servicio activo con datos de acceso y errores técnicos de despliegue.
+
+El despacho se ejecuta de forma asíncrona no bloqueante mediante `BackgroundTasks` de FastAPI y `aiosmtplib` (o `smtplib` estándar). En entorno de pruebas (`pytest`), las llamadas se capturan en memoria mediante fixture `mock_email` sin salida a la red.
+
+### Variables de entorno SMTP
+
+| Variable | Tipo | Default | Descripción |
+|---|---|---|---|
+| `SMTP_HOST` | `str` | `"localhost"` | Host del servidor o relay SMTP institucional |
+| `SMTP_PORT` | `int` | `587` | Puerto del servicio SMTP (`587` para STARTTLS, `465` para SSL, `25` para local) |
+| `SMTP_USER` | `str` | `""` | Usuario de autenticación SMTP (opcional si relay abierto) |
+| `SMTP_PASSWORD` | `str` | `""` | Contraseña de autenticación SMTP |
+| `SMTP_FROM` | `str` | `"portal-computos@frt.utn.edu.ar"` | Dirección de correo y nombre remitente |
+| `SMTP_TLS` | `bool` | `True` | Habilitar cifrado STARTTLS en la conexión |
+| `SMTP_SSL` | `bool` | `False` | Habilitar SSL directo (típicamente puerto 465) |
+| `APP_FRONTEND_URL` | `str` | `"http://localhost:5173"` | URL del frontend para enlaces de acceso en los correos |
+
+
+### Acceso y arranque desde la feature 009
+
+El arranque solo espera la base e inicia la API. Preparar previamente y de forma
+explícita el esquema con `alembic upgrade head` y la primera cuenta con
+`python -m scripts.bootstrap_admin --actor operador_institucional`. El comando
+requiere TTY y contraseña interactiva; si existe cualquier administrador, incluso
+inactivo, no lo reemplaza. `seed_admin` delega en ese procedimiento y `seed_dev`
+solo prepara una cátedra local, sin cuentas ni servicios publicados.
+
+Configurar claves independientes `SECRET_KEY`, `CSRF_SECRET`, `SECRET_KEYRING`
+(JSON con identificadores y claves Fernet), `SECRET_ACTIVE_KEY`, la origin exacta
+`APP_FRONTEND_URL` y, si corresponde, `AUTH_ALLOWED_ORIGINS` y
+`TRUSTED_PROXY_NETWORKS`. Respaldar el keyring fuera de la base. La migración cifra
+factores TOTP confirmados existentes y conserva MFA incoherente para recuperación
+asistida. No convertirlo en acceso sin factor. No se acepta un JWT legado sin sid.
+
+API y frontend utilizan la misma origin (`/api/v1`). Vite reenvía `/api` a
+`NAP_BACKEND_PROXY`; el navegador no recibe JWT por JSON ni usa perfiles de Web
+Storage para acreditar acceso. En HTTPS se usa cookie `__Host-nap_session`
+HttpOnly/Secure/Lax. La excepción HTTP `nap_session` solo existe en development.
+Las mutaciones exigen Origin y CSRF; login exige también `X-NAP-Request: 1`.
+
+El 2FA es opcional para ambos roles. Si se habilita, se comprueba al ingresar.
+La recuperación por código o autorización institucional solo permite reemplazar
+el factor; no da acceso al portal hasta confirmarlo. Para el único administrador,
+tras verificar identidad fuera del portal, ejecutar en TTY:
+`python -m scripts.recuperar_2fa --usuario identificador --actor operador --motivo
+"Identidad institucional comprobada" --referencia ACTA-2026-001` (en una línea).
+La autorización se muestra una vez, vence en cinco minutos y se consume junto
+con la contraseña. No desactiva MFA ni crea otra cuenta.
+
+La bienvenida se registra en la outbox dentro de la transacción de alta. El
+worker procesa entregas después del commit, con reintentos, destinatario vigente
+ y Message-ID estable. SMTP no configurado no equivale a entrega y nunca registra
+el cuerpo. La contraseña provisoria queda cifrada separada del payload, se borra
+al entregar o invalidar y se cancela si pasan 24 horas sin entrega. El transporte
+SMTP puede duplicar un envío si se pierde la confirmación; Message-ID es estable
+ y no se promete entrega exactamente una vez.

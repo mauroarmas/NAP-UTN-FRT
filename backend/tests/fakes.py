@@ -4,9 +4,31 @@ Permite ejercitar los caminos de fallo de infraestructura sin un clúster real,
 como exige la compuerta de calidad de la constitución del proyecto.
 """
 
+from collections import deque
+from datetime import datetime, timedelta, timezone
+from copy import deepcopy
+
+
+class FakeClock:
+    def __init__(self, current=None):
+        self.current = current or datetime(2027, 3, 1, tzinfo=timezone.utc)
+        if self.current.tzinfo is None:
+            raise ValueError('El reloj debe tener zona horaria')
+
+    def now(self):
+        return self.current
+
+    def advance(self, **delta):
+        self.current += timedelta(**delta)
+        return self.current
+
 
 class ProxmoxFalla(Exception):
     """Error genérico de infraestructura, equivalente a lo que levanta proxmoxer."""
+
+
+class ProxmoxAusente(ProxmoxFalla):
+    status_code = 404
 
 
 # Enumeración que acepta `cluster/resources` en Proxmox VE. No incluye "lxc".
@@ -42,6 +64,9 @@ class FakeProxmoxClient:
         retraso_resumen: bool = False,
     ):
         self.next_vmid = next_vmid
+        self.pools = {}
+        self.pools_creados = []
+        self.permisos_pool = {'Pool.Allocate': 1, 'VM.Allocate': 1, 'VM.Audit': 1, 'VM.PowerMgmt': 1}
         self.fallar_create = fallar_create
         # Fallo *dentro* de la tarea de Proxmox: la llamada devuelve el task id
         # sin problemas y el error recién aparece al esperar su resultado.
@@ -72,11 +97,88 @@ class FakeProxmoxClient:
 
         # Estado simulado de los contenedores: vmid -> estado
         self.estados: dict[int, str] = {}
+        self.configuraciones = {}
+        self.storages = []
+        self.contenidos_storage = {}
+        self.tareas = {}
+        self.task_polls = []
+        self.task_history = []
+
+    def _task(self, node, vmid, action):
+        from app.utils.clock import clock
+        upid = f'UPID:{node}:task:{action}'
+        self.task_history.append({'upid': upid, 'node': node, 'id': str(vmid),
+            'type': {'create': 'vzcreate', 'start': 'vzstart', 'stop': 'vzstop', 'reboot': 'vzreboot', 'delete': 'vzdestroy'}[action],
+            'starttime': int(clock.now().timestamp())})
+        return upid
+
+    def list_pools(self):
+        return [{'poolid': name} for name in self.pools]
+
+    def get_pool(self, poolid):
+        return {'members': deepcopy(self.pools[poolid]) + [deepcopy(r) for r in self.recursos if r.get('pool') == poolid]}
+
+    def get_pool_permissions(self, poolid):
+        return deepcopy(self.permisos_pool)
+
+    def create_pool(self, poolid):
+        if poolid in self.pools:
+            raise RuntimeError('Pool existente')
+        self.pools[poolid] = []
+        self.pools_creados.append(poolid)
+
+    def get_node_tasks(self, node, *, vmid, since, tipo):
+        return [deepcopy(task) for task in self.task_history if task['node'] == node
+                and task['id'] == str(vmid) and task['type'] == tipo and task['starttime'] >= since]
 
     # --- Nodos ---
 
     def get_nodes(self) -> list[dict]:
         return self.nodos
+
+    def get_node_status(self, node):
+        return next(deepcopy(n) for n in self.nodos if n['node'] == node)
+
+    def get_node_storage(self, node):
+        return deepcopy([s for s in self.storages if s.get('node', node) == node])
+
+    def get_storage_status(self, node, storage):
+        return next(s for s in self.get_node_storage(node) if s['storage'] == storage)
+
+    def get_storage_content(self, node, storage):
+        return deepcopy(self.contenidos_storage.get((node, storage), []))
+
+    def configure_task(self, node, upid, states, effect=None):
+        """Estados de polling; el efecto se observa solo al confirmar OK."""
+        self.tareas[(node, upid)] = {'states': deque(deepcopy(states)), 'effect': effect}
+
+    def get_task_status(self, node, upid):
+        self.task_polls.append((node, upid))
+        task = self.tareas.get((node, upid))
+        if task is None:
+            return {'status': 'stopped', 'exitstatus': 'OK'}
+        states = task['states']
+        result = states.popleft() if len(states) > 1 else states[0]
+        if isinstance(result, Exception):
+            raise result
+        if result.get('status') == 'stopped' and result.get('exitstatus') == 'OK' and task['effect']:
+            task['effect']()
+            task['effect'] = None
+        return deepcopy(result)
+
+    def get_lxc_config(self, node, vmid):
+        if (node, int(vmid)) not in self.configuraciones:
+            raise ProxmoxAusente()
+        return deepcopy(self.configuraciones[(node, int(vmid))])
+
+    def get_qemu_config(self, node, vmid):
+        return self.get_lxc_config(node, vmid)
+
+    def get_available_templates(self, node, storage='local'):
+        return deepcopy(self.contenidos_storage.get((node, storage), []))
+
+    def update_lxc_config(self, node, vmid, **config):
+        self.configuraciones.setdefault((node, int(vmid)), {}).update(deepcopy(config))
 
     # --- Contenedores LXC ---
 
@@ -85,6 +187,11 @@ class FakeProxmoxClient:
             raise self.fallar_create
         self.creados.append({"node": node, **kwargs})
         vmid = int(kwargs.get("vmid", self.next_vmid))
+        self.configuraciones[(node, vmid)] = deepcopy(kwargs)
+        storage, size = kwargs['rootfs'].split(':')
+        volume = f'{storage}:vm-{vmid}-disk-0'
+        self.configuraciones[(node, vmid)]['rootfs'] = f'{volume},size={size}G'
+        self.contenidos_storage.setdefault((node, storage), []).append({'volid': volume, 'size': int(size) * 1024**3, 'content': 'rootdir'})
         self.estados[vmid] = "running"
         # Reflejar el contenedor recién creado en los recursos del clúster
         self.recursos.append(
@@ -94,9 +201,10 @@ class FakeProxmoxClient:
                 "name": kwargs.get("hostname"),
                 "node": node,
                 "status": "running",
+                "pool": kwargs.get('pool'),
             }
         )
-        return f"UPID:{node}:task:create"
+        return self._task(node, vmid, 'create')
 
     def esperar_task(self, node, task_id, timeout=None):
         if self.fallar_task is not None:
@@ -138,20 +246,20 @@ class FakeProxmoxClient:
             raise self.fallar_start
         self.iniciados.append((node, int(vmid)))
         self._marcar(int(vmid), "running")
-        return f"UPID:{node}:task:start"
+        return self._task(node, vmid, 'start')
 
     def stop_lxc(self, node: str, vmid: int) -> str:
         if self.fallar_stop is not None:
             raise self.fallar_stop
         self.detenidos.append((node, int(vmid)))
         self._marcar(int(vmid), "stopped")
-        return f"UPID:{node}:task:stop"
+        return self._task(node, vmid, 'stop')
 
     def reboot_lxc(self, node: str, vmid: int) -> str:
         if self.fallar_reboot is not None:
             raise self.fallar_reboot
         self.reiniciados.append((node, int(vmid)))
-        return f"UPID:{node}:task:reboot"
+        return self._task(node, vmid, 'reboot')
 
     def abrir_termproxy(self, node: str, vmid: int) -> dict:
         return {"user": "test@pve", "ticket": "PVE:fake", "port": "5900"}
@@ -161,8 +269,12 @@ class FakeProxmoxClient:
             raise self.fallar_delete
         self.eliminados.append((node, int(vmid)))
         self.estados.pop(int(vmid), None)
+        self.configuraciones.pop((node, int(vmid)), None)
         self.recursos = [r for r in self.recursos if int(r.get("vmid", -1)) != int(vmid)]
-        return f"UPID:{node}:task:delete"
+        for key, entries in self.contenidos_storage.items():
+            if key[0] == node:
+                self.contenidos_storage[key] = [entry for entry in entries if f'vm-{vmid}-disk-' not in entry['volid']]
+        return self._task(node, vmid, 'delete')
 
     # --- Recursos del clúster ---
 
@@ -197,6 +309,13 @@ class FakeProxmoxClient:
         self.next_vmid += 1
         return vmid
 
+    def check_vmid_available(self, vmid):
+        if any(int(row['vmid']) == int(vmid) for row in self.recursos):
+            raise ProxmoxFalla('VMID ocupado')
+        if any(key[1] == int(vmid) for key in self.configuraciones):
+            raise ProxmoxFalla('Configuración existente')
+        return int(vmid)
+
 
 def ocupar(
     vmid: int, hostname: str, node: str = "pve1", status: str = "running"
@@ -209,3 +328,25 @@ def ocupar(
         "node": node,
         "status": status,
     }
+
+
+class FakeConsoleDirectory:
+    """Representa el trabajo manual externo; no es una API PVE implementada."""
+    def __init__(self):
+        self.permissions = {}
+        self.sessions = {}
+
+    def open(self, identity, scope):
+        if scope not in self.permissions.get(identity, set()):
+            raise PermissionError('Sin permiso nativo')
+        ticket = f'test-session-{len(self.sessions)}'
+        self.sessions[ticket] = (identity, scope)
+        return ticket
+
+    def allows(self, ticket):
+        entry = self.sessions.get(ticket)
+        return bool(entry and entry[1] in self.permissions.get(entry[0], set()))
+
+    def revoke(self, identity, remaining=()):
+        self.permissions[identity] = set(remaining)
+        self.sessions = {key: value for key, value in self.sessions.items() if value[0] != identity}

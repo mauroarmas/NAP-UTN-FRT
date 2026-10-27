@@ -1,22 +1,31 @@
 # Backend - PS Portal de Gestión
-fastapi[standard]==0.115.*
+fastapi[standard]==0.157.*
+# Límites de formularios y correcciones ASGI requeridos por advisories actuales.
+starlette==1.9.*
 uvicorn[standard]==0.34.*
 sqlalchemy[asyncio]==2.0.*
 asyncpg==0.30.*
 alembic==1.16.*
 pydantic-settings==2.9.*
-python-jose[cryptography]==3.4.*
+email-validator==2.3.0
+PyJWT==2.15.*
 passlib[bcrypt]==1.7.*
 bcrypt==4.0.1
 pyotp==2.9.*
 proxmoxer==2.2.*
-requests==2.32.*
+requests==2.34.*
 apscheduler==3.11.*
 python-multipart==0.0.*
 websockets==16.*
+cryptography==50.0.*
+jsonschema[format]==4.*
+# Alembic usa el driver sincrónico; la aplicación conserva asyncpg.
+psycopg2-binary==2.9.*
 
 # --- Testing ---
 pytest==9.1.*
 pytest-asyncio==1.4.*
 httpx==0.28.*
 aiosqlite==0.22.*
+pytest-timeout==2.*
+pip-audit==2.*

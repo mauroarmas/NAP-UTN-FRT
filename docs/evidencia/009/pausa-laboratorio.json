@@ -1,0 +1,14 @@
+{
+  "estado": "pausado_por_usuario",
+  "observado_at": "2026-10-21T17:52:13.499945+00:00",
+  "invitados_detenidos": [
+    100,
+    101,
+    102,
+    103
+  ],
+  "accion": "Sólo detención del LXC100 propio tras comprobar UUID/noncehash/pool/cluster; task OK y estado stopped confirmados por reconsulta sin repetir POST. Datos y discos conservados.",
+  "configuracion_vmware_y_acl_sin_cambios": true,
+  "pendiente": "VMware registra promiscNotAllowed; vmnet8 root:root0600 sin ACL de mauro. Permiso mínimo no aplicado.",
+  "vm_puede_apagarse": true
+}

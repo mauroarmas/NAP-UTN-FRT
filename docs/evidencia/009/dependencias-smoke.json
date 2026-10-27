@@ -1,0 +1,24 @@
+{
+  "fecha": "2026-10-21",
+  "entorno": "simulado",
+  "imagenes": {
+    "nap009-api-operativo:test": "sha256:34fb24f3e51f61ab1171d8bc823dde61de356e434aab1910a8c47a5d932d2019",
+    "nap009-web-operativo:test": "sha256:8a21de1bb9d83bd5674ac609979a8477da9b1ffc4fbc7705e62ecaa66f0e31e8"
+  },
+  "https": {
+    "entorno": "simulado",
+    "tls_verificado": true,
+    "spa_y_cabeceras": true,
+    "assets_inmutables": true,
+    "cookie_segura": true,
+    "login_cambio_inicial_2fa_opcional": true,
+    "api_misma_origin": true,
+    "csrf_exigido": true,
+    "logout_revoque_sesion": true,
+    "redireccion_https": true
+  },
+  "proxy_probe_aprobado": true,
+  "parametros_url_ausentes_logs": true,
+  "worker_no_iniciado": true,
+  "pve_y_smtp_reales_no_probados": true
+}

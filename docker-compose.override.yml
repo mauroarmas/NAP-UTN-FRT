@@ -17,6 +17,10 @@ services:
     environment:
       APP_RELOAD: "true"
 
+  notificaciones:
+    volumes:
+      - ./backend/app:/app/app
+
   frontend:
     build:
       target: dev

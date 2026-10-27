@@ -15,8 +15,13 @@ sesión fría y la carga diferida sí ocurre.
 anide una relación en su respuesta debería sumarse acá.
 """
 
+from datetime import timedelta
+from zoneinfo import ZoneInfo
+
 from app.models.pedido import EstadoPedido
+from app.utils.clock import clock
 from tests import factories
+from tests.capacity_helpers import perfil_capacidad  # noqa: F401
 
 
 async def test_listado_de_pedidos_con_sesion_fria(
@@ -57,16 +62,29 @@ async def test_detalle_de_pedido_con_sesion_fria(
 
 
 async def test_alta_de_pedido_con_sesion_fria(
-    client, db, catedra, usuario_catedra, template, auth_catedra
+    client, db, catedra, usuario_catedra, template, auth_catedra, perfil_capacidad
 ):
+    hoy = clock.now().astimezone(ZoneInfo("America/Argentina/Tucuman")).date()
+    template_id = template.id
+    catedra_nombre = catedra.nombre
     db.expunge_all()
 
     r = await client.post(
-        "/pedidos/", json={"template_id": template.id}, headers=auth_catedra
+        "/pedidos/",
+        json={
+            "template_id": template_id,
+            "modelo_servicio": "iaas",
+            "vigencia": {
+                "tipo": "personalizado",
+                "desde": hoy.isoformat(),
+                "hasta": (hoy + timedelta(days=30)).isoformat(),
+            },
+        },
+        headers=auth_catedra | {"Idempotency-Key": "sesion-fria-alta-1"},
     )
 
     assert r.status_code == 201, r.text
-    assert r.json()["catedra"]["nombre"] == catedra.nombre
+    assert r.json()["catedra"]["nombre"] == catedra_nombre
 
 
 async def test_auth_me_con_sesion_fria(
@@ -77,7 +95,7 @@ async def test_auth_me_con_sesion_fria(
     r = await client.get("/auth/me", headers=auth_catedra)
 
     assert r.status_code == 200, r.text
-    assert [c["nombre"] for c in r.json()["catedras"]] == [catedra.nombre]
+    assert [c["nombre"] for c in r.json()["usuario"]["catedras"]] == [catedra.nombre]
 
 
 async def test_listado_de_usuarios_con_sesion_fria(client, db, catedra, admin, auth_admin):

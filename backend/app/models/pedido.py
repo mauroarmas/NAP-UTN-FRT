@@ -1,3 +1,5 @@
+from uuid import UUID
+from sqlalchemy import Uuid, UniqueConstraint
 from datetime import datetime
 
 from sqlalchemy import (
@@ -9,6 +11,7 @@ from sqlalchemy import (
     Text,
     JSON,
     Enum as SAEnum,
+    CheckConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import text
@@ -19,6 +22,8 @@ from app.database import Base
 
 class EstadoPedido(str, enum.Enum):
     SOLICITADO = "solicitado"
+    REQUIERE_AJUSTE = "requiere_ajuste"
+    CANCELADO = "cancelado"
     APROBADO = "aprobado"
     # Transitorio: solo lo asigna el orquestador durante el despliegue real
     # contra Proxmox (ver pedido_service.TRANSICIONES_SISTEMA). Nunca se llega
@@ -28,6 +33,19 @@ class EstadoPedido(str, enum.Enum):
     RECHAZADO = "rechazado"
     ERROR = "error"
     SUSPENDIDO = "suspendido"
+
+
+class ModeloServicio(str, enum.Enum):
+    IAAS = "iaas"
+    PAAS = "paas"
+    SAAS = "saas"
+
+
+class VigenciaTipo(str, enum.Enum):
+    PRIMER_CUATRIMESTRE = "primer_cuatrimestre"
+    SEGUNDO_CUATRIMESTRE = "segundo_cuatrimestre"
+    ANUAL = "anual"
+    PERSONALIZADO = "personalizado"
 
 
 class TipoPedido(str, enum.Enum):
@@ -45,6 +63,8 @@ class TipoPedido(str, enum.Enum):
 class Pedido(Base):
     __tablename__ = "pedidos"
     __table_args__ = (
+        CheckConstraint('revision >= 1 AND revision_decision >= 0',name='ck_pedido_revisiones'),
+        CheckConstraint("tipo = 'ALTA' OR (tipo = 'RENOVACION' AND servicio_id IS NOT NULL)",name='ck_pedido_tipo_servicio'),
         # Índice parcial: los listados solo consultan filas vigentes.
         Index(
             "ix_pedidos_vigentes",
@@ -58,14 +78,47 @@ class Pedido(Base):
     solicitante_id: Mapped[int] = mapped_column(
         ForeignKey("usuarios.id"), nullable=False
     )
-    template_id: Mapped[int] = mapped_column(
-        ForeignKey("recurso_templates.id"), nullable=False
+    template_id: Mapped[int | None] = mapped_column(
+        ForeignKey("recurso_templates.id"), nullable=True
     )
+    modelo_servicio: Mapped[ModeloServicio] = mapped_column(
+        SAEnum(
+            ModeloServicio,
+            name="modeloservicio",
+            values_callable=lambda obj: [e.value for e in obj],
+            native_enum=False,
+        ),
+        default=ModeloServicio.IAAS,
+        nullable=False,
+    )
+    descripcion_requerimientos: Mapped[str | None] = mapped_column(Text, nullable=True)
+    vigencia_solicitada: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+    @property
+    def vigencia(self):
+        return self.vigencia_solicitada
+    vigencia_tipo: Mapped[VigenciaTipo] = mapped_column(
+        SAEnum(
+            VigenciaTipo,
+            name="vigenciatipo",
+            values_callable=lambda obj: [e.value for e in obj],
+            native_enum=False,
+        ),
+        default=VigenciaTipo.PRIMER_CUATRIMESTRE,
+        nullable=False,
+    )
+    vigencia_desde: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    vigencia_hasta: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    observaciones_ajuste: Mapped[str | None] = mapped_column(Text, nullable=True)
+    opciones_avanzadas: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     estado: Mapped[EstadoPedido] = mapped_column(
-        SAEnum(EstadoPedido), default=EstadoPedido.SOLICITADO
+        SAEnum(EstadoPedido, name="estadopedido", native_enum=False),
+        default=EstadoPedido.SOLICITADO,
     )
     tipo: Mapped[TipoPedido] = mapped_column(
-        SAEnum(TipoPedido), default=TipoPedido.ALTA, nullable=False
+        SAEnum(TipoPedido, name="tipopedido", native_enum=False),
+        default=TipoPedido.ALTA,
+        nullable=False,
     )
     # Solo en tipo=RENOVACION: el servicio cuya fecha de fin se quiere correr.
     servicio_id: Mapped[int | None] = mapped_column(
@@ -83,18 +136,20 @@ class Pedido(Base):
     # Se persiste para que un reintento pueda reutilizarlo tras un fallo.
     vmid_reservado: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
-    # --- Reserva de capacidad ---
-    # Aprobar no es opinar: compromete capacidad en el acto. Los valores se
-    # copian del template al aprobar en lugar de referenciarlo, porque el
-    # template puede editarse entre la aprobación y el despliegue y la reserva
-    # tiene que ser un compromiso sobre números concretos.
-    reserva_vcpus: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    reserva_ram_mb: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    reserva_disk_gb: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    # Una reserva que nunca se materializa retendría capacidad para siempre.
-    reserva_expira_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Cantidades autorizadas: asignacion_snapshot; saldo y caducidad:
+    # compromiso_capacidad. No mantener un segundo contador en el pedido.
     # Obligatoria cuando se aprueba por encima de la capacidad libre.
     justificacion_capacidad: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    revision: Mapped[int] = mapped_column(Integer, default=1, server_default='1')
+    revision_decision: Mapped[int] = mapped_column(Integer, default=0, server_default='0')
+    anio_lectivo: Mapped[int | None] = mapped_column(Integer)
+    definicion_version_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey('definiciones_servicio.id'))
+    seleccion_oferta_snapshot: Mapped[dict | None] = mapped_column(JSON)
+    asignacion_snapshot: Mapped[dict | None] = mapped_column(JSON)
+    destino_snapshot: Mapped[dict | None] = mapped_column(JSON)
+    decision_snapshot: Mapped[dict | None] = mapped_column(JSON)
+    sustituye_vigencia_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey('vigencias_autorizadas.id'))
 
     # Relaciones
     catedra: Mapped["Catedra"] = relationship(back_populates="pedidos")
@@ -117,6 +172,7 @@ class Pedido(Base):
 
 class PedidoHistorial(Base):
     __tablename__ = "pedidos_historial"
+    __table_args__ = (UniqueConstraint('pedido_id', 'evento_clave', name='uq_historial_pedido_evento'),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     pedido_id: Mapped[int] = mapped_column(ForeignKey("pedidos.id"), nullable=False)
@@ -130,6 +186,11 @@ class PedidoHistorial(Base):
         ForeignKey("usuarios.id"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    operacion_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey('operaciones_infraestructura.id'))
+    evento_clave: Mapped[str | None] = mapped_column(String(200))
+    actor_tipo: Mapped[str | None] = mapped_column(String(10))
+    decision_metadata: Mapped[dict | None] = mapped_column(JSON)
 
     # Relaciones
     pedido: Mapped["Pedido"] = relationship(back_populates="historial")

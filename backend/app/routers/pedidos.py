@@ -1,18 +1,34 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
-from app.models.catedra import Catedra
-from app.models.pedido import Pedido, PedidoHistorial, EstadoPedido, TipoPedido
+from app.services.email_service import (
+    obtener_emails_administradores,
+    enviar_email_nuevo_pedido,
+    enviar_email_pedido_ajuste,
+    enviar_email_pedido_rechazado,
+)
+from app.models.pedido import (
+    Pedido,
+    PedidoHistorial,
+    EstadoPedido,
+    TipoPedido,
+    ModeloServicio,
+    VigenciaTipo,
+)
 from app.models.recurso_template import RecursoTemplate
+from app.models.catedra import Catedra
 from app.models.usuario import Usuario, RolUsuario
 from app.routers.auth import get_current_user, require_admin
 from app.schemas.pedido import (
     PedidoCreate,
-    PedidoCambiarEstado,
     PedidoAprobar,
+    PedidoEvaluacion,
+    PedidoSolicitarAjuste,
+    PedidoReenviar,
+    PedidoCancelar,
     CapacidadLiberada,
     PedidoRechazar,
     PedidoRevertir,
@@ -20,17 +36,18 @@ from app.schemas.pedido import (
     PedidoDetalleResponse,
     PedidoRevertidoResponse,
 )
-from app.schemas.servicio import ServicioResponse, DesplegarRequest
+from app.schemas.servicio import ServicioResponse, OrdenServicioRequest
 from app.services import capacidad_service
 from app.services.acceso_service import catedras_visibles, es_visible
 from app.services.orquestacion_service import reintentar_despliegue
 from app.services.pedido_service import (
     crear_pedido,
-    cambiar_estado,
     dar_de_baja_pedido,
-    aprobar_pedido,
     rechazar_pedido,
     revertir_aprobacion,
+    solicitar_ajuste,
+    reenviar_pedido,
+    cancelar_pedido,
     TRANSICIONES_VALIDAS,
 )
 from app.utils.soft_delete import excluir_dados_de_baja, vigente_o_404
@@ -69,11 +86,12 @@ async def listar_pedidos(
             raise HTTPException(status_code=400, detail=f"Estado inválido: {estado}")
 
     result = await db.execute(query)
-    return result.scalars().all()
+    from app.services.operacion_service import anexar_pedidos
+    return await anexar_pedidos(db, list(result.scalars().all()))
 
 
 @router.get("/estados")
-async def obtener_estados():
+async def obtener_estados(current_user: Usuario = Depends(get_current_user)):
     """Devuelve la máquina de estados con las transiciones válidas."""
     return {
         "estados": [e.value for e in EstadoPedido],
@@ -101,235 +119,143 @@ async def obtener_pedido(
     if not await es_visible(db, current_user, pedido.catedra_id):
         raise HTTPException(status_code=403, detail="Sin permisos para ver este pedido")
 
+    from app.services.operacion_service import anexar_pedidos
+    await anexar_pedidos(db, [pedido])
     return pedido
 
 
-@router.post("/", response_model=PedidoResponse, status_code=201)
-async def crear_nuevo_pedido(
-    data: PedidoCreate,
-    current_user: Usuario = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Crea un pedido de servicio.
-
-    No se rechaza por consumo acumulado de la cátedra: eso lo resuelve el
-    administrador al aprobarlo, con la capacidad real del clúster a la vista.
-    """
-    pedido = await crear_pedido(
-        db=db,
-        template_id=data.template_id,
-        usuario=current_user,
-        catedra_id=data.catedra_id,
-        parametros_extra=data.parametros_extra,
-    )
-    # Se relee con la cátedra cargada: la respuesta la incluye anidada y
-    # resolverla al serializar fallaría.
-    result = await db.execute(
-        select(Pedido)
-        .options(selectinload(Pedido.catedra))
-        .where(Pedido.id == pedido.id)
-    )
-    return result.scalar_one()
+@router.post("/", status_code=201)
+async def crear_nuevo_pedido(data: PedidoCreate, clave: str = Header(alias='Idempotency-Key'),
+    current_user: Usuario = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    from app.services.solicitud_service import crear
+    from app.utils.responses import respuesta_decision
+    try:
+        result = await crear(db, actor=current_user, payload=data, clave=clave)
+        await db.commit()
+        return respuesta_decision(result)
+    except Exception:
+        await db.rollback()
+        raise
 
 
 @router.get("/{pedido_id}/evaluacion")
-async def evaluar_pedido(
-    pedido_id: int,
-    current_user: Usuario = Depends(require_admin),
-    db: AsyncSession = Depends(get_db),
-):
-    """Todo lo que el administrador necesita para decidir sobre un pedido.
+async def evaluacion_get_retirada(pedido_id: int, current_user: Usuario = Depends(require_admin)):
+    raise HTTPException(status_code=405, detail="Evaluá la selección efectiva mediante POST", headers={"Allow": "POST"})
 
-    Incluye el `capacidad_token`: hay que devolverlo al aprobar, y si la
-    capacidad cambió en el medio la aprobación se rechaza con 409 en lugar de
-    resolverse sobre números viejos.
-    """
-    pedido = vigente_o_404(await db.get(Pedido, pedido_id), "Pedido no encontrado")
-    template = await db.get(RecursoTemplate, pedido.template_id)
-    catedra = await db.get(Catedra, pedido.catedra_id)
 
+@router.post("/{pedido_id}/evaluacion")
+async def evaluar_seleccion(pedido_id: int, data: PedidoEvaluacion,
+    current_user: Usuario = Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    from app.services.evaluacion_service import evaluar
+    from fastapi.responses import JSONResponse
+    result = await evaluar(db, pedido_id, actor=current_user, payload=data)
+    return JSONResponse(result, headers={'Cache-Control': 'no-store'})
+
+
+@router.post("/{pedido_id}/aprobar")
+async def aprobar(pedido_id: int, data: PedidoAprobar,
+    clave: str = Header(alias='Idempotency-Key'),
+    current_user: Usuario = Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    from app.services.admision_service import aprobar as admitir
+    from app.utils.responses import respuesta_decision
     try:
-        estado = await capacidad_service.panorama(db)
+        result = await admitir(db, pedido_id, actor=current_user, payload=data, clave=clave)
+        await db.commit()
+        return respuesta_decision(result)
     except Exception:
-        raise HTTPException(
-            status_code=502,
-            detail="No se pudo consultar la capacidad del clúster Proxmox",
-        )
-
-    costo = (
-        {"vcpus": 0, "ram_mb": 0, "storage_gb": 0}
-        if pedido.tipo == TipoPedido.RENOVACION
-        else capacidad_service.costo_de(template)
-    )
-
-    return {
-        "pedido": {
-            "id": pedido.id,
-            "tipo": pedido.tipo.value,
-            "catedra": {"id": catedra.id, "nombre": catedra.nombre},
-        },
-        "costo": costo,
-        "consumo_catedra": await capacidad_service.consumo_de_catedra(
-            db, pedido.catedra_id
-        ),
-        "capacidad": estado,
-        "libre_si_aprueba": {
-            k: estado["libre"][k] - costo[k] for k in costo
-        },
-        "excede_capacidad": capacidad_service.excede(estado["libre"], costo),
-        "capacidad_token": estado["capacidad_token"],
-    }
+        await db.rollback()
+        raise
 
 
-@router.post("/{pedido_id}/aprobar", response_model=PedidoDetalleResponse)
-async def aprobar(
+@router.post("/{pedido_id}/solicitar-ajuste")
+async def solicitar_ajuste_endpoint(pedido_id: int, data: PedidoSolicitarAjuste,
+    clave: str = Header(alias='Idempotency-Key'),
+    current_user: Usuario = Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    from app.utils.responses import respuesta_decision
+    try:
+        result = await solicitar_ajuste(db, pedido_id, current_user, data.observaciones, clave=clave)
+        await db.commit()
+        return respuesta_decision(result)
+    except Exception:
+        await db.rollback()
+        raise
+
+
+async def _resolver_solicitud(db, pedido_id, user, *, tipo, data, clave):
+    from app.services.solicitud_service import resolver
+    from app.utils.responses import respuesta_decision
+    try:
+        result = await resolver(db, pedido_id, actor=user, tipo=tipo, payload=data, clave=clave)
+        await db.commit()
+        return respuesta_decision(result)
+    except Exception:
+        await db.rollback()
+        raise
+
+
+@router.post("/{pedido_id}/reenviar")
+async def reenviar_pedido_endpoint(pedido_id: int, data: PedidoReenviar, clave: str = Header(alias='Idempotency-Key'),
+    current_user: Usuario = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    return await _resolver_solicitud(db, pedido_id, current_user, tipo='reenviar', data=data, clave=clave)
+
+
+@router.post("/{pedido_id}/cancelar")
+async def cancelar_pedido_endpoint(pedido_id: int, data: PedidoCancelar, clave: str = Header(alias='Idempotency-Key'),
+    current_user: Usuario = Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    return await _resolver_solicitud(db, pedido_id, current_user, tipo='cancelar', data=data, clave=clave)
+
+
+@router.post("/{pedido_id}/rechazar")
+async def rechazar(pedido_id: int, data: PedidoRechazar, clave: str = Header(alias='Idempotency-Key'),
+    current_user: Usuario = Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    return await _resolver_solicitud(db, pedido_id, current_user, tipo='rechazar', data=data, clave=clave)
+
+
+@router.post("/{pedido_id}/revertir-aprobacion")
+async def revertir(pedido_id: int, data: PedidoRevertir,
+    clave: str = Header(alias='Idempotency-Key'),
+    current_user: Usuario = Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    from app.utils.responses import respuesta_decision
+    try:
+        result = await revertir_aprobacion(db, pedido_id, current_user, data.motivo, clave=clave)
+        await db.commit()
+        return respuesta_decision(result)
+    except Exception:
+        await db.rollback()
+        raise
+
+
+@router.patch("/{pedido_id}/estado")
+async def cambiar_estado_pedido_retirado(
     pedido_id: int,
-    data: PedidoAprobar,
-    current_user: Usuario = Depends(require_admin),
-    db: AsyncSession = Depends(get_db),
-):
-    """Aprueba un pedido y reserva su capacidad en el acto.
-
-    Códigos: 200 aprobado · 400 excede la capacidad y falta justificación ·
-    409 token de capacidad desactualizado, o el pedido no está en solicitado.
-    """
-    vigente_o_404(await db.get(Pedido, pedido_id), "Pedido no encontrado")
-    pedido = await aprobar_pedido(
-        db=db,
-        pedido_id=pedido_id,
-        admin=current_user,
-        capacidad_token=data.capacidad_token,
-        justificacion_capacidad=data.justificacion_capacidad,
-    )
-    result = await db.execute(
-        select(Pedido)
-        .options(selectinload(Pedido.historial), selectinload(Pedido.catedra))
-        .where(Pedido.id == pedido.id)
-    )
-    return result.scalar_one()
-
-
-@router.post("/{pedido_id}/rechazar", response_model=PedidoDetalleResponse)
-async def rechazar(
-    pedido_id: int,
-    data: PedidoRechazar,
-    current_user: Usuario = Depends(require_admin),
-    db: AsyncSession = Depends(get_db),
-):
-    """Rechaza un pedido con un motivo que la cátedra solicitante puede ver."""
-    vigente_o_404(await db.get(Pedido, pedido_id), "Pedido no encontrado")
-    pedido = await rechazar_pedido(
-        db=db, pedido_id=pedido_id, admin=current_user, motivo=data.motivo
-    )
-    result = await db.execute(
-        select(Pedido)
-        .options(selectinload(Pedido.historial), selectinload(Pedido.catedra))
-        .where(Pedido.id == pedido.id)
-    )
-    return result.scalar_one()
-
-
-@router.post("/{pedido_id}/revertir-aprobacion", response_model=PedidoRevertidoResponse)
-async def revertir(
-    pedido_id: int,
-    data: PedidoRevertir,
-    current_user: Usuario = Depends(require_admin),
-    db: AsyncSession = Depends(get_db),
-):
-    """Deshace una aprobación antes del despliegue y libera su capacidad.
-
-    Es una operación con nombre propio y no un cambio de estado a mano: mover el
-    estado sin liberar la reserva dejaría capacidad huérfana, que es lo que
-    `PATCH /estado` sigue impidiendo.
-
-    Códigos: 200 revertido, con la capacidad que volvió · 400 falta el motivo ·
-    403 sin permisos de administrador · 404 pedido inexistente o dado de baja ·
-    409 con un código propio por caso: `pedido_no_aprobado`,
-    `despliegue_en_curso`, `reserva_ya_vencida` o `ya_revertido`.
-    """
-    vigente_o_404(await db.get(Pedido, pedido_id), "Pedido no encontrado")
-    pedido, liberado = await revertir_aprobacion(
-        db=db, pedido_id=pedido_id, admin=current_user, motivo=data.motivo
-    )
-    result = await db.execute(
-        select(Pedido)
-        .options(selectinload(Pedido.historial), selectinload(Pedido.catedra))
-        .where(Pedido.id == pedido.id)
-    )
-    respuesta = PedidoRevertidoResponse.model_validate(result.scalar_one())
-    respuesta.capacidad_liberada = CapacidadLiberada(**liberado)
-    return respuesta
-
-
-@router.patch("/{pedido_id}/estado", response_model=PedidoDetalleResponse)
-async def cambiar_estado_pedido(
-    pedido_id: int,
-    data: PedidoCambiarEstado,
     current_user: Usuario = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
 ):
-    """Cambia el estado de un pedido. Valida la máquina de estados."""
-    vigente_o_404(await db.get(Pedido, pedido_id), "Pedido no encontrado")
-
-    pedido = await cambiar_estado(
-        db=db,
-        pedido_id=pedido_id,
-        nuevo_estado_str=data.nuevo_estado,
-        usuario=current_user,
-        comentario=data.comentario,
-        motivo_rechazo=data.motivo_rechazo,
-    )
-
-    # Recargar con historial
-    result = await db.execute(
-        select(Pedido)
-        .options(selectinload(Pedido.historial), selectinload(Pedido.catedra))
-        .where(Pedido.id == pedido.id)
-    )
-    return result.scalar_one()
+    """Los estados solo cambian mediante decisiones y operaciones nombradas."""
+    raise HTTPException(status_code=405, detail="Usá una acción nombrada del pedido", headers={"Allow": "GET"})
 
 
 @router.delete("/{pedido_id}")
-async def dar_de_baja(
-    pedido_id: int,
-    current_user: Usuario = Depends(require_admin),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Da de baja lógicamente un pedido, en cualquier estado.
-
-    El registro no se borra: permanece para reconstruir el consumo histórico de
-    la cátedra. No ejecuta ninguna operación contra Proxmox.
-
-    Códigos: 200 baja exitosa (o ya estaba dada de baja, idempotente) ·
-    403 sin permisos de administrador · 404 pedido inexistente ·
-    409 el pedido tiene un servicio vigente que debe darse de baja primero.
-    """
-    return await dar_de_baja_pedido(db=db, pedido_id=pedido_id, admin=current_user)
+async def dar_de_baja(pedido_id: int, clave: str = Header(alias='Idempotency-Key'),
+    current_user: Usuario = Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    from app.utils.responses import respuesta_decision
+    try:
+        result = await dar_de_baja_pedido(db, pedido_id, current_user, clave=clave)
+        await db.commit()
+        return respuesta_decision(result)
+    except Exception:
+        await db.rollback()
+        raise
 
 
-@router.post("/{pedido_id}/reintentar", response_model=ServicioResponse)
-async def reintentar(
-    pedido_id: int,
-    body: DesplegarRequest = DesplegarRequest(),
-    current_user: Usuario = Depends(require_admin),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Reintenta el despliegue de un pedido que quedó en ERROR.
-
-    Ejecuta la transición ERROR → EN_DESPLIEGUE → ACTIVO (o ERROR de nuevo).
-    Es pseudo-idempotente: reutiliza el VMID reservado o adopta el contenedor si
-    quedó creado por un fallo parcial, de modo que no duplica recursos.
-
-    Códigos: 200 reintento exitoso · 403 sin permisos de administrador ·
-    404 pedido inexistente o dado de baja · 409 el pedido no está en ERROR ·
-    502 la infraestructura volvió a fallar (el pedido regresa a ERROR).
-    """
-    return await reintentar_despliegue(
-        db=db,
-        pedido_id=pedido_id,
-        admin=current_user,
-        node=body.node,
-        storage=body.storage,
-    )
+@router.post("/{pedido_id}/reintentar")
+async def reintentar(pedido_id: int, body: OrdenServicioRequest = OrdenServicioRequest(),
+    clave: str = Header(alias='Idempotency-Key'), current_user: Usuario = Depends(require_admin),
+    db: AsyncSession = Depends(get_db)):
+    from app.utils.responses import respuesta_decision
+    try:
+        result = await reintentar_despliegue(db, pedido_id, current_user, clave=clave, motivo=body.motivo)
+        await db.commit()
+        return respuesta_decision(result)
+    except Exception:
+        await db.rollback()
+        raise

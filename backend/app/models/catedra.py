@@ -8,6 +8,7 @@ from app.database import Base
 
 class Catedra(Base):
     __tablename__ = "catedras"
+    revision_admin: Mapped[int] = mapped_column(default=1, server_default='1')
     __table_args__ = (
         # El nombre dejó de ser único a nivel global: dos personas pueden dictar
         # materias homónimas. Lo que debe ser único es el par nombre + titular.

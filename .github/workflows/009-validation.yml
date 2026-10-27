@@ -1,0 +1,88 @@
+name: Feature 009 validation
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/requirements.lock
+      - run: python -m pip install --require-hashes -r backend/requirements.lock
+      - run: python -m pytest -q -m 'not postgres'
+        working-directory: backend
+
+  postgres:
+    runs-on: ubuntu-24.04
+    services:
+      postgres_test:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nap_test
+          POSTGRES_PASSWORD: nap_test_ci_only
+          POSTGRES_DB: nap_test_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U nap_test -d nap_test_ci"
+          --health-interval 2s --health-timeout 3s --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgresql+asyncpg://nap_test:nap_test_ci_only@127.0.0.1:5432/nap_test_ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --require-hashes -r backend/requirements.lock
+      - run: python -m pytest --require-postgres -q tests/postgres
+        working-directory: backend
+
+  frontend:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.3'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npm test -- --run
+        working-directory: frontend
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - run: npm run test:e2e
+        working-directory: frontend
+      - run: npm run lint
+        working-directory: frontend
+
+  contracts:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --require-hashes -r backend/requirements.lock
+      - run: python backend/scripts/validar_contratos.py
+
+  infra:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        suite: [infra/builder/tests, infra/runner/tests, infra/services/tests, infra/laboratorio/tests]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m venv backend/venv
+      - run: backend/venv/bin/python -m pip install --require-hashes -r backend/requirements.lock
+      - run: backend/venv/bin/python -m pytest -c infra/pytest.ini -q ${{ matrix.suite }}

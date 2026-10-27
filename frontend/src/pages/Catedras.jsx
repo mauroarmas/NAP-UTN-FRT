@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
-import { Send, Pencil, Building2 } from 'lucide-react';
-import { getCatedras, createCatedra, updateCatedra, getCatedra, getUsuarios } from '../services/api';
+import { mensajeError } from '../utils/errors.js';
+import { useState, useEffect, useId, useRef } from 'react';
+import { Send, Pencil, Building2, ShieldCheck } from 'lucide-react';
+import { getCatedras, createCatedra, updateCatedra, getCatedra, getUsuarios, verificarInfraCatedra } from '../services/api';
 import { PageHead, StatusPill, Empty, Dialog } from '../components/ui';
 
 /**
@@ -12,6 +13,7 @@ import { PageHead, StatusPill, Empty, Dialog } from '../components/ui';
 const FORM_INICIAL = { nombre: '', descripcion: '', titular_id: '', activa: true };
 
 export default function Catedras() {
+  const formId = useId();
   const [catedras, setCatedras] = useState([]);
   const [usuarios, setUsuarios] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -19,12 +21,36 @@ export default function Catedras() {
   const [editando, setEditando] = useState(null);
   const [form, setForm] = useState(FORM_INICIAL);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
   const [uso, setUso] = useState(null);
+  const [revision, setRevision] = useState(null);
+  const [pendiente, setPendiente] = useState(null);
+  const [infra, setInfra] = useState({});
+  const [infraDetalle, setInfraDetalle] = useState(null);
+  const infraRequest = useRef(0);
+  const infraLabels = { preparada: ['Preparada', 'ok'], sin_servicios: ['Sin servicios', 'off'], requiere_atencion: ['Requiere atención', 'warn'] };
+  const verificarInfra = async (category) => {
+    const request = ++infraRequest.current;
+    setInfraDetalle({ category, loading: true });
+    try {
+      const { data } = await verificarInfraCatedra(category.id);
+      if (request !== infraRequest.current) return;
+      setInfra((current) => ({ ...current, [category.id]: data }));
+      setInfraDetalle((current) => current?.category.id === category.id ? { category, data } : current);
+    } catch {
+      if (request !== infraRequest.current) return;
+      setInfra((current) => ({ ...current, [category.id]: { estado: 'requiere_atencion' } }));
+      setInfraDetalle((current) => current?.category.id === category.id ? { category,
+        error: 'No se pudo verificar la infraestructura. Volvé a consultar; no se cambió el pool.' } : current);
+    }
+  };
+  const registrarPendiente = (response) => { if (response.status === 202) setPendiente(response.data.cambio_consola_id); };
 
   const fetchTodo = async () => {
     try {
       const [c, u] = await Promise.all([getCatedras(), getUsuarios()]);
       setCatedras(c.data);
+      setInfra({});
       setUsuarios(u.data);
     } catch (err) {
       console.error(err);
@@ -39,13 +65,16 @@ export default function Catedras() {
     setEditando(null);
     setForm(FORM_INICIAL);
     setUso(null);
+    setError('');
     setShowForm(true);
   };
 
   const abrirEdicion = async (c) => {
     setEditando(c.id);
+    setRevision(c.revision_admin);
     setForm({ nombre: c.nombre, descripcion: c.descripcion || '', titular_id: c.titular_id || '', activa: c.activa });
     setUso(null);
+    setError('');
     setShowForm(true);
     try {
       const { data } = await getCatedra(c.id);
@@ -63,15 +92,17 @@ export default function Catedras() {
       descripcion: form.descripcion,
       titular_id: form.titular_id ? parseInt(form.titular_id) : null,
     };
-    if (editando) await updateCatedra(editando, { ...payload, activa: form.activa }, { confirmar });
-    else await createCatedra(payload);
+    if (editando) return updateCatedra(editando, { ...payload, activa: form.activa, revision_esperada: revision }, { confirmar });
+    return createCatedra(payload);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (saving) return;
+    setError('');
     setSaving(true);
     try {
-      await guardar();
+      registrarPendiente(await guardar());
       cerrarForm();
       fetchTodo();
     } catch (err) {
@@ -79,15 +110,15 @@ export default function Catedras() {
       if (d?.codigo === 'servicios_vigentes') {
         if (confirm(`${d.mensaje}\n\nLos servicios no se eliminan, pero la cátedra deja de figurar como activa.\n¿Continuar igual?`)) {
           try {
-            await guardar(true);
+            registrarPendiente(await guardar(true));
             cerrarForm();
             fetchTodo();
           } catch (e2) {
-            alert(e2.response?.data?.detail || 'Error al dar de baja la cátedra');
+            setError(mensajeError(e2, 'Error al dar de baja la cátedra'));
           }
         }
       } else {
-        alert(typeof d === 'string' ? d : 'Error al guardar la cátedra');
+        setError(mensajeError(err, 'Error al guardar la cátedra'));
       }
     } finally {
       setSaving(false);
@@ -102,6 +133,8 @@ export default function Catedras() {
         </button>
       </PageHead>
 
+      {pendiente && <p role="status">Cambio pendiente de revocación institucional. Referencia: <code>{pendiente}</code>. <a href="/admin/cambios-consola">Seguir trámite</a></p>}
+
       <div className="card">
         <div className="card-header">
           <div className="card-title">Listado</div>
@@ -111,18 +144,24 @@ export default function Catedras() {
           <div className="table-container">
             <table>
               <thead>
-                <tr><th>Nombre</th><th>Descripción</th><th>Responsable</th><th>Estado</th><th className="right">Acciones</th></tr>
+                <tr><th>ID</th><th>Nombre</th><th>Descripción</th><th>Responsable</th><th>Estado</th><th>Pool de recursos</th><th className="right">Acciones</th></tr>
               </thead>
               <tbody>
                 {catedras.map((c) => (
                   <tr key={c.id}>
+                    <td className="tabnum cell-strong">{c.id}</td>
                     <td className="cell-strong nowrap">{c.nombre}</td>
                     <td style={{ color: 'var(--text-soft)' }}>{c.descripcion || '—'}</td>
                     <td className="nowrap">
                       {c.titular ? c.titular.nombre : <StatusPill kind="warn">Sin responsable</StatusPill>}
                     </td>
                     <td><StatusPill kind={c.activa ? 'ok' : 'off'}>{c.activa ? 'Activa' : 'Inactiva'}</StatusPill></td>
+                    <td>{infra[c.id] ? <StatusPill kind={infraLabels[infra[c.id].estado]?.[1] || 'warn'}>{infraLabels[infra[c.id].estado]?.[0] || 'Requiere atención'}</StatusPill>
+                      : <span className="card-meta">Sin verificar</span>}</td>
                     <td className="right">
+                      <button className="btn btn-ghost btn-sm" onClick={() => verificarInfra(c)} aria-label={`Verificar infraestructura de ${c.nombre}`}>
+                        <ShieldCheck size={13} aria-hidden="true" /> Verificar infraestructura
+                      </button>
                       <button className="btn btn-secondary btn-sm" onClick={() => abrirEdicion(c)}>
                         <Pencil size={13} /> Editar
                       </button>
@@ -137,14 +176,31 @@ export default function Catedras() {
         )}
       </div>
 
+      {infraDetalle && <Dialog title={`Infraestructura de ${infraDetalle.category.nombre}`} onClose={() => { infraRequest.current += 1; setInfraDetalle(null); }}>
+        <div className="col gap-3">
+          {infraDetalle.loading && <p role="status">Comprobando el pool y los permisos del portal…</p>}
+          {infraDetalle.error && <p role="alert">{infraDetalle.error}</p>}
+          {infraDetalle.data && <>
+            <p>Pool: <strong>{infraDetalle.data.pool}</strong></p>
+            <StatusPill kind={infraLabels[infraDetalle.data.estado]?.[1] || 'warn'}>{infraLabels[infraDetalle.data.estado]?.[0] || 'Requiere atención'}</StatusPill>
+            <p>{infraDetalle.data.mensaje}</p>
+            {infraDetalle.data.permisos_faltantes?.length > 0 && <details><summary>Detalle para administración</summary>
+              <p>Permisos faltantes: {infraDetalle.data.permisos_faltantes.join(', ')}.</p>
+            </details>}
+          </>}
+          <p className="card-meta">Esta consulta no crea pools ni mueve contenedores. El pool se prepara automáticamente al desplegar un servicio y no establece cuotas.</p>
+          {!infraDetalle.loading && <button className="btn btn-secondary" onClick={() => verificarInfra(infraDetalle.category)}>Volver a verificar</button>}
+        </div>
+      </Dialog>}
+
       {showForm && (
         <Dialog
           title={editando ? `Editar cátedra` : 'Nueva cátedra'}
-          onClose={cerrarForm}
+          onClose={cerrarForm} closeDisabled={saving}
           actions={
             <>
-              <button className="btn btn-secondary" onClick={cerrarForm}>Cancelar</button>
-              <button className="btn btn-primary" onClick={handleSubmit} disabled={saving}>
+              <button className="btn btn-secondary" onClick={cerrarForm} disabled={saving}>Cancelar</button>
+              <button className="btn btn-primary" type="submit" form={formId + '-form'} disabled={saving}>
                 {saving ? 'Guardando…' : editando ? 'Guardar cambios' : 'Crear cátedra'}
               </button>
             </>
@@ -158,21 +214,22 @@ export default function Catedras() {
             </p>
           )}
 
-          <form onSubmit={handleSubmit}>
+          {error && <p role="alert" id={formId + '-error'}>{error}</p>}
+          <form id={formId + '-form'} onSubmit={handleSubmit} aria-describedby={error ? formId + '-error' : undefined}><fieldset disabled={saving} style={{ border: 0, margin: 0, padding: 0, minWidth: 0 }}>
             <div className="field">
-              <label>Nombre</label>
-              <input className="input" value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} required placeholder="Ej: Análisis Matemático" />
+              <label htmlFor={formId + '-nombre'}>Nombre</label>
+              <input id={formId + '-nombre'} className="input" value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} required placeholder="Ej: Análisis Matemático" />
               <p className="card-meta" style={{ marginTop: 4 }}>Dos personas distintas pueden dictar materias con el mismo nombre.</p>
             </div>
 
             <div className="field">
-              <label>Descripción</label>
-              <input className="input" value={form.descripcion} onChange={(e) => setForm({ ...form, descripcion: e.target.value })} placeholder="Descripción opcional" />
+              <label htmlFor={formId + '-descripcion'}>Descripción</label>
+              <input id={formId + '-descripcion'} className="input" value={form.descripcion} onChange={(e) => setForm({ ...form, descripcion: e.target.value })} placeholder="Descripción opcional" />
             </div>
 
             <div className="field">
-              <label>Responsable</label>
-              <select className="input" value={form.titular_id} onChange={(e) => setForm({ ...form, titular_id: e.target.value })}>
+              <label htmlFor={formId + '-titular_id'}>Responsable</label>
+              <select id={formId + '-titular_id'} className="input" value={form.titular_id} onChange={(e) => setForm({ ...form, titular_id: e.target.value })}>
                 <option value="">Sin responsable asignado</option>
                 {usuarios.filter((u) => u.activo).map((u) => (
                   <option key={u.id} value={u.id}>{u.nombre} ({u.username})</option>
@@ -183,15 +240,15 @@ export default function Catedras() {
 
             {editando && (
               <div className="field">
-                <label>Estado</label>
-                <select className="input" value={form.activa ? 'activa' : 'inactiva'} onChange={(e) => setForm({ ...form, activa: e.target.value === 'activa' })}>
+                <label htmlFor={formId + '-activa'}>Estado</label>
+                <select id={formId + '-activa'} className="input" value={form.activa ? 'activa' : 'inactiva'} onChange={(e) => setForm({ ...form, activa: e.target.value === 'activa' })}>
                   <option value="activa">Activa</option>
                   <option value="inactiva">Inactiva</option>
                 </select>
                 <p className="card-meta" style={{ marginTop: 4 }}>Dar de baja una cátedra con servicios vigentes pide confirmación.</p>
               </div>
             )}
-          </form>
+          </fieldset></form>
         </Dialog>
       )}
     </div>

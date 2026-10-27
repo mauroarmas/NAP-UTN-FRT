@@ -2,9 +2,11 @@ import asyncio
 import logging
 import ssl
 from datetime import datetime
+from uuid import UUID
 from urllib.parse import quote
+from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, Header, Response, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -19,9 +21,12 @@ from app.schemas.servicio import (
     ServicioUpdate,
     ServicioPausadoResponse,
     DesplegarRequest,
+    DesplegarSnapshotRequest,
+    OrdenServicioRequest,
 )
 from app.services import historial_service
 from app.services.acceso_service import catedras_visibles
+from app.services.acceso_service import requiere_acceso_servicio
 from app.services.inactividad_service import evaluar_actividad, reactivar
 from app.services.vencimiento_service import tiene_renovacion_pendiente
 from app.services.orquestacion_service import (
@@ -38,25 +43,153 @@ from app.utils.soft_delete import excluir_dados_de_baja, vigente_o_404
 
 logger = logging.getLogger(__name__)
 
+from app.schemas.servicio import RenovacionRequest, ModificacionVigenciaRequest
+from app.schemas.servicio import AccesoServicioResponse, AccesoReveladoResponse, RevelarAccesoRequest, VerificarAccesoRequest
+from app.schemas.regularizacion import EvaluarRegularizacion,ConfirmarRegularizacion,ArchivarDuplicado
+
 router = APIRouter(prefix="/servicios", tags=["Servicios"])
+
+
+@router.post('/{servicio_id}/regularizacion/evaluar')
+async def evaluar_regularizacion(servicio_id: int, body: EvaluarRegularizacion, response: Response,
+    current_user: Usuario = Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    from app.services import regularizacion_service
+    response.headers['Cache-Control'] = 'no-store'
+    return await regularizacion_service.evaluar(db,servicio_id,actor=current_user,canonical_id=body.canonico_id)
+
+
+async def _decision_regularizacion(db,servicio_id,body,current_user,clave,*,archivar=False):
+    from app.services import regularizacion_service
+    from app.utils.responses import respuesta_decision
+    try:
+        action=regularizacion_service.archivar_duplicado if archivar else regularizacion_service.confirmar
+        result=await action(db,servicio_id,actor=current_user,body=body,clave=clave)
+        await db.commit()
+        return respuesta_decision(result)
+    except Exception:
+        await db.rollback()
+        raise
+
+
+@router.post('/{servicio_id}/regularizacion')
+async def confirmar_regularizacion(servicio_id: int,body: ConfirmarRegularizacion,
+    clave: str = Header(alias='Idempotency-Key'),current_user: Usuario = Depends(require_admin),db: AsyncSession = Depends(get_db)):
+    return await _decision_regularizacion(db,servicio_id,body,current_user,clave)
+
+
+@router.post('/{servicio_id}/regularizacion/archivar-duplicado')
+async def archivar_duplicado_legacy(servicio_id: int,body: ArchivarDuplicado,
+    clave: str = Header(alias='Idempotency-Key'),current_user: Usuario = Depends(require_admin),db: AsyncSession = Depends(get_db)):
+    return await _decision_regularizacion(db,servicio_id,body,current_user,clave,archivar=True)
+
+
+@router.get('/{servicio_id}/historial')
+async def historial_del_servicio(servicio_id: int, current_user: Usuario = Depends(get_current_user),
+                                db: AsyncSession = Depends(get_db)):
+    from app.models.servicio_historial import ServicioHistorial
+    await requiere_acceso_servicio(db, current_user, servicio_id)
+    entries = (await db.scalars(select(ServicioHistorial).where(ServicioHistorial.servicio_id == servicio_id)
+                               .order_by(ServicioHistorial.created_at, ServicioHistorial.id))).all()
+    return [{'id': entry.id, 'estado_anterior': entry.estado_anterior, 'estado_nuevo': entry.estado_nuevo,
+             'comentario': entry.comentario, 'actor_tipo': entry.actor_tipo or ('usuario' if entry.usuario_id else 'sistema'),
+             'usuario_id': entry.usuario_id, 'created_at': entry.created_at} for entry in entries]
+
+
+@router.get('/{servicio_id}/acceso', response_model=AccesoServicioResponse)
+async def acceso_del_servicio(servicio_id: int, response: Response, current_user: Usuario = Depends(get_current_user),
+                             db: AsyncSession = Depends(get_db)):
+    from app.services import service_access_service
+    response.headers['Cache-Control'] = 'no-store'
+    return await service_access_service.metadatos(db, actor=current_user, servicio_id=servicio_id)
+
+
+@router.post('/{servicio_id}/abrir-aplicacion')
+async def abrir_aplicacion(servicio_id: int, request: Request, body: RevelarAccesoRequest,
+    current_user: Usuario = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    from app.services.aplicacion_access_service import crear_codigo
+    from fastapi.responses import JSONResponse
+    result = await crear_codigo(db, servicio_id, actor=current_user, session=request.state.auth_session)
+    await db.commit()
+    return JSONResponse(result, headers={'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer'})
+
+
+@router.post('/{servicio_id}/acceso/revelar', response_model=AccesoReveladoResponse)
+async def revelar_acceso(servicio_id: int, body: RevelarAccesoRequest, response: Response,
+    current_user: Usuario = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    from app.services import service_access_service
+    response.headers['Cache-Control'] = 'no-store'
+    try:
+        result = await service_access_service.revelar(db, actor=current_user, servicio_id=servicio_id)
+        await db.commit()
+        return result
+    except Exception:
+        await db.rollback()
+        raise
+
+
+@router.post('/{servicio_id}/verificar-acceso')
+async def verificar_acceso(servicio_id: int, body: VerificarAccesoRequest,
+    key: str = Header(alias='Idempotency-Key'), current_user: Usuario = Depends(require_admin),
+    db: AsyncSession = Depends(get_db)):
+    from app.services import verificacion_acceso_service
+    from app.utils.responses import respuesta_decision
+    try:
+        result = await verificacion_acceso_service.verificar(db, actor=current_user, servicio_id=servicio_id, body=body, clave=key)
+        await db.commit()
+        return respuesta_decision(result)
+    except Exception:
+        await db.rollback()
+        raise
+
+
+@router.get('/{servicio_id}/consola')
+async def consola_del_servicio(servicio_id: int, current_user: Usuario = Depends(get_current_user),
+                              db: AsyncSession = Depends(get_db)):
+    servicio = await requiere_acceso_servicio(db, current_user, servicio_id)
+    if servicio.estado != EstadoServicio.RUNNING:
+        raise HTTPException(status_code=409, detail={'codigo': 'servicio_no_disponible',
+            'mensaje': 'El servicio debe estar encendido para acceder a la consola'})
+    from app.services.vigencia_service import periodos_vigentes, resumir_cobertura
+    from app.utils.clock import clock
+    covered = resumir_cobertura(await periodos_vigentes(db, servicio.id), clock.now())['cubierto']
+    if not covered:
+        raise HTTPException(status_code=409, detail={'codigo': 'servicio_no_disponible',
+            'mensaje': 'El servicio no tiene vigencia autorizada activa'})
+    if not servicio.proxmox_vmid or not servicio.proxmox_node:
+        raise HTTPException(status_code=400, detail={'codigo': 'sin_vmid', 'mensaje': 'Servicio sin VMID asignado'})
+    from app.services.consola_gate_service import autorizar
+    if current_user.rol == RolUsuario.ADMIN:
+        # El enlace exige iniciar sesión en Proxmox con la cuenta propia del administrador.
+        # No emite tickets ni comparte las credenciales de la API.
+        from app.models.identidad_infraestructura import IdentidadInfraestructura
+        from app.services.identidad_infra_service import observar
+        identity = await db.get(IdentidadInfraestructura, servicio.identidad_infraestructura_id) if servicio.identidad_infraestructura_id else None
+        if not identity or (await observar(identity)).estado != 'propia':
+            raise error(409, 'identidad_no_confirmada', 'No se pudo confirmar la instancia de esta consola.')
+    else:
+        await autorizar(db, servicio, current_user)
+    settings = get_settings()
+    console_url = f"https://{settings.proxmox_host}:{settings.proxmox_port}/?console=lxc&xtermjs=1&vmid={servicio.proxmox_vmid}&node={servicio.proxmox_node}"
+    return {"url": console_url, "servicio_id": servicio_id, "vmid": servicio.proxmox_vmid, "node": servicio.proxmox_node}
 
 
 @router.get("/", response_model=list[ServicioResponse])
 async def listar_servicios(
+    modelo_servicio: Literal['iaas', 'paas', 'saas'] | None = None,
     current_user: Usuario = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Lista servicios vigentes. Admin ve todos, cátedra ve solo los suyos.
 
-    El estado que devuelve es el real del clúster, no el último que quedó
-    guardado: se reconcilia contra Proxmox en cada consulta (una sola llamada
-    para toda la lista) para que los botones de encender/apagar correspondan a
-    lo que el contenedor está haciendo ahora.
+    Devuelve el último estado registrado y la fecha/fuente de confirmación.
+    El worker reconcilia infraestructura; esta consulta no hace llamadas a PVE.
     """
     query = excluir_dados_de_baja(select(Servicio), Servicio).order_by(
         Servicio.deployed_at.desc()
     )
+    if modelo_servicio:
+        query = query.where(Servicio.modelo_servicio == modelo_servicio)
 
     if current_user.rol != RolUsuario.ADMIN:
         query = query.where(
@@ -64,7 +197,7 @@ async def listar_servicios(
         )
 
     result = await db.execute(query)
-    return await sincronizar_estados(db, list(result.scalars().all()))
+    return await sincronizar_estados(db, list(result.scalars().all()), usuario=current_user)
 
 
 @router.get("/pausados", response_model=list[ServicioPausadoResponse])
@@ -132,145 +265,129 @@ async def obtener_servicio(
     current_user: Usuario = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Obtiene un servicio vigente por ID, con el estado reconciliado contra Proxmox."""
+    """Obtiene el último estado, las operaciones y la cobertura del servicio."""
     servicio = vigente_o_404(
         await db.get(Servicio, servicio_id), "Servicio no encontrado"
     )
     await requiere_propio_o_admin(db, servicio, current_user)
 
-    return await sincronizar_estado(db, servicio)
+    return await sincronizar_estado(db, servicio, usuario=current_user)
 
 
-@router.post("/desplegar/{pedido_id}", response_model=ServicioResponse)
-async def desplegar(
-    pedido_id: int,
-    body: DesplegarRequest = DesplegarRequest(),
-    current_user: Usuario = Depends(require_admin),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Despliega un pedido APROBADO creando el LXC en Proxmox VE.
-    Ejecuta la transición completa: APROBADO → EN_DESPLIEGUE → ACTIVO (o ERROR).
-    """
-    return await desplegar_pedido(
-        db=db,
-        pedido_id=pedido_id,
-        admin=current_user,
-        node=body.node,
-        storage=body.storage,
-    )
+@router.post("/desplegar/{pedido_id}")
+async def desplegar(pedido_id: int, body: DesplegarSnapshotRequest,
+    clave: str = Header(alias='Idempotency-Key'),
+    current_user: Usuario = Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    from app.services.admision_service import desplegar as admitir
+    from app.utils.responses import respuesta_decision
+    try:
+        result = await admitir(db, pedido_id, actor=current_user, clave=clave)
+        await db.commit()
+        return respuesta_decision(result)
+    except Exception:
+        await db.rollback()
+        raise
 
 
-@router.post("/{servicio_id}/start", response_model=ServicioResponse)
-async def iniciar(
+@router.post("/{servicio_id}/start")
+async def iniciar(servicio_id: int, body: OrdenServicioRequest = OrdenServicioRequest(),
+    clave: str = Header(alias='Idempotency-Key'),
+    current_user: Usuario = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    from app.utils.responses import respuesta_decision
+    try:
+        result = await iniciar_servicio(db, servicio_id, current_user, clave=clave, motivo=body.motivo)
+        await db.commit()
+        return respuesta_decision(result)
+    except Exception:
+        await db.rollback()
+        raise
+
+
+async def _orden(db, servicio_id, user, *, tipo, clave):
+    from app.services.operacion_service import admitir_orden
+    from app.utils.responses import respuesta_decision
+    try:
+        result = await admitir_orden(db, servicio_id, tipo=tipo, usuario=user, clave=clave)
+        await db.commit()
+        return respuesta_decision(result)
+    except Exception:
+        await db.rollback()
+        raise
+
+
+@router.post("/{servicio_id}/stop")
+async def detener(servicio_id: int, body: DesplegarSnapshotRequest = DesplegarSnapshotRequest(),
+    clave: str = Header(alias='Idempotency-Key'), current_user: Usuario = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)):
+    return await _orden(db, servicio_id, current_user, tipo='detener', clave=clave)
+
+
+@router.post("/{servicio_id}/restart")
+@router.post("/{servicio_id}/reboot")
+async def reiniciar(servicio_id: int, body: DesplegarSnapshotRequest = DesplegarSnapshotRequest(),
+    clave: str = Header(alias='Idempotency-Key'), current_user: Usuario = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)):
+    return await _orden(db, servicio_id, current_user, tipo='reiniciar', clave=clave)
+
+
+@router.get("/{servicio_id}/metricas")
+async def metricas_en_tiempo_real(
     servicio_id: int,
     current_user: Usuario = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Inicia un servicio detenido en Proxmox. La cátedra puede iniciar los propios."""
-    return await iniciar_servicio(db, servicio_id, current_user)
-
-
-@router.post("/{servicio_id}/stop", response_model=ServicioResponse)
-async def detener(
-    servicio_id: int,
-    current_user: Usuario = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Detiene un servicio en ejecución en Proxmox. La cátedra puede detener los propios."""
-    return await detener_servicio(db, servicio_id, current_user)
-
-
-@router.post("/{servicio_id}/restart", response_model=ServicioResponse)
-async def reiniciar(
-    servicio_id: int,
-    current_user: Usuario = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Reinicia un servicio en ejecución en Proxmox. La cátedra puede reiniciar los propios."""
-    return await reiniciar_servicio(db, servicio_id, current_user)
-
-
-@router.post("/{servicio_id}/reactivar", response_model=ServicioResponse)
-async def reactivar_servicio(
-    servicio_id: int,
-    current_user: Usuario = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Vuelve a encender un servicio pausado. La cátedra puede hacerlo sola.
-
-    No requiere pedido nuevo ni aprobación: si hiciera falta, el pausado
-    automático sería una denegación de servicio encubierta.
-
-    Códigos: 200 reactivado · 403 el servicio no es de una cátedra propia ·
-    409 el servicio no está pausado, o el clúster no tiene capacidad libre (en
-    ese caso queda pausado, nunca en error) · 502 falló la infraestructura.
-    """
+    """Consulta y devuelve las métricas en tiempo real de Proxmox para este servicio."""
     servicio = vigente_o_404(
         await db.get(Servicio, servicio_id), "Servicio no encontrado"
     )
     await requiere_propio_o_admin(db, servicio, current_user)
-    return await reactivar(db, servicio, current_user)
+
+    from app.services.metricas_service import capturar_snapshot_servicio, obtener_ultimo_snapshot
+    snapshot = await capturar_snapshot_servicio(db, servicio)
+    if not snapshot:
+        snapshot = await obtener_ultimo_snapshot(db, servicio.id)
+
+    return {
+        "servicio_id": servicio_id,
+        "estado": servicio.estado.value,
+        "cpu_usage_percent": snapshot.cpu_usage_percent if snapshot else 0.0,
+        "ram_usage_mb": snapshot.ram_usage_mb if snapshot else 0.0,
+        "disk_usage_gb": snapshot.disk_usage_gb if snapshot else 0.0,
+        "net_in_bytes": snapshot.net_in_bytes if snapshot else 0.0,
+        "net_out_bytes": snapshot.net_out_bytes if snapshot else 0.0,
+        "timestamp": snapshot.timestamp if snapshot else datetime.utcnow(),
+    }
+
+
+@router.post("/{servicio_id}/reactivar")
+async def reactivar_servicio(servicio_id: int, body: OrdenServicioRequest = OrdenServicioRequest(),
+    clave: str = Header(alias='Idempotency-Key'),
+    current_user: Usuario = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    return await iniciar(servicio_id, body, clave, current_user, db)
+
+
+async def _solicitar_renovacion(db, servicio_id, actor, body, clave, sustituye_id=None):
+    from app.services.renovacion_service import solicitar
+    from app.utils.responses import respuesta_decision
+    try:
+        result = await solicitar(db, servicio_id, actor=actor, body=body, clave=clave, sustituye_id=sustituye_id)
+        await db.commit()
+        return respuesta_decision(result)
+    except Exception:
+        await db.rollback()
+        raise
 
 
 @router.post("/{servicio_id}/renovar", status_code=201)
-async def renovar_servicio(
-    servicio_id: int,
-    current_user: Usuario = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Solicita extender la fecha de fin de un servicio.
+async def renovar_servicio(servicio_id: int, body: RenovacionRequest, clave: str = Header(alias='Idempotency-Key'),
+    current_user: Usuario = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    return await _solicitar_renovacion(db, servicio_id, current_user, body, clave)
 
-    Crea un pedido de renovación que atraviesa el mismo circuito de aprobación
-    que un pedido nuevo: el administrador lo ve con la misma información de
-    capacidad. Así el mismo punto de control que otorga los recursos es el que
-    los recupera.
 
-    No reserva capacidad: el servicio ya está desplegado y ya cuenta como
-    consumo. Contarlo otra vez sería contabilidad doble.
-
-    Códigos: 201 solicitud creada · 403 el servicio no es de una cátedra propia ·
-    409 ya hay una renovación pendiente de resolución.
-    """
-    servicio = vigente_o_404(
-        await db.get(Servicio, servicio_id), "Servicio no encontrado"
-    )
-    await requiere_propio_o_admin(db, servicio, current_user)
-
-    if await tiene_renovacion_pendiente(db, servicio.id):
-        raise HTTPException(
-            status_code=409,
-            detail="Ya hay una renovación pendiente para este servicio",
-        )
-
-    pedido = Pedido(
-        catedra_id=servicio.catedra_id,
-        solicitante_id=current_user.id,
-        template_id=servicio.template_id,
-        estado=EstadoPedido.SOLICITADO,
-        tipo=TipoPedido.RENOVACION,
-        servicio_id=servicio.id,
-    )
-    db.add(pedido)
-    await db.flush()
-    db.add(
-        historial_service.registrar_pedido(
-            pedido.id,
-            "nuevo",
-            EstadoPedido.SOLICITADO.value,
-            comentario=f"Renovación solicitada para el servicio #{servicio.id}",
-            usuario=current_user,
-        )
-    )
-    await db.commit()
-    await db.refresh(pedido)
-
-    return {
-        "pedido_id": pedido.id,
-        "servicio_id": servicio.id,
-        "estado": pedido.estado.value,
-        "mensaje": "La renovación quedó pendiente de aprobación",
-    }
+@router.post("/{servicio_id}/vigencias/{vigencia_id}/modificaciones", status_code=201)
+async def modificar_vigencia(servicio_id: int, vigencia_id: UUID, body: ModificacionVigenciaRequest,
+    clave: str = Header(alias='Idempotency-Key'), current_user: Usuario = Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    return await _solicitar_renovacion(db, servicio_id, current_user, body, clave, sustituye_id=vigencia_id)
 
 
 @router.patch("/{servicio_id}", response_model=ServicioResponse)
@@ -280,7 +397,7 @@ async def actualizar_servicio(
     current_user: Usuario = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Marca "siempre encendido" (cátedra) y fecha de vencimiento (admin)."""
+    """Cambia la exención de inactividad; las vigencias requieren otra decisión."""
     servicio = vigente_o_404(
         await db.get(Servicio, servicio_id), "Servicio no encontrado"
     )
@@ -294,59 +411,22 @@ async def actualizar_servicio(
             servicio.pausa_programada_at = None
             servicio.aviso_pausa_at = None
 
-    if data.vence_at is not None:
-        if current_user.rol != RolUsuario.ADMIN:
-            raise HTTPException(
-                status_code=403,
-                detail="Solo un administrador puede cambiar la fecha de vencimiento",
-            )
-        servicio.vence_at = data.vence_at
-        servicio.aviso_vencimiento_at = None
 
     await db.commit()
     await db.refresh(servicio)
-    return servicio
+    return (await sincronizar_estados(db, [servicio], usuario=current_user))[0]
 
 
 @router.get("/consola/proxmox-base")
 async def base_consola_proxmox(current_user: Usuario = Depends(get_current_user)):
-    """
-    Devuelve la URL base de la interfaz de Proxmox, para armar el enlace de
-    consola del contenedor.
-
-    Disponible para ambos roles desde la enmienda constitucional v3.0.0. La
-    consola es la **única excepción** al Principio I: Proxmox no acepta API
-    tokens para el WebSocket de consola, así que un proxy propio del portal no
-    llega a transmitir, y sin esta derivación la cátedra no tendría ninguna
-    forma de interactuar con el contenedor que pidió.
-
-    Devolver la URL base no concede acceso por sí solo: quien la abra necesita
-    identidad propia en Proxmox, delimitada al pool de sus cátedras. La
-    pertenencia del servicio la sigue verificando el portal antes de ofrecer el
-    enlace.
-    """
-    settings = get_settings()
-    return {"base_url": f"https://{settings.proxmox_host}:{settings.proxmox_port}"}
+    raise HTTPException(status_code=405, detail='Usá la consola del servicio concreto autorizado')
 
 
 @router.delete("/{servicio_id}")
-async def eliminar(
-    servicio_id: int,
-    current_user: Usuario = Depends(require_admin),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Da de baja un servicio: libera su contenedor en Proxmox y marca el registro.
-
-    La baja es lógica: la fila permanece para poder reconstruir el consumo
-    histórico de la cátedra. Si no se pudo liberar el recurso real, el registro
-    no se marca (evita contenedores vivos sin registro operativo).
-
-    Códigos: 200 baja exitosa (o ya estaba dada de baja, idempotente) ·
-    403 sin permisos de administrador · 404 servicio inexistente ·
-    502 falló la liberación en Proxmox (el registro queda intacto).
-    """
-    return await eliminar_servicio(db, servicio_id, current_user)
+async def eliminar(servicio_id: int, body: DesplegarSnapshotRequest = DesplegarSnapshotRequest(),
+    clave: str = Header(alias='Idempotency-Key'), current_user: Usuario = Depends(require_admin),
+    db: AsyncSession = Depends(get_db)):
+    return await _orden(db, servicio_id, current_user, tipo='eliminar', clave=clave)
 
 
 @router.get("/{servicio_id}/status")

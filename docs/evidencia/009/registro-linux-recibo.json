@@ -1,0 +1,12 @@
+{
+  "fecha": "2026-10-21",
+  "fuente": "recibo root compartido por el usuario",
+  "estado": "linux_staging_registrado",
+  "entry_key": "linux-lab-009:1.0.0",
+  "ya_existia": false,
+  "registry_sha256": "bb573db9920488298f82a236ae8c2f775ed2b0d4208bee0d0e5af60f64aeb368",
+  "definition_sha256": "e9adb44ade04fd3e5de5f9fabd2c9786f4d632d8beb0ae63a5f611b4238244ed",
+  "staging_no_publicacion": true,
+  "invitados_no_creados": true,
+  "respaldo_root": "/root/nap009-registro-respaldo-p77qwu7e/registry.json"
+}

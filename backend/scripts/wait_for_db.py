@@ -16,10 +16,10 @@ async def wait_for_db(max_retries=30, delay=1):
                 await session.execute(text("SELECT 1"))
             print("✅ Base de datos lista")
             return True
-        except Exception as e:
+        except Exception:
             attempt_num = attempt + 1
             if attempt_num < max_retries:
-                print(f"⏳ Intento {attempt_num}/{max_retries}: {e}")
+                print(f"⏳ Base no disponible; intento {attempt_num}/{max_retries}")
                 await asyncio.sleep(delay)
             else:
                 print(f"❌ No se pudo conectar a la BD después de {max_retries} intentos")

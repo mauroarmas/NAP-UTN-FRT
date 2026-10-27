@@ -1,0 +1,80 @@
+openapi: 3.0.3
+info:
+  title: API de Servicios y Autogestión de Cátedra - NAP
+  version: 1.0.0
+  description: Contratos de endpoints para consulta, consumo y control operativo de servicios activos.
+
+paths:
+  /api/v1/servicios:
+    get:
+      summary: Listar servicios de la cátedra
+      description: Retorna los servicios vigentes asociados a las cátedras del usuario.
+      responses:
+        '200':
+          description: Listado de servicios activos.
+
+  /api/v1/servicios/{id}:
+    get:
+      summary: Obtener detalle completo de un servicio
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Detalle del servicio con IPs, URL de acceso, credenciales y vigencia.
+
+  /api/v1/servicios/{id}/start:
+    post:
+      summary: Iniciar servicio detenido
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Instrucción enviada y confirmada a Proxmox VE.
+
+  /api/v1/servicios/{id}/stop:
+    post:
+      summary: Detener servicio
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Servicio detenido en la infraestructura.
+
+  /api/v1/servicios/{id}/reboot:
+    post:
+      summary: Reiniciar servicio
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Servicio reiniciado exitosamente.
+
+  /api/v1/servicios/{id}/metricas:
+    get:
+      summary: Obtener métricas de consumo en tiempo real
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Métricas de uso de CPU, RAM y disco en Proxmox VE.
+

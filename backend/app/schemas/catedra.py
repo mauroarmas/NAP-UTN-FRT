@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
 from datetime import datetime
 
 
@@ -20,14 +20,31 @@ class CatedraBase(BaseModel):
 
 
 class CatedraCreate(CatedraBase):
-    titular_id: int | None = None
+    model_config = ConfigDict(extra='forbid')
+    nombre: str = Field(min_length=1, max_length=100)
+    descripcion: str | None = Field(default=None, max_length=2000)
+    titular_id: StrictInt | None = Field(default=None, ge=1)
+
+    @field_validator('nombre', mode='before')
+    @classmethod
+    def strip_name(cls, value):
+        return value.strip() if isinstance(value, str) else value
 
 
 class CatedraUpdate(BaseModel):
-    nombre: str | None = None
-    descripcion: str | None = None
-    titular_id: int | None = None
+    model_config = ConfigDict(extra='forbid')
+    revision_esperada: StrictInt | None = Field(default=None, ge=1)
+    nombre: str | None = Field(default=None, min_length=1, max_length=100)
+    descripcion: str | None = Field(default=None, max_length=2000)
+    titular_id: StrictInt | None = Field(default=None, ge=1)
     activa: bool | None = None
+
+    @field_validator('nombre', 'activa')
+    @classmethod
+    def explicit_required(cls, value):
+        if value is None or isinstance(value, str) and not value.strip():
+            raise ValueError('El campo no puede quedar vacío')
+        return value.strip() if isinstance(value, str) else value
 
 
 class CatedraResponse(CatedraBase):
@@ -36,6 +53,7 @@ class CatedraResponse(CatedraBase):
     created_at: datetime
     titular_id: int | None = None
     titular: TitularBreve | None = None
+    revision_admin: int = 1
 
     model_config = {"from_attributes": True}
 

@@ -14,16 +14,16 @@ correctamente lo que percibe.
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.metrica import MetricaSnapshot
 from app.models.pedido import EstadoPedido, Pedido
 from app.models.servicio import EstadoServicio, Servicio
-from app.services import historial_service, scheduler
-from app.services.proxmox_client import get_proxmox_client
+from app.services import scheduler
+from app.utils.clock import clock, db_utc
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ GRACIA = timedelta(hours=48)
 
 # Cadencia de la recolección de métricas, usada para estimar cuántas muestras
 # debería haber en la ventana.
-CADENCIA_METRICAS_MINUTOS = 15
+CADENCIA_METRICAS_MINUTOS = 1
 
 # Fracción mínima de muestras esperadas para considerar que hubo observación.
 # Sin esto, una recolección caída se vería igual que un servicio sin uso, y el
@@ -55,43 +55,31 @@ async def evaluar_actividad(db: AsyncSession, servicio: Servicio) -> dict:
     Devuelve también por qué, para que la decisión sea auditable y para poder
     distinguir "no lo usó nadie" de "no lo miramos".
     """
-    desde = datetime.utcnow() - VENTANA_INACTIVIDAD
-
-    fila = (
-        await db.execute(
-            select(
-                func.count(MetricaSnapshot.id),
-                func.coalesce(func.max(MetricaSnapshot.cpu_usage_percent), 0.0),
-                func.coalesce(func.sum(MetricaSnapshot.net_in_bytes), 0.0),
-                func.coalesce(func.sum(MetricaSnapshot.net_out_bytes), 0.0),
-            ).where(
-                MetricaSnapshot.servicio_id == servicio.id,
-                MetricaSnapshot.timestamp >= desde,
-            )
-        )
-    ).one()
-    muestras, cpu_max, net_in, net_out = fila
-
-    esperadas = _muestras_esperadas(VENTANA_INACTIVIDAD)
-    cobertura = (muestras / esperadas) if esperadas else 0.0
-
-    if cobertura < COBERTURA_MINIMA:
-        return {
-            "inactivo": False,
-            "motivo": "sin_cobertura",
-            "detalle": (
-                f"solo {muestras} de ~{esperadas} muestras esperadas "
-                f"({cobertura:.0%}); la falta de medición no es inactividad"
-            ),
-        }
-
-    trafico = float(net_in) + float(net_out)
-    inactivo = float(cpu_max) < UMBRAL_CPU and trafico < UMBRAL_RED_BYTES
-    return {
-        "inactivo": inactivo,
-        "motivo": "sin_uso" if inactivo else "con_uso",
-        "detalle": f"CPU máx {float(cpu_max):.1f}%, tráfico {trafico:.0f} bytes",
-    }
+    now = clock.now()
+    end = now.replace(second=0, microsecond=0)
+    since = end - VENTANA_INACTIVIDAD
+    rows = list((await db.scalars(select(MetricaSnapshot).where(
+        MetricaSnapshot.servicio_id == servicio.id, MetricaSnapshot.intervalo_at >= since,
+        MetricaSnapshot.intervalo_at < end, MetricaSnapshot.calidad == 'confirmada',
+        MetricaSnapshot.estado_observado == 'running', MetricaSnapshot.cpu_usage_percent.is_not(None)
+    ))).all())
+    expected = _muestras_esperadas(VENTANA_INACTIVIDAD)
+    # Un delta nulo (hueco/reset) no significa cero tráfico. El entero Python
+    # evita overflow al sumar contadores BIGINT; nunca se suman acumulados.
+    valid = [r for r in rows if r.net_in_delta is not None and r.net_out_delta is not None
+        and r.duracion_observada_s > 0
+        and db_utc(r.timestamp) - timedelta(seconds=r.duracion_observada_s) >= since]
+    count = len({db_utc(r.intervalo_at) for r in valid})
+    coverage = count / expected
+    traffic = sum(r.net_in_delta + r.net_out_delta for r in valid)
+    cpu_max = max((r.cpu_usage_percent for r in rows), default=None)
+    fresh = bool(valid and max(db_utc(r.timestamp) for r in valid) >= now - timedelta(minutes=2))
+    reason = ('sin_cobertura' if coverage < COBERTURA_MINIMA else
+        'sin_observacion_reciente' if not fresh else
+        'sin_uso' if cpu_max is not None and cpu_max < UMBRAL_CPU and traffic < UMBRAL_RED_BYTES else 'con_uso')
+    return {'inactivo': reason == 'sin_uso', 'motivo': reason, 'muestras': count, 'esperadas': expected,
+        'cobertura': coverage, 'trafico_bytes': traffic, 'cpu_max': cpu_max,
+        'detalle': f'{count}/{expected} intervalos confirmados; tráfico observado {traffic} bytes'}
 
 
 async def _tiene_operacion_en_curso(db: AsyncSession, servicio: Servicio) -> bool:
@@ -99,6 +87,11 @@ async def _tiene_operacion_en_curso(db: AsyncSession, servicio: Servicio) -> boo
 
     Pausar en medio de un despliegue dejaría el recurso en un estado ambiguo.
     """
+    from app.models.operacion_infraestructura import OperacionInfraestructura
+    if await db.scalar(select(OperacionInfraestructura.id).where(
+        OperacionInfraestructura.servicio_id == servicio.id,
+        OperacionInfraestructura.estado.in_(['pendiente', 'en_curso', 'incierta'])).limit(1)):
+        return True
     if servicio.estado == EstadoServicio.ERROR:
         return True
     if servicio.pedido_id is None:
@@ -109,8 +102,7 @@ async def _tiene_operacion_en_curso(db: AsyncSession, servicio: Servicio) -> boo
 
 async def evaluar_inactividad(db: AsyncSession) -> dict:
     """Avisa, programa y ejecuta la pausa de lo que nadie usa."""
-    ahora = datetime.utcnow()
-    pve = get_proxmox_client()
+    ahora = clock.now().replace(tzinfo=None)
     avisados, pausados, cancelados, omitidos = [], [], [], []
 
     servicios = (
@@ -141,8 +133,10 @@ async def evaluar_inactividad(db: AsyncSession) -> dict:
             # Registró actividad (o no hay datos): se cancela cualquier pausa
             # programada. El aviso no se cumple si el servicio volvió a usarse.
             if servicio.pausa_programada_at is not None:
+                previous_notice = servicio.aviso_pausa_at or servicio.pausa_programada_at
                 servicio.pausa_programada_at = None
                 servicio.aviso_pausa_at = None
+                await _aviso(db, servicio, 'cancelada', previous_notice)
                 cancelados.append(servicio.id)
             else:
                 omitidos.append({"id": servicio.id, "motivo": veredicto["motivo"]})
@@ -152,118 +146,49 @@ async def evaluar_inactividad(db: AsyncSession) -> dict:
             # Primero se avisa; recién después de la gracia se apaga.
             servicio.aviso_pausa_at = ahora
             servicio.pausa_programada_at = ahora + GRACIA
+            await _aviso(db, servicio, 'programada', ahora)
             avisados.append(servicio.id)
             continue
 
         if servicio.pausa_programada_at > ahora:
             continue  # todavía en período de gracia
 
+        from app.services.operacion_service import admitir_orden
+        from fastapi import HTTPException
         try:
-            if servicio.proxmox_vmid and servicio.proxmox_node:
-                pve.stop_lxc(servicio.proxmox_node, int(servicio.proxmox_vmid))
-        except Exception as exc:
-            logger.warning("No se pudo pausar el servicio %s: %s", servicio.id, exc)
-            continue
-
-        anterior = servicio.estado.value
-        servicio.estado = EstadoServicio.PAUSED
-        servicio.pausado_auto_at = ahora
-        servicio.pausa_programada_at = None
-        db.add(
-            historial_service.registrar_servicio(
-                servicio.id,
-                anterior,
-                EstadoServicio.PAUSED.value,
-                comentario=(
-                    f"Sin uso desde {(ahora - VENTANA_INACTIVIDAD):%Y-%m-%d}: se "
-                    "liberaron cómputo y memoria. El almacenamiento sigue ocupado."
-                ),
-                usuario=None,
-            )
-        )
-        pausados.append(servicio.id)
+            async with db.begin_nested():
+                await admitir_orden(db, servicio.id, tipo='pausar', sistema='inactividad',
+                    clave=f'inactividad:{servicio.id}:{servicio.pausa_programada_at.isoformat()}',
+                    motivo='Finalizó el aviso por inactividad; detención pendiente de confirmación')
+            pausados.append(servicio.id)
+        except HTTPException:
+            omitidos.append({'id': servicio.id, 'motivo': 'admision_no_confirmada'})
 
     await db.commit()
     return {
         "afectados": len(pausados),
         "detalle": pausados,
+        "estado": "operaciones_admitidas",
         "avisados": avisados,
         "cancelados": cancelados,
         "omitidos": omitidos,
     }
 
 
-async def reactivar(db: AsyncSession, servicio: Servicio, usuario) -> Servicio:
-    """Vuelve a encender un servicio pausado.
+async def _aviso(db, service, action, at):
+    from app.services.notificacion_service import encolar_aviso_servicio
+    title = 'Pausa por inactividad programada' if action == 'programada' else 'Pausa por inactividad cancelada'
+    text = (f'El servicio #{service.id} tiene una pausa prevista tras 48 horas de gracia. '
+        'Si vuelve a registrar actividad o falta observación suficiente, se cancelará. Consultá el portal.'
+        if action == 'programada' else
+        f'Se canceló la pausa prevista del servicio #{service.id}: no se confirma inactividad. Consultá el portal.')
+    await encolar_aviso_servicio(db, service, evento=f'inactividad:{service.id}:{db_utc(at).isoformat()}:{action}',
+        tipo='inactividad_' + action, asunto=title, texto=text)
 
-    Si el clúster no tiene capacidad, el servicio queda **pausado** con el
-    motivo registrado: nunca en un estado ambiguo ni en error.
-    """
-    from fastapi import HTTPException
 
-    from app.services import capacidad_service
-
-    if servicio.estado != EstadoServicio.PAUSED:
-        raise HTTPException(
-            status_code=409,
-            detail=f"El servicio no está pausado (está en '{servicio.estado.value}')",
-        )
-
-    estado = await capacidad_service.panorama(db)
-    necesita = {
-        "vcpus": servicio.vcpus_asignados,
-        "ram_mb": servicio.ram_asignada_mb,
-        # El disco ya está ocupado: reactivar no pide almacenamiento nuevo.
-        "storage_gb": 0,
-    }
-    if capacidad_service.excede(estado["libre"], necesita):
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "codigo": "sin_capacidad",
-                "mensaje": (
-                    "Ahora mismo el clúster no tiene capacidad libre para volver a "
-                    "encender este servicio. Sigue pausado y sus datos están intactos; "
-                    "pedile a un administrador que libere capacidad."
-                ),
-            },
-        )
-
-    pve = get_proxmox_client()
-    try:
-        # Esperar la tarea, igual que `iniciar_servicio`: si la respuesta
-        # dijera "running" antes de que el contenedor arranque, el refresco
-        # siguiente lo mostraría pausado otra vez y la reactivación parecería
-        # no haber ocurrido.
-        from app.services.orquestacion_service import esperar_accion
-
-        await esperar_accion(
-            pve,
-            servicio.proxmox_node,
-            pve.start_lxc(servicio.proxmox_node, int(servicio.proxmox_vmid)),
-        )
-    except Exception as exc:
-        raise HTTPException(
-            status_code=502,
-            detail=f"No se pudo encender el servicio en la infraestructura: {exc}",
-        )
-
-    servicio.estado = EstadoServicio.RUNNING
-    servicio.pausado_auto_at = None
-    servicio.pausa_programada_at = None
-    servicio.aviso_pausa_at = None
-    db.add(
-        historial_service.registrar_servicio(
-            servicio.id,
-            EstadoServicio.PAUSED.value,
-            EstadoServicio.RUNNING.value,
-            comentario="Reactivado por la cátedra",
-            usuario=usuario,
-        )
-    )
-    await db.commit()
-    await db.refresh(servicio)
-    return servicio
+async def reactivar(db, servicio, usuario, *, clave, motivo=None):
+    from app.services.admision_service import iniciar
+    return await iniciar(db, servicio.id, actor=usuario, clave=clave, motivo=motivo)
 
 
 async def recolectar_metricas(db: AsyncSession) -> dict:

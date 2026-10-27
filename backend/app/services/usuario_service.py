@@ -10,6 +10,9 @@ alguien intenta usar el endpoint. Por eso las cátedras se consultan
 explícitamente en lugar de dejar que el ORM las resuelva solo.
 """
 
+from app.services.acceso_service import requiere_admin_actual
+import secrets
+import string
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,6 +20,24 @@ from app.models.catedra import Catedra
 from app.models.pedido import Pedido
 from app.models.usuario import Usuario, RolUsuario
 from app.schemas.usuario import UsuarioResponse
+
+
+def generar_password_provisoria(longitud: int = 10) -> str:
+    """Genera una contraseña provisoria segura de alta entropía.
+
+    Usa letras mayúsculas, minúsculas, dígitos y símbolos excluyendo
+    caracteres ambiguos (0, O, l, I) para evitar confusiones de lectura.
+    """
+    alfabeto = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!#$%"
+    pwd = [
+        secrets.choice("abcdefghijkmnpqrstuvwxyz"),
+        secrets.choice("ABCDEFGHJKLMNPQRSTUVWXYZ"),
+        secrets.choice("23456789"),
+    ]
+    for _ in range(max(longitud, 8) - len(pwd)):
+        pwd.append(secrets.choice(alfabeto))
+    secrets.SystemRandom().shuffle(pwd)
+    return "".join(pwd)
 
 
 async def catedras_de(db: AsyncSession, usuario_id: int) -> list[Catedra]:
@@ -51,9 +72,13 @@ async def con_catedras(db: AsyncSession, usuario: Usuario) -> UsuarioResponse:
         nombre=usuario.nombre,
         rol=usuario.rol.value,
         activo=usuario.activo,
+        debe_cambiar_password=getattr(usuario, "debe_cambiar_password", False),
+        recibir_notificaciones_email=getattr(usuario, "recibir_notificaciones_email", True),
         created_at=usuario.created_at,
         totp_habilitado=usuario.totp_habilitado,
         catedras=[{"id": c.id, "nombre": c.nombre} for c in catedras],
+        revision_admin=usuario.revision_admin,
+        inventario_consola=usuario.inventario_consola,
     )
 
 
@@ -73,30 +98,18 @@ async def tiene_historial(db: AsyncSession, usuario_id: int) -> bool:
 
 
 async def es_ultimo_admin_activo(db: AsyncSession, usuario_id: int) -> bool:
-    """¿Sacar a esta persona dejaría al sistema sin ningún administrador?
-
-    Se cuenta sobre administradores **activos**, no sobre filas: una cuenta dada
-    de baja no puede administrar nada, así que no salva al sistema.
-
-    Nota honesta sobre su alcance: por los endpoints actuales esta condición no
-    llega a cumplirse nunca. Quien llama tiene que ser administrador activo, y el
-    chequeo de "no podés darte de baja a vos mismo" corre antes, así que siempre
-    queda otro administrador activo. Se conserva como defensa en profundidad —
-    para cualquier camino futuro que retire cuentas sin pasar por ahí (un script,
-    una baja masiva, un cambio de rol)—, no como una validación que hoy se
-    ejercite en producción.
-    """
+    """Incluye los retiros/degradaciones admitidos y todavía no completados."""
     usuario = await db.get(Usuario, usuario_id)
     if usuario is None or usuario.rol != RolUsuario.ADMIN or not usuario.activo:
         return False
 
-    otros = await db.execute(
-        select(func.count())
-        .select_from(Usuario)
-        .where(
-            Usuario.rol == RolUsuario.ADMIN,
-            Usuario.activo.is_(True),
-            Usuario.id != usuario_id,
-        )
-    )
-    return otros.scalar_one() == 0
+    from app.services.consola_access_service import _admins_available
+    return not (await _admins_available(db) - {usuario_id})
+
+
+async def exigir_gestion(db, actor):
+    """La autorización se reevalúa también al entrar a gestión de personas."""
+    from sqlalchemy import text
+    if db.bind.dialect.name == 'postgresql':
+        await db.execute(text('SELECT pg_advisory_xact_lock(5002)'))
+    return await requiere_admin_actual(db, actor)

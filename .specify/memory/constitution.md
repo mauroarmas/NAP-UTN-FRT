@@ -1,3 +1,60 @@
+<!-- Ajuste 2026-10-26: 4.1.0 → 4.1.1 (PATCH). Por pedido de Mauro se quitan
+los pasos manuales de preparar/comprobar/publicar del alta habitual. NAP los automatiza;
+las bases IaaS del nodo aparecen directamente. Se mantienen aislamiento e integridad.
+Memoria y guía de administración sincronizadas; no se crea otra spec. -->
+<!--
+Sync Impact Report — 2026-10-26
+=================================
+Version change: 4.0.0 → 4.1.0
+Bump rationale: MINOR. Se agrega el Principio VII de simplicidad para ambos roles,
+por instrucción del usuario, y se explicita cuándo usar Spec Kit.
+
+Principios modificados: IV, se aclara que el vencimiento corresponde a instancias
+académicas, sin exigirlo a ofertas o preparaciones. Ninguno eliminado ni renombrado.
+Principio agregado: VII. Simplicidad para personas, también para administración.
+Secciones ampliadas: Flujo de Desarrollo y Compuertas de Calidad.
+Secciones removidas: ninguna.
+
+Artefactos sincronizados:
+  ✅ .specify/templates/plan-template.md — gate de simplicidad y configuración inicial.
+  ✅ .specify/templates/spec-template.md — recorrido mínimo y casos concretos.
+  ✅ .specify/templates/tasks-template.md — alcance acotado sin ampliar opciones.
+  ✅ AGENTS.md — memoria del proyecto para próximos chats y cambios directos.
+  ✅ specs/010-integrar-biblioteca-aplicaciones/ — alta simple ya documentada;
+     no se reintroducen TTL, entorno manual ni comprobaciones JSON en la UI.
+  ✅ .claude/skills/speckit-*/SKILL.md — instrucciones genéricas revisadas,
+     sin reglas de producto incompatibles ni necesidad de modificarlas.
+
+Follow-up TODOs: ninguno para esta enmienda. La conexión real de infraestructura
+se comprueba por separado; este documento no acredita despliegues.
+-->
+
+<!--
+Sync Impact Report — 2026-10-18
+=================================
+Version change: 3.1.0 → 4.0.0
+Bump rationale: MAJOR. Por corrección explícita del usuario durante la aclaración
+de la feature 009, se elimina la obligatoriedad general del segundo factor.
+La autenticación sigue siendo propia del portal; el 2FA es voluntario para ambos
+roles y obligatorio en cada ingreso de las cuentas que lo hayan activado.
+
+Secciones modificadas:
+  Principio I y Restricciones Técnicas y de Seguridad: 2FA voluntario,
+  activación confirmada, recuperación mediante códigos de un solo uso y
+  desactivación con comprobación reforzada. El cambio inicial de contraseña
+  provisoria continúa siendo obligatorio.
+
+Artefactos revisados:
+  specs/009-remediar-hallazgos-cierre/spec.md — requisitos, escenarios,
+  entidades, criterios y supuestos sincronizados con la decisión.
+  .specify/templates/*.md — no fijan obligatoriedad del 2FA; sin cambios.
+  specs/004-unificar-usuario-catedra/spec.md — referencia histórica al 2FA,
+  sin redefinir su política; prevalece la presente enmienda.
+  specs/001–008 restantes — sin reglas específicas de obligatoriedad del 2FA.
+  El informe de auditoría conserva el estado y documentos revisados a su fecha;
+  la decisión nueva queda explícita en la feature 009.
+-->
+
 <!--
 Sync Impact Report — 2026-08-30
 =================================
@@ -60,8 +117,9 @@ El portal es el **único** punto de contacto entre las personas usuarias y la ge
 infraestructura (Proxmox VE, TrueNAS, MikroTik). Ninguna persona usuaria final administra recursos
 desde la interfaz de Proxmox, ni depende de su modelo de permisos para operar el portal.
 
-- El sistema MUST mantener autenticación propia (usuario + contraseña + 2FA); MUST NOT delegar
-  el login del portal en Proxmox.
+- El sistema MUST mantener autenticación propia con usuario y contraseña; MUST NOT delegar
+  el login del portal en Proxmox. El 2FA MUST ser voluntario para ambos roles y MUST exigirse
+  al ingresar a las cuentas que lo tengan activado. No haberlo activado MUST NOT impedir operar.
 - Toda operación contra la infraestructura MUST pasar por la capa de servicios del portal
   (`app/services/`); los routers MUST NOT invocar `proxmoxer` directamente.
 - Los identificadores de recurso de Proxmox (VMID, nodo) son detalle interno: el portal los
@@ -171,11 +229,11 @@ punto donde eso se controla es la aprobación del pedido.
 - Comprometer más capacidad de la disponible MUST ser posible únicamente como acto deliberado del
   administrador, advertido por el sistema y con justificación registrada. MUST NOT ocurrir como
   efecto lateral de decisiones individualmente correctas.
-- La capacidad MUST poder recuperarse sin depender de que alguien se acuerde: todo servicio MUST
-  tener un vencimiento conocido por su cátedra desde que queda disponible.
+- La capacidad de los pedidos académicos MUST poder recuperarse sin depender de que alguien
+  se acuerde: cada instancia desplegada por un pedido MUST tener un vencimiento conocido por
+  su cátedra. Esta regla no impone vencimiento a ofertas del catálogo ni a sus preparaciones.
 - El cómputo de consumo MUST considerar únicamente recursos vigentes: lo dado de baja no ocupa
   capacidad.
-- El disco de un contenedor MUST NOT superar los 8 GB sin una justificación explícita registrada.
 
 **Rationale**: La cuota fija por cátedra obligaba a declarar por adelantado un techo que nadie sabe
 estimar antes de que empiece la cursada, y convertía errores de estimación en denegaciones
@@ -237,6 +295,35 @@ adopción por parte de quien menos margen tiene para lidiar con fricción técni
 agrega porque un sistema que recupera capacidad por su cuenta puede apagar el trabajo de alguien: si
 lo hace en silencio, la cátedra no tiene forma de distinguirlo de una falla.
 
+### VII. Simplicidad para personas, también para administración
+
+Las personas de cátedra no son técnicas y administración sólo tiene conocimientos básicos.
+El producto MUST organizarse alrededor de lo que necesitan hacer, con pocos pasos y decisiones.
+
+- Los formularios MUST pedir sólo información necesaria para la tarea. Cada campo obligatorio,
+  opción y confirmación adicional MUST responder a una necesidad concreta acordada; MUST NOT
+  agregarse para cubrir posibilidades hipotéticas.
+- La interfaz MUST usar lenguaje cotidiano, acciones claras y feedback visible de progreso,
+  éxito o error. Los detalles técnicos MUST resolverse automáticamente cuando haya información
+  suficiente; MUST NOT exigir códigos, hashes, versiones, UUID ni documentos JSON en el flujo normal.
+- La configuración de infraestructura MUST hacerse una sola vez por el responsable técnico y
+  reutilizarse. Si falta, el portal MUST informar el impedimento y el siguiente paso comprensible,
+  sin trasladar identificadores internos al administrador en cada operación.
+- Las tareas habituales MUST tener un recorrido principal sencillo. Herramientas técnicas de
+  mantenimiento MUST permanecer fuera de ese recorrido. No se agregan variantes, plazos ni
+  opciones avanzadas sin un caso real autorizado.
+- En el alta de aplicaciones, el recorrido acordado es **elegir → agregar → disponible**.
+  NAP MUST realizar la instalación y las comprobaciones en segundo plano, sin confirmaciones
+  manuales de preparar o publicar. Las bases IaaS admitidas del nodo aparecen automáticamente. La preparación normal y la oferta publicada MUST NOT tener un ensayo de
+  24 horas ni vencimiento automático. Esto no modifica la vigencia de pedidos académicos.
+- La sencillez MUST conservar autorización, aislamiento, integridad de datos, trazabilidad y
+  recuperación de fallos. NAP registra lo que comprueba; MUST NOT inventar pruebas para ocultar
+  una dependencia técnica o anunciar una operación que no se completó.
+
+**Rationale**: una solución con todas las opciones posibles puede resultar imposible de operar.
+El alcance se decide por necesidades reales, no por anticipar todos los escenarios. La complejidad
+necesaria pertenece a la implementación y a la preparación inicial, no a los formularios diarios.
+
 ## Restricciones Técnicas y de Seguridad
 
 **Stack fijo** (decisiones ya tomadas, no se revisan sin enmienda a esta constitución):
@@ -249,8 +336,16 @@ lo hace en silencio, la cátedra no tiene forma de distinguirlo de una falla.
 
 **Seguridad**:
 
-- La autenticación MUST ser propia del portal: usuario + contraseña + 2FA (TOTP). El login de
-  Proxmox MUST NOT usarse.
+- La autenticación MUST ser propia del portal: usuario y contraseña, con 2FA (TOTP) voluntario.
+  Si está activo, el segundo factor MUST verificarse antes de conceder acceso operativo.
+  El login de Proxmox MUST NOT usarse. Iniciar la configuración de 2FA MUST NOT activarlo
+  hasta comprobar un código válido.
+- Las cuentas que activen 2FA MUST disponer de códigos de recuperación de un solo uso.
+  La recuperación MUST comprobar identidad y MUST NOT convertirse en una entrada operativa
+  permanente sin segundo factor mientras siga activo. La desactivación MUST ser deliberada,
+  con contraseña y comprobación del factor o de un código de recuperación válido.
+- El cambio inicial de una contraseña provisoria MUST completarse antes de operar,
+  independientemente de la elección de 2FA.
 - Toda operación mutante sobre usuarios, cátedras, templates y el ciclo de vida de los pedidos MUST
   exigir rol administrador. Las únicas excepciones son las que el rol cátedra ejerce sobre lo
   propio: crear un pedido, solicitar la renovación de un servicio, y operar los servicios de sus
@@ -272,8 +367,12 @@ lo hace en silencio, la cátedra no tiene forma de distinguirlo de una falla.
 ## Flujo de Desarrollo y Compuertas de Calidad
 
 **Metodología**: incremental e iterativa, con desarrollo dirigido por especificación (Spec Kit).
-Toda funcionalidad nueva de entidad significativa MUST atravesar `/speckit-specify` →
-`/speckit-plan` → `/speckit-tasks` antes de implementarse.
+Las mejoras acotadas, correcciones y simplificaciones autorizadas MUST implementarse directamente,
+con validación proporcional y documentación breve donde aporte valor. MUST NOT abrirse una spec
+por rutina. Spec Kit se reserva para funcionalidades significativas con decisiones de alcance o
+contratos pendientes, o cuando el usuario lo solicite; en esos casos se usa `/speckit-specify` →
+`/speckit-plan` → `/speckit-tasks`. Los requisitos vigentes se actualizan sin reconstruir todo el
+proceso cuando la intención ya es clara.
 
 **Compuertas de calidad**:
 
@@ -318,4 +417,4 @@ violación aceptada MUST registrarse en la tabla de Complexity Tracking con su j
 alternativa más simple que se descartó; una violación sin justificación registrada bloquea la
 implementación.
 
-**Version**: 3.0.0 | **Ratified**: 2026-08-07 | **Last Amended**: 2026-08-30
+**Version**: 4.1.1 | **Ratified**: 2026-08-07 | **Last Amended**: 2026-10-26

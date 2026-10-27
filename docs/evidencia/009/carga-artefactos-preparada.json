@@ -1,0 +1,51 @@
+{
+  "fecha": "2026-10-21",
+  "estado": "preparado_no_ejecutado_en_pve",
+  "paquete": "nap009-artefactos-be1adb42254a-f08c54f30340.tar",
+  "sha256": "fbd5f4ca56ee3de729f17b93cff6c4977d77cb80cc34d6a31d124cd794c92db4",
+  "bytes": 379566080,
+  "index_sha256": "be1adb42254a8609cd9164cb8512985cb2b829a9d0fb0cf20fc448180f70b992",
+  "instalador_sha256": "f08c54f30340ee5e3882786b5684cd923b0223382bf92d2b6db70b074929f3e3",
+  "archivos": [
+    {
+      "product": "linux",
+      "kind": "image",
+      "sha256": "75cb130ed4614ab728b05905716dd4d93ad361cf54221ae5416361d75e761d21",
+      "size": 58906401
+    },
+    {
+      "product": "linux",
+      "kind": "bundle",
+      "sha256": "efe8d3e20e65b39319530742a11c6a5f6d000df24b8481e164df57c886ce6eeb",
+      "size": 5594
+    },
+    {
+      "product": "postgresql",
+      "kind": "image",
+      "sha256": "362727e170795f0d19f7c0b909e2ea1edd68294d5656496f91440429bcac5aaa",
+      "size": 149334940
+    },
+    {
+      "product": "postgresql",
+      "kind": "bundle",
+      "sha256": "7f55836f8f05ee7945bd56f58f5eea5772c8ee243703313e39a0ee72824870bb",
+      "size": 7603
+    },
+    {
+      "product": "bookstack",
+      "kind": "image",
+      "sha256": "54803740dffdf49b6a575557fe36fbb5d253c2c856bb562917ce332f536b413a",
+      "size": 171276813
+    },
+    {
+      "product": "bookstack",
+      "kind": "bundle",
+      "sha256": "625f14c83b0563292bf3b06a2584b445d8d8407fa185ea64b5ed0738d0801e56",
+      "size": 10080
+    }
+  ],
+  "destinos_imagenes": "/var/lib/vz/template/cache",
+  "destinos_bundles": "/opt/nap/recipes",
+  "registro_y_cuentas_sin_cambios": true,
+  "invitados_no_creados": true
+}

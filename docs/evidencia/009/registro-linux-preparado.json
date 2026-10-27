@@ -1,0 +1,38 @@
+{
+  "fecha": "2026-10-21",
+  "estado": "preparado_no_ejecutado",
+  "plan": {
+    "schema_version": 1,
+    "previous_sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+    "definition_sha256": "e9adb44ade04fd3e5de5f9fabd2c9786f4d632d8beb0ae63a5f611b4238244ed",
+    "cluster_uuid": "0834fb88-0a09-4b5c-8023-211bd80747d9",
+    "bundle_sha256": "efe8d3e20e65b39319530742a11c6a5f6d000df24b8481e164df57c886ce6eeb",
+    "image_sha256": "75cb130ed4614ab728b05905716dd4d93ad361cf54221ae5416361d75e761d21"
+  },
+  "plan_sha256": "70517a8bd7e93e10fa2410cc55ea67a21fcb8ab5c5516575d47a8d5706d82eb2",
+  "registry_esperado": {
+    "linux-lab-009:1.0.0": {
+      "product": "linux",
+      "cluster_uuid": "0834fb88-0a09-4b5c-8023-211bd80747d9",
+      "nodes": [
+        "proxmox"
+      ],
+      "definition_sha256": "e9adb44ade04fd3e5de5f9fabd2c9786f4d632d8beb0ae63a5f611b4238244ed",
+      "bundle_sha256": "efe8d3e20e65b39319530742a11c6a5f6d000df24b8481e164df57c886ce6eeb",
+      "bundle_path": "/opt/nap/recipes/nap009-linux-1.0.0-efe8d3e20e65b39319530742a11c6a5f6d000df24b8481e164df57c886ce6eeb.tar.gz",
+      "network_profile_ids": [
+        "lab-vmnet8"
+      ],
+      "networks": {
+        "lab-vmnet8": {
+          "subnets": [
+            "172.16.36.0/24"
+          ]
+        }
+      }
+    }
+  },
+  "instalador_sha256": "463f917e226abe3a2ae9a13b747e3cf2b5f7640a469c9b6bb1d2f901365205a3",
+  "lanzador": "/home/mauro/.local/share/nap009/registrar-receta-linux-en-proxmox.sh",
+  "sin_invitados_ni_publicacion": true
+}

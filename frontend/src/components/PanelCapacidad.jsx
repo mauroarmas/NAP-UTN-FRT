@@ -1,84 +1,23 @@
-/**
- * Los números que el administrador necesita para decidir sobre un pedido.
- *
- * Muestra, además del saldo libre, **cómo quedaría si aprueba**. Sin esa
- * proyección hay que hacer la resta de cabeza en cada decisión, que es
- * exactamente donde se cometen los errores que la reserva busca evitar.
- *
- * Los valores vienen de `GET /pedidos/{id}/evaluacion` y se recalculan en el
- * servidor cada vez: nunca se cachean.
- */
-
-const MAGNITUDES = [
-  { clave: 'vcpus', etiqueta: 'vCPUs', unidad: '' },
-  { clave: 'ram_mb', etiqueta: 'RAM', unidad: ' MB' },
-  { clave: 'storage_gb', etiqueta: 'Disco', unidad: ' GB' },
-];
+const FIELDS = [['vcpus', 'vCPU'], ['ram_mb', 'RAM (MiB)'], ['disk_gb', 'Disco (GiB)']];
+const format = (value) => value == null ? '—' : new Intl.NumberFormat('es-AR').format(value);
 
 export default function PanelCapacidad({ evaluacion }) {
   if (!evaluacion) return null;
-
-  const { capacidad, costo, libre_si_aprueba: libreDespues, excede_capacidad: excede,
-          consumo_catedra: consumoCatedra, pedido } = evaluacion;
-
-  return (
-    <div className="panel-capacidad">
-      <p className="capacidad-riesgo">
-        Cátedra <strong>{pedido?.catedra?.nombre}</strong> — tiene{' '}
-        {consumoCatedra.vcpus} vCPU, {consumoCatedra.ram_mb} MB de RAM y{' '}
-        {consumoCatedra.storage_gb} GB de disco desplegados.
-      </p>
-
-      <div className="capacidad-grid">
-        {MAGNITUDES.map(({ clave, etiqueta, unidad }) => {
-          const quedaria = libreDespues[clave];
-          const insuficiente = quedaria < 0;
-          return (
-            <div
-              key={clave}
-              className={`capacidad-item${insuficiente ? ' is-excedido' : ''}`}
-            >
-              <div className="capacidad-item__label">{etiqueta} libre</div>
-              <div className="capacidad-item__valor">
-                {capacidad.libre[clave]}
-                {unidad}
-              </div>
-              <div className="capacidad-item__proyectado">
-                Este pedido pide {costo[clave]}
-                {unidad} → quedarían {quedaria}
-                {unidad}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {excede && (
-        <div className="capacidad-aviso">
-          <strong>Aprobar esto compromete más capacidad de la disponible.</strong>{' '}
-          Podés hacerlo igual, pero tenés que dejar una justificación: queda
-          registrada junto con la aprobación.
-        </div>
-      )}
-
-      <p className="capacidad-riesgo">
-        Del total físico ({capacidad.fisica.vcpus} vCPU,{' '}
-        {capacidad.fisica.ram_mb} MB), hay {capacidad.reservado.vcpus} vCPU y{' '}
-        {capacidad.reservado.ram_mb} MB <strong>reservados</strong> por pedidos ya
-        aprobados que todavía no se desplegaron.
-      </p>
-
-      {capacidad.ram_en_riesgo_mb > 0 && (
-        <p className="capacidad-riesgo">
-          Si todos los servicios pausados se reactivaran a la vez harían falta{' '}
-          {capacidad.ram_en_riesgo_mb} MB de RAM
-          {capacidad.ram_en_riesgo_mb > capacidad.libre.ram_mb && (
-            <strong> — más de lo que hay libre, así que algunas reactivaciones
-            van a fallar</strong>
-          )}
-          .
-        </p>
-      )}
-    </div>
-  );
+  const cost = evaluacion.costo_incremental;
+  const zero = FIELDS.every(([field]) => cost?.[field] === 0);
+  const destination = evaluacion.seleccion?.destino;
+  return <section aria-label="Evaluación de la asignación" className="card" style={{ padding: 16 }}>
+    <p>{zero ? 'Registrar estas condiciones no reserva recursos ni enciende el contenedor.'
+      : evaluacion.justificacion_requerida ? 'La asignación requiere justificar la sobreasignación lógica.'
+        : 'Selección evaluada. Confirmá los recursos, destino y fechas antes de aprobar.'}</p>
+    {destination && <p>Destino: {destination.nodo} / {destination.storage}</p>}
+    <table><thead><tr><th>Recurso</th><th>Libre antes</th><th>Costo incremental</th><th>Libre previsto</th></tr></thead>
+      <tbody>{FIELDS.map(([field, label]) => <tr key={field}><th scope="row">{label}</th>
+        <td>{format(evaluacion.libre_antes?.[field])}</td><td>{format(cost?.[field])}</td><td>{format(evaluacion.libre_despues?.[field])}</td>
+      </tr>)}</tbody>
+    </table>
+    {evaluacion.restricciones_fisicas?.length > 0 && <p role="alert">El destino tiene límites físicos que impiden aprobar: {evaluacion.restricciones_fisicas.join(', ')}.</p>}
+    {evaluacion.vigencia_efectiva && <p>Vigencia efectiva: {evaluacion.vigencia_efectiva.desde || evaluacion.vigencia_efectiva.inicio_at} → {evaluacion.vigencia_efectiva.hasta || evaluacion.vigencia_efectiva.fin_exclusivo_at}.</p>}
+    <p>Una evaluación vence a los 60 segundos. Editar la selección requiere evaluarla nuevamente.</p>
+  </section>;
 }

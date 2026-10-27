@@ -1,0 +1,7 @@
+{
+  "fecha": "2026-10-21",
+  "herramienta": "pip-audit",
+  "fuente_sha256": "81049585b20d6852805c655930d99a6d54bcf077bc3e4686ac0853ec51ab0fde",
+  "dependencias_unicas": 116,
+  "hallazgos": []
+}

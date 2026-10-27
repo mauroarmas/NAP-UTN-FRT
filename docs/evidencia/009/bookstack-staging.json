@@ -1,0 +1,140 @@
+{
+  "entorno": "staging_local_real",
+  "producto": "bookstack",
+  "actualizado_at": "2026-10-22T21:18:42.592944+00:00",
+  "cluster_uuid": "0834fb88-0a09-4b5c-8023-211bd80747d9",
+  "pool": "nap009-staging",
+  "fase": "dos_bookstack_verificados_localmente",
+  "definition_draft_sha256": "9f361274e5cf89050623161b10657f9e97e77211804897550a4040ede7dbcad6",
+  "bundle_sha256": "8b3a7c9c2910d145951c3e74362f467fb68535dc2d75fd1c6a93cbf4919dcefe",
+  "instancias": [
+    {
+      "vmid": 106,
+      "host": "bookstack1.nap009.lab",
+      "address": "172.16.36.31",
+      "cert_prefix": "bookstack-1",
+      "teacher_email": "docente1@fi.uba.ar",
+      "resource_uuid": "104bbeae-3587-42d1-b476-f589fe5698ef",
+      "operation_id": "15d717ac-ee11-47b9-8149-b5b1d9235c06",
+      "fase": "verified_local",
+      "create_upid": "UPID:proxmox:0000B244:00133DD7:6ADA764A:vzcreate:106:nap009lab@pve!ensayos:",
+      "create_exitstatus": "WARNINGS: 1",
+      "bootstrap_response": {
+        "action": "bootstrap",
+        "identity_verified": true,
+        "observed_at": "2026-10-22T21:13:33.523142+00:00",
+        "operation_id": "15d717ac-ee11-47b9-8149-b5b1d9235c06",
+        "phase": "verified",
+        "protocol": "nap-guest-runner/1",
+        "resource_uuid": "104bbeae-3587-42d1-b476-f589fe5698ef",
+        "result": {
+          "address": "172.16.36.31",
+          "addresses": [
+            "172.16.36.31"
+          ],
+          "bootstrap_completed": true,
+          "checks": [
+            "bookstack-status-v1"
+          ],
+          "endpoint": "https://bookstack1.nap009.lab",
+          "host": "bookstack1.nap009.lab",
+          "port": 443,
+          "ready": true,
+          "username": "docente1@fi.uba.ar"
+        },
+        "status": "succeeded"
+      },
+      "definition_sha256": "9f361274e5cf89050623161b10657f9e97e77211804897550a4040ede7dbcad6",
+      "bundle_sha256": "8b3a7c9c2910d145951c3e74362f467fb68535dc2d75fd1c6a93cbf4919dcefe",
+      "verify_response": {
+        "action": "verify",
+        "identity_verified": true,
+        "observed_at": "2026-10-22T21:15:15.359377+00:00",
+        "operation_id": "4a45fedc-eace-4a4e-90ee-fb67a7d6a717",
+        "phase": "verified",
+        "protocol": "nap-guest-runner/1",
+        "resource_uuid": "104bbeae-3587-42d1-b476-f589fe5698ef",
+        "result": {
+          "address": "172.16.36.31",
+          "addresses": [
+            "172.16.36.31"
+          ],
+          "bootstrap_completed": true,
+          "checks": [
+            "bookstack-status-v1"
+          ],
+          "endpoint": "https://bookstack1.nap009.lab",
+          "host": "bookstack1.nap009.lab",
+          "port": 443,
+          "ready": true,
+          "username": "docente1@fi.uba.ar"
+        },
+        "status": "succeeded"
+      }
+    },
+    {
+      "vmid": 107,
+      "host": "bookstack2.nap009.lab",
+      "address": "172.16.36.32",
+      "cert_prefix": "bookstack-2",
+      "teacher_email": "docente2@fi.uba.ar",
+      "resource_uuid": "43f10a09-29b4-420f-a186-5f5162ae07b2",
+      "operation_id": "c8e5c5fc-45e1-43ef-a520-334650580f79",
+      "fase": "verified_local",
+      "create_upid": "UPID:proxmox:0000B2E9:00134C70:6ADA766F:vzcreate:107:nap009lab@pve!ensayos:",
+      "create_exitstatus": "WARNINGS: 1",
+      "definition_sha256": "9f361274e5cf89050623161b10657f9e97e77211804897550a4040ede7dbcad6",
+      "bundle_sha256": "8b3a7c9c2910d145951c3e74362f467fb68535dc2d75fd1c6a93cbf4919dcefe",
+      "bootstrap_response": {
+        "action": "bootstrap",
+        "identity_verified": true,
+        "observed_at": "2026-10-22T21:17:11.395428+00:00",
+        "operation_id": "c8e5c5fc-45e1-43ef-a520-334650580f79",
+        "phase": "verified",
+        "protocol": "nap-guest-runner/1",
+        "resource_uuid": "43f10a09-29b4-420f-a186-5f5162ae07b2",
+        "result": {
+          "address": "172.16.36.32",
+          "addresses": [
+            "172.16.36.32"
+          ],
+          "bootstrap_completed": true,
+          "checks": [
+            "bookstack-status-v1"
+          ],
+          "endpoint": "https://bookstack2.nap009.lab",
+          "host": "bookstack2.nap009.lab",
+          "port": 443,
+          "ready": true,
+          "username": "docente2@fi.uba.ar"
+        },
+        "status": "succeeded"
+      },
+      "verify_response": {
+        "action": "verify",
+        "identity_verified": true,
+        "observed_at": "2026-10-22T21:18:42.507686+00:00",
+        "operation_id": "4cd0d5b7-04ab-4d78-ade8-c31a5d4e1eda",
+        "phase": "verified",
+        "protocol": "nap-guest-runner/1",
+        "resource_uuid": "43f10a09-29b4-420f-a186-5f5162ae07b2",
+        "result": {
+          "address": "172.16.36.32",
+          "addresses": [
+            "172.16.36.32"
+          ],
+          "bootstrap_completed": true,
+          "checks": [
+            "bookstack-status-v1"
+          ],
+          "endpoint": "https://bookstack2.nap009.lab",
+          "host": "bookstack2.nap009.lab",
+          "port": 443,
+          "ready": true,
+          "username": "docente2@fi.uba.ar"
+        },
+        "status": "succeeded"
+      }
+    }
+  ]
+}

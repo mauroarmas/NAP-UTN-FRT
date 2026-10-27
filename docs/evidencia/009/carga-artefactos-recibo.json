@@ -1,0 +1,58 @@
+{
+  "fecha_recepcion": "2026-10-21",
+  "fuente": "salida del instalador root compartida por el usuario en el chat",
+  "estado": "artefactos_copiados",
+  "verificaciones_paquete_e_instalador": "OK según salida compartida",
+  "archivos": [
+    {
+      "producto": "linux",
+      "tipo": "image",
+      "destino": "/var/lib/vz/template/cache/nap009-linux-1.0.0.tar.gz",
+      "sha256": "75cb130ed4614ab728b05905716dd4d93ad361cf54221ae5416361d75e761d21",
+      "bytes": 58906401,
+      "ya_existia": false
+    },
+    {
+      "producto": "linux",
+      "tipo": "bundle",
+      "destino": "/opt/nap/recipes/nap009-linux-1.0.0-efe8d3e20e65b39319530742a11c6a5f6d000df24b8481e164df57c886ce6eeb.tar.gz",
+      "sha256": "efe8d3e20e65b39319530742a11c6a5f6d000df24b8481e164df57c886ce6eeb",
+      "bytes": 5594,
+      "ya_existia": false
+    },
+    {
+      "producto": "postgresql",
+      "tipo": "image",
+      "destino": "/var/lib/vz/template/cache/nap009-postgresql-1.0.0.tar.gz",
+      "sha256": "362727e170795f0d19f7c0b909e2ea1edd68294d5656496f91440429bcac5aaa",
+      "bytes": 149334940,
+      "ya_existia": false
+    },
+    {
+      "producto": "postgresql",
+      "tipo": "bundle",
+      "destino": "/opt/nap/recipes/nap009-postgresql-1.0.0-7f55836f8f05ee7945bd56f58f5eea5772c8ee243703313e39a0ee72824870bb.tar.gz",
+      "sha256": "7f55836f8f05ee7945bd56f58f5eea5772c8ee243703313e39a0ee72824870bb",
+      "bytes": 7603,
+      "ya_existia": false
+    },
+    {
+      "producto": "bookstack",
+      "tipo": "image",
+      "destino": "/var/lib/vz/template/cache/nap009-bookstack-1.0.0.tar.gz",
+      "sha256": "54803740dffdf49b6a575557fe36fbb5d253c2c856bb562917ce332f536b413a",
+      "bytes": 171276813,
+      "ya_existia": false
+    },
+    {
+      "producto": "bookstack",
+      "tipo": "bundle",
+      "destino": "/opt/nap/recipes/nap009-bookstack-1.0.0-625f14c83b0563292bf3b06a2584b445d8d8407fa185ea64b5ed0738d0801e56.tar.gz",
+      "sha256": "625f14c83b0563292bf3b06a2584b445d8d8407fa185ea64b5ed0738d0801e56",
+      "bytes": 10080,
+      "ya_existia": false
+    }
+  ],
+  "registro_cuentas_red_invitados_sin_cambios": true,
+  "comprobacion_independiente_api": "carga-artefactos-pve.json"
+}

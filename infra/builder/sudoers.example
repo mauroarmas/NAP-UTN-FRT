@@ -1,0 +1,2 @@
+# Sólo host de construcción separado; no instalar en nodos operativos.
+nap-builder ALL=(root) NOPASSWD: /usr/local/sbin/nap-build-runner ""

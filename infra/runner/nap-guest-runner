@@ -1,0 +1,5 @@
+#!/bin/sh
+# Wrapper root sin argumentos; no heredar PYTHONPATH, SSH_ORIGINAL_COMMAND, etc.
+test "$#" -eq 0 || exit 1
+exec /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LANG=C.UTF-8 \
+    /usr/bin/python3 -I /opt/nap/runner/nap_guest_runner.py

@@ -22,7 +22,9 @@ router = APIRouter(prefix="/admin", tags=["Administración"])
 async def listar_jobs(current_user: Usuario = Depends(require_admin)):
     """Trabajos registrados y su cadencia."""
     return [
-        {"nombre": nombre, "cada_minutos": cada}
+        {"nombre": nombre, "cada_minutos": cada,
+            "cada_segundos": scheduler.CADENCIAS_SEGUNDOS.get(nombre),
+            "diario": nombre in scheduler.TRABAJOS_DIARIOS}
         for nombre, (_, cada) in scheduler.TRABAJOS.items()
     ]
 

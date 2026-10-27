@@ -17,6 +17,14 @@ services:
       retries: 5
     restart: unless-stopped
 
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: ps_mailpit
+    ports:
+      - "8025:8025"
+      - "1025:1025"
+    restart: unless-stopped
+
   api:
     build:
       context: .
@@ -24,31 +32,61 @@ services:
     container_name: ps_backend
     ports:
       - "8001:8000"
-    environment:
+    environment: &api_environment
       DATABASE_URL: postgresql+asyncpg://ps_user:ps_password@db:5432/ps_db
-      PROXMOX_HOST: ${PROXMOX_HOST:-192.168.1.92}
+      PROXMOX_HOST: ${PROXMOX_HOST:-172.16.36.100}
       PROXMOX_PORT: 8006
       PROXMOX_USER: root@pam
       PROXMOX_TOKEN_NAME: ${PROXMOX_TOKEN_NAME:-ps-dev}
       PROXMOX_TOKEN_VALUE: ${PROXMOX_TOKEN_VALUE:-}
       PROXMOX_VERIFY_SSL: "false"
       SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
+      CSRF_SECRET: ${CSRF_SECRET:-}
+      SECRET_KEYRING: ${SECRET_KEYRING:?Configurar SECRET_KEYRING en .env antes de iniciar el portal}
+      SECRET_ACTIVE_KEY: ${SECRET_ACTIVE_KEY:-}
+      APP_FRONTEND_URL: http://localhost:5174
       APP_ENV: development
       APP_DEBUG: "true"
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-noreply@frt.utn.edu.ar}
+      SMTP_TLS: ${SMTP_TLS:-false}
+      SMTP_SSL: ${SMTP_SSL:-false}
     depends_on:
       db:
         condition: service_healthy
+      mailpit:
+        condition: service_started
+    restart: unless-stopped
+
+  notificaciones:
+    build:
+      context: .
+      dockerfile: dockerfile
+    container_name: ps_notificaciones
+    command: ["python", "-m", "app.worker", "--solo-notificaciones"]
+    environment:
+      <<: *api_environment
+      APP_DEBUG: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
     restart: unless-stopped
 
   frontend:
     build:
       context: .
       dockerfile: frontend.dockerfile
+      target: dev
     container_name: ps_frontend
     ports:
       - "5174:5173"
     environment:
-      VITE_API_URL: http://localhost:8001
+      NAP_BACKEND_PROXY: http://api:8000
     depends_on:
       - api
     restart: unless-stopped

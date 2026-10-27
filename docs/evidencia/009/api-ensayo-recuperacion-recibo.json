@@ -1,0 +1,19 @@
+{
+  "fecha": "2026-10-21",
+  "fuente": "éxito informado por usuario y lectura HTTPS con token dedicado",
+  "recuperacion": {
+    "estado": "configurado_pendiente_verificacion_api",
+    "usuario": "nap009lab@pve",
+    "token_id": "nap009lab@pve!ensayos",
+    "pool": "nap009-staging",
+    "expire": 1795194615,
+    "recuperacion_snapshot_sha256": "6895e238aa8b33d77c4279c27399c8aaf7ecf8f9f7926d4c87c9b1656143a629",
+    "token_orfano_reemitido": true,
+    "respaldo_root": "/root/nap009-api-respaldo-hjkffjz4",
+    "consolas_y_ensayos_no_acreditados": true,
+    "tls": {
+      "renovado": false
+    }
+  },
+  "verificacion": "api-ensayo-verificacion.json"
+}

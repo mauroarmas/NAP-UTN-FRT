@@ -1,0 +1,33 @@
+{
+  "entorno": "staging_local_real",
+  "pve_version": "9.2.2",
+  "nodo": "proxmox",
+  "cluster_uuid": "0834fb88-0a09-4b5c-8023-211bd80747d9",
+  "pool": "nap009-staging",
+  "fecha_finalizacion": "2026-10-22T21:20:00Z",
+  "productos_ensayados": {
+    "linux": {
+      "definition_key": "linux-lab-009",
+      "definition_version": "1.0.0",
+      "instancias": [100, 102],
+      "checks": ["linux-ready-v1"],
+      "resultado": "bootstrap_y_verify_aprobados"
+    },
+    "postgresql": {
+      "definition_key": "postgresql-lab-009",
+      "definition_version": "1.0.0",
+      "instancias": [104, 105],
+      "checks": ["postgresql-select-v1"],
+      "resultado": "bootstrap_y_verify_aprobados"
+    },
+    "bookstack": {
+      "definition_key": "bookstack-lab-009",
+      "definition_version": "1.0.0",
+      "instancias": [106, 107],
+      "checks": ["bookstack-status-v1"],
+      "resultado": "bootstrap_y_verify_aprobados"
+    }
+  },
+  "invitados_preexistentes_conservados": [101, 103],
+  "estado_final_instancias": "todas_detenidas_sin_recursos_ocupados"
+}

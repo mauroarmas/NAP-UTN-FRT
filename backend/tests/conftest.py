@@ -1,6 +1,8 @@
 """Fixtures compartidas: base en memoria, cliente HTTP y doble de Proxmox."""
 
 from types import SimpleNamespace
+import os
+from pathlib import Path
 
 import pytest
 import pytest_asyncio
@@ -20,10 +22,48 @@ from app.models import (  # noqa: F401 — registra las tablas en Base.metadata
     Usuario,
 )
 from app.models.usuario import RolUsuario
-from app.utils.security import create_access_token
+from tests.auth_helpers import headers_para
 
 from tests import factories
 from tests.fakes import FakeProxmoxClient
+from tests.network import block_network
+from app.services.email_service import despachar_email as REAL_EMAIL_SENDER
+
+
+def pytest_addoption(parser):
+    parser.addoption('--require-postgres', action='store_true', help='Exigir TEST_DATABASE_URL explícita')
+
+
+def pytest_configure(config):
+    config.addinivalue_line('markers', 'postgres: requiere PostgreSQL 16 de pruebas aislado')
+    explicit_pg = any('tests/postgres' in str(arg).replace('\\', '/') for arg in config.args)
+    if (config.getoption('--require-postgres') or explicit_pg) and not os.environ.get('TEST_DATABASE_URL'):
+        raise pytest.UsageError('Configurar TEST_DATABASE_URL para las pruebas PostgreSQL (backend/README.md)')
+
+
+def pytest_collection_modifyitems(config, items):
+    for item in items:
+        if Path(__file__).parent / 'postgres' in Path(item.path).parents:
+            item.add_marker(pytest.mark.postgres)
+            if not os.environ.get('TEST_DATABASE_URL'):
+                item.add_marker(pytest.mark.skip(reason='Requiere TEST_DATABASE_URL; job PostgreSQL obligatorio en CI'))
+
+
+@pytest.fixture(autouse=True)
+def no_real_network(monkeypatch):
+    block_network(monkeypatch, allow_postgres=True)
+
+
+@pytest.fixture(autouse=True)
+def isolated_auth_configuration(monkeypatch):
+    from cryptography.fernet import Fernet
+    from app.config import get_settings
+    settings = get_settings()
+    monkeypatch.setattr(settings, 'app_env', 'development')
+    monkeypatch.setattr(settings, 'app_frontend_url', 'http://test')
+    monkeypatch.setattr(settings, 'csrf_secret', 'test-only-independent-csrf-key-009')
+    monkeypatch.setattr(settings, 'secret_keyring', {'test': Fernet.generate_key().decode()})
+    monkeypatch.setattr(settings, 'secret_active_key', 'test')
 
 
 @pytest_asyncio.fixture
@@ -57,7 +97,7 @@ async def client(engine, db) -> AsyncClient:
 
     app.dependency_overrides[get_db] = _get_db_override
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test/api/v1") as ac:
+    async with AsyncClient(transport=transport, base_url="http://test/api/v1", headers={'Origin': 'http://test', 'X-NAP-Request': '1'}) as ac:
         yield ac
     app.dependency_overrides.clear()
 
@@ -78,6 +118,7 @@ def proxmox(monkeypatch) -> FakeProxmoxClient:
     """
     fake = FakeProxmoxClient()
     monkeypatch.setattr("app.services.proxmox_client._proxmox_client", fake)
+    monkeypatch.setattr("app.services.proxmox_client.get_proxmox_factory", lambda: lambda: fake)
     return fake
 
 
@@ -146,7 +187,7 @@ async def usuario_multicatedra(db):
         ajeno=ajeno,
         ajena=ajena,
         template=template,
-        headers=_headers(titular),
+        headers=await headers_para(db, titular),
     )
 
 
@@ -155,18 +196,30 @@ async def template(db) -> RecursoTemplate:
     return await factories.crear_template(db)
 
 
-def _headers(usuario: Usuario) -> dict:
-    token = create_access_token({"sub": usuario.username, "rol": usuario.rol.value})
-    return {"Authorization": f"Bearer {token}"}
+@pytest_asyncio.fixture
+async def auth_admin(admin, db) -> dict:
+    """Cookie/CSRF de dominio; no prueba ingreso ni habilitación MFA."""
+    return await headers_para(db, admin)
 
 
-@pytest.fixture
-def auth_admin(admin) -> dict:
-    """Cabeceras con JWT válido de administrador."""
-    return _headers(admin)
+@pytest_asyncio.fixture
+async def auth_catedra(usuario_catedra, db) -> dict:
+    return await headers_para(db, usuario_catedra)
 
 
-@pytest.fixture
-def auth_catedra(usuario_catedra) -> dict:
-    """Cabeceras con JWT válido de responsable de cátedra."""
-    return _headers(usuario_catedra)
+@pytest.fixture(autouse=True)
+def mock_email(monkeypatch) -> list[dict]:
+    """Captura los correos despachados para inspección en tests y evita envíos reales."""
+    enviados = []
+
+    def _fake_despachar(destinatarios, asunto, texto_plano, html_contenido, **kwargs):
+        enviados.append({
+            "destinatarios": destinatarios,
+            "asunto": asunto,
+            "texto_plano": texto_plano,
+            "html_contenido": html_contenido,
+        })
+
+    monkeypatch.setattr("app.services.email_service.despachar_email", _fake_despachar)
+    return enviados
+
