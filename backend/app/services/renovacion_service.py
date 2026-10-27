@@ -66,6 +66,7 @@ async def solicitar(db, servicio_id, *, actor, body, clave, sustituye_id=None):
                 servicio_id=service.id, estado=EstadoPedido.SOLICITADO, sustituye_vigencia_id=sustituye_id,
                 descripcion_requerimientos=normalized.get('motivo'), asignacion_snapshot=service.asignacion_snapshot,
                 definicion_version_id=service.definicion_version_id,
+                configuracion_despliegue_id=service.configuracion_despliegue_id,
                 destino_snapshot={'nodo': ledger.nodo, 'storage': ledger.storage_id, 'storage_scope': ledger.storage_scope},
                 created_at=clock.now().replace(tzinfo=None), updated_at=clock.now().replace(tzinfo=None))
             from app.services.solicitud_service import asignar_vigencia
@@ -93,7 +94,7 @@ async def calcular(db, request, selection):
         raise error(409, 'asignacion_sin_regularizar', 'La asignación requiere regularización')
     expected = service.asignacion_snapshot
     selected = selection.asignacion.model_dump(mode='json')
-    for field in ['template_id', 'definicion_version_id', 'vcpus', 'ram_mb', 'disk_gb']:
+    for field in ['template_id', 'definicion_version_id', 'configuracion_despliegue_id', 'vcpus', 'ram_mb', 'disk_gb']:
         if selected.get(field) != expected.get(field):
             raise error(422, 'renovacion_sin_cambio_recursos', 'La renovación conserva producto, recursos y contenedor')
     destination = {'nodo': ledger.nodo, 'storage': ledger.storage_id}

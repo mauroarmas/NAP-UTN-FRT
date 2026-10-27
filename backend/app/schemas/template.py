@@ -113,6 +113,7 @@ class AlcanceDelCambio(BaseModel):
 
 
 class TemplateResponse(TemplateBase):
+    configuracion_despliegue_id: UUID | None = None
     codigo_definicion: str | None = None
     revision: int = 1
     minimum_resources: dict[str, int] | None = None

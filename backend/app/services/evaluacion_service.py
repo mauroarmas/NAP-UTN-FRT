@@ -90,16 +90,29 @@ async def calcular(db, pedido_id, *, actor, payload, pve=None, bloquear=False):
     library=bool(offered_definition and offered_definition.incorporacion_id)
     from app.services.bases_iaas_service import es_base
     raw_iaas = es_base(template)
-    if (not raw_iaas and not selection.asignacion.definicion_version_id) or selection.asignacion.definicion_version_id != template.definicion_version_id:
-        if library:
-            raise error(409, 'evaluacion_desactualizada', 'La oferta cambió; actualizá el catálogo y volvé a evaluar', definicion_version_id=str(template.definicion_version_id), version=offered_definition.version)
-        raise error(422, 'definicion_incompatible', 'La evaluación debe usar la definición vinculada al perfil seleccionado')
-    from app.services.perfiles_service import exigir_definicion
-    definition = await exigir_definicion(db, template, bloquear=bloquear)
-    from app.schemas.tamanos import TAMANOS
-    minimums = definition.manifest['minimum_resources'] if definition else TAMANOS['small']
-    image = definition.manifest['image']['volume_id'] if definition else template.os_template
+    from app.services.perfiles_service import exigir_definicion,exigir_configuracion
+    configuration=document=profile=None
+    if template.configuracion_despliegue_id:
+        if selection.asignacion.configuracion_despliegue_id!=template.configuracion_despliegue_id:
+            raise error(409,'evaluacion_desactualizada','La aplicación cambió; actualizá el catálogo y volvé a evaluar')
+        configuration,document,profile=await exigir_configuracion(db,template,bloquear=bloquear)
+        definition=None
+        minimums=document['minimum_resources'];image=document['base']['volumen_lxc']
+    else:
+        if (selection.asignacion.configuracion_despliegue_id or (not raw_iaas and not selection.asignacion.definicion_version_id)
+                or selection.asignacion.definicion_version_id!=template.definicion_version_id):
+            if library:
+                raise error(409, 'evaluacion_desactualizada', 'La oferta cambió; actualizá el catálogo y volvé a evaluar', definicion_version_id=str(template.definicion_version_id), version=offered_definition.version)
+            raise error(422, 'definicion_incompatible', 'La evaluación debe usar la definición vinculada al perfil seleccionado')
+        definition = await exigir_definicion(db, template, bloquear=bloquear)
+        from app.schemas.tamanos import TAMANOS
+        minimums = definition.manifest['minimum_resources'] if definition else TAMANOS['small']
+        image = definition.manifest['image']['volume_id'] if definition else template.os_template
     assignment = selection.asignacion.model_dump(mode='json')
+    if configuration:
+        from app.schemas.tamanos import identificar_tamano
+        if identificar_tamano(assignment) is None:
+            raise error(422,'tamano_incompatible','Elegí Small o Medium para esta aplicación')
     if any(assignment[key] < minimums[key] for key in minimums):
         raise error(422, 'recursos_inferiores_minimos', 'La asignación no alcanza los mínimos validados del producto')
     period = await vigencia_service.resolver_solicitud(db, selection.vigencia.model_dump(mode='json', exclude_none=True), get_settings().institutional_timezone)
@@ -107,6 +120,10 @@ async def calcular(db, pedido_id, *, actor, payload, pve=None, bloquear=False):
         raise error(422, 'vigencia_finalizada', 'La fecha final ya pasó')
     inventory = await inventario_service.leer(pve)
     overview = await capacidad_service.panorama(db, inventario=inventory)
+    if profile:
+        overview={**overview,'destinos':[entry for entry in overview['destinos'] if entry['destino']['nodo'] in profile['nodes']]}
+        if not overview['destinos']:
+            raise error(409,'perfil_aplicacion_no_disponible','No hay un destino habilitado para esta aplicación')
     cost = {key: assignment[key] if pedido.tipo == TipoPedido.ALTA else 0 for key in ['vcpus', 'ram_mb', 'disk_gb']}
     if selection.destino is None:
         adequate = [entry for entry in overview['destinos'] if all(entry['libre'][key] >= cost[key] for key in cost)]
@@ -116,6 +133,16 @@ async def calcular(db, pedido_id, *, actor, payload, pve=None, bloquear=False):
     capacity = next((entry for entry in overview['destinos'] if entry['destino'] == destination), None)
     if capacity is None:
         raise error(422, 'destino_no_permitido', 'Elegí un destino LXC elegible del inventario autorizado')
+    frozen=None
+    if configuration:
+        from app.services.application_profiles_service import require_profile
+        from app.services.reserva_red_service import validar_red_aplicacion
+        profile=require_profile(document['perfil'],cluster_uuid=inventory['cluster_id'],node=destination['nodo'])
+        network,network_hash=validar_red_aplicacion(profile['network_profile_id'],
+            cluster_uuid=inventory['cluster_id'],node=destination['nodo'])
+        frozen={'id':str(configuration.id),'revision':configuration.revision,'sha256':configuration.sha256,
+            'documento':document,'perfil_snapshot':profile,'network_profile_id':profile['network_profile_id'],
+            'network_revision':network['revision'],'network_sha256':network_hash,'network_snapshot':network}
     if not image or not isinstance(image, str) or not __import__('re').fullmatch(r'[A-Za-z][A-Za-z0-9_-]*:vztmpl/[A-Za-z0-9][A-Za-z0-9_.-]*\.tar\.(zst|xz|gz)', image):
         raise error(422, 'imagen_no_preparada', 'La plantilla necesita una imagen LXC preparada')
     image_storage = image.split(':', 1)[0]
@@ -146,12 +173,14 @@ async def calcular(db, pedido_id, *, actor, payload, pve=None, bloquear=False):
              'definicion_hash': inventario_service.fingerprint(definition.manifest) if definition else None,
              'seleccion': normalized, 'vigencia': dates, 'inventario_compromisos': overview['capacidad_token'],
              'requiere_justificacion': exceeds, 'restricciones_fisicas': constraints}
+    if frozen:state['configuracion_aprobada']=frozen
     fingerprint = inventario_service.fingerprint(state)
     result = {'pedido_id': pedido.id, 'seleccion': normalized, 'vigencia_efectiva': dates,
         'costo_incremental': cost, 'libre_antes': {key: capacity['libre'][key] for key in cost},
         'libre_despues': {key: capacity['libre'][key] - cost[key] for key in cost},
         'storage_scope': capacity['storage_scope'], 'excede_capacidad': exceeds, 'justificacion_requerida': exceeds,
         'restricciones_fisicas': constraints, 'limites': capacity, 'observado_at': utc_z(clock.now())}
+    if frozen:result['configuracion_aprobada']=frozen
     if library:
         original=pedido.seleccion_oferta_snapshot or {}
         result.update(version_solicitada=original.get('version'), version_efectiva=definition.version,

@@ -34,6 +34,11 @@
 
 ## Phase 2: Foundational — contratos, identidad y ejecución común
 
+**Validación acordada con Mauro**: ejecutar selecciones afectadas por bloque, sin regresión
+completa entre fases. Los checks críticos y las aceptaciones reales se conservan; las suites
+generales se reservan para un hito importante o la entrega. No repetir una comprobación verde
+si el cambio siguiente no la afecta. No eliminar pruebas existentes por este ajuste.
+
 **Objetivo**: construir la base compartida de los dos orígenes. Este bloque es prerrequisito de todas las historias; no crear otra máquina de estados, ledger de capacidad o cola académica.
 
 ### Pruebas previas de la base
@@ -63,7 +68,7 @@
 - [X] T027 Implementar colector/spool en `infra/applications/job/spool.py` y `infra/applications/job/collector.py`: source_seq, captura por stream, flush <=250 ms, fragmentos <=8 KiB, lectura <=64 KiB, almacenamiento acotado, pérdidas explícitas y purga por ACK sin bloquear la aplicación cuando no hay lector.
 - [X] T028 Completar canal privado y distribución del paquete común en `infra/applications/job/credentials.py`, `infra/runner/install.sh` e `infra/runner/README.md`; instalar el paquete construido mediante `infra/laboratorio/011/preparar_entorno.py` antes de sus pruebas reales, con respaldo/rollback y perfiles pendientes. Credenciales efímeras /run cargadas por systemd y retiradas del origen; ningún secreto en argv, propiedades de unidad, journal, spool o repositorio.
 - [X] T029 Implementar `backend/app/services/application_job_client.py` con llamadas cortas, JSON acotado, hostkey fijada, reintento sólo de consultas y correlación de identidad/generación; timeout de start produce reconciliación, nunca otra ejecución automática.
-- [ ] T030 Integrar la rama declarativa en `backend/app/services/perfiles_service.py`, `backend/app/services/evaluacion_service.py` y `backend/app/services/admision_service.py`: revalidación bajo locks, snapshot aprobado inmutable con hash/perfil/fuentes/red/referencias sensibles y reserva única; conservar verificación legacy e IaaS y el flujo inmediato actual para permitir el MVP antes de US3.
+- [X] T030 Integrar la rama declarativa en `backend/app/services/perfiles_service.py`, `backend/app/services/evaluacion_service.py` y `backend/app/services/admision_service.py`: revalidación bajo locks, snapshot aprobado inmutable con hash/perfil/fuentes/red/referencias sensibles y reserva única; conservar verificación legacy e IaaS y el flujo inmediato actual para permitir el MVP antes de US3.
 - [X] T031 Implementar ingesta canónica, emisor de hitos portal y retención en `backend/app/services/consola_operacion_service.py`: lock de cabecera, deduplicación (execution_id, source, source_key), source_key derivada de source_seq para runner y estable por intento/fase/hito para portal, secuencia por raíz y evento portal con fase en la misma transacción. Sólo runner recibe ACK tras commit; si hubo job, ingerir su cursor final antes del hito final del portal. Cuota compartida 10 000 000 bytes/30 días con resultado/historia conservados; consulta sin job válida.
 - [ ] T032 Integrar creación de exactamente un CT detenido en `backend/app/services/orquestacion_service.py`, `backend/app/services/identidad_infra_service.py`, `backend/app/services/proxmox_client.py` e `infra/runner/node_executor.py`: tras T031, persistir identidad/intento/cabecera y hito seguro antes del efecto; guardar hitos con cambios de fase incluso ante fallo sin job. Marcador propio, start=0, firewall externo y acción fija nesting/keyctl sólo para CT propio/detenido Docker; no elevar el token.
 - [ ] T033 Integrar trabajos cortos de ingesta cada 1 s y purga en `backend/app/worker.py`, manteniendo tick de orquestación de 5 s y límite de dos instalaciones activas por nodo; no sostener transacciones SQL durante SSH, pull o instalación y no depender del navegador.
@@ -348,3 +353,10 @@ ordinarias de backend aprobadas** (124 PostgreSQL excluidas), tres PostgreSQL nu
 aprobadas y health local 200. No hay pruebas manuales pendientes de Mauro en este
 punto; continúan pendientes la integración de admisión/orquestación y los paquetes
 definitivos por origen antes de las aceptaciones completas.
+
+Checkpoint de admisión: **T030 completada; 28/105 tareas verificadas**. Aprobación
+declarativa con snapshots/referencias privadas, retiro de oferta y bloqueo de perfil;
+13 pruebas afectadas y una carrera PostgreSQL aprobadas (~13 s entre ambas selecciones).
+No se repitió la regresión general ni el laboratorio. Criterio de pruebas proporcionales
+registrado en AGENTS.md; se conserva la cobertura existente. Siguen pendientes identidad/
+TLS de T023 e integración de creación/estrategias antes de ofrecer despliegues completos.

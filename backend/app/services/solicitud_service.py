@@ -28,6 +28,8 @@ async def validar(db, data, *, historical=False):
         if not historical:
             from app.services.perfiles_service import exigir_definicion
             definition = await exigir_definicion(db, template, bloquear=True)
+            if template.configuracion_despliegue_id and data.oferta_revision is not None and data.oferta_revision!=template.revision:
+                raise error(409,'oferta_actualizada','La oferta cambió; revisá la aplicación antes de enviar',oferta_revision=template.revision)
             if definition and definition.incorporacion_id and data.oferta_revision is not None and data.oferta_revision != template.revision:
                 raise error(409, 'oferta_actualizada', 'La oferta cambió; revisá la versión vigente antes de enviar', oferta_revision=template.revision, version=definition.version)
     elif historical:
@@ -80,7 +82,9 @@ async def crear(db, *, actor, payload, clave):
             estado=EstadoPedido.SOLICITADO, tipo=TipoPedido.ALTA,
             created_at=clock.now().replace(tzinfo=None), updated_at=clock.now().replace(tzinfo=None))
         if data.template_id is not None:
-            request.definicion_version_id = (await session.get(RecursoTemplate, data.template_id)).definicion_version_id
+            selected=await session.get(RecursoTemplate,data.template_id)
+            request.definicion_version_id=selected.definicion_version_id
+            request.configuracion_despliegue_id=selected.configuracion_despliegue_id
         request.seleccion_oferta_snapshot = await snapshot_oferta(session, data.template_id)
         asignar_vigencia(request, data.vigencia, period)
         session.add(request)
@@ -154,8 +158,9 @@ async def resolver(db, pedido_id, *, actor, tipo, payload, clave):
                 period = await validar(session, effective, historical=request.tipo == TipoPedido.RENOVACION)
                 request.template_id, request.modelo_servicio = effective.template_id, ModeloServicio(effective.modelo_servicio)
                 if request.tipo == TipoPedido.ALTA:
-                    request.definicion_version_id = ((await session.get(RecursoTemplate, effective.template_id)).definicion_version_id
-                        if effective.template_id is not None else None)
+                    selected=await session.get(RecursoTemplate,effective.template_id) if effective.template_id is not None else None
+                    request.definicion_version_id=selected.definicion_version_id if selected else None
+                    request.configuracion_despliegue_id=selected.configuracion_despliegue_id if selected else None
                 if data.parametros_extra is not None:
                     request.parametros_extra = data.parametros_extra.model_dump(exclude_none=True)
                 if data.descripcion_requerimientos is not None:
@@ -198,6 +203,11 @@ async def snapshot_oferta(db,template_id):
     if template_id is None: return None
     from app.models.definicion_servicio import DefinicionServicio
     template=await db.get(RecursoTemplate,template_id)
+    if template and template.configuracion_despliegue_id:
+        from app.models.configuracion_despliegue import ConfiguracionDespliegue
+        row=await db.get(ConfiguracionDespliegue,template.configuracion_despliegue_id)
+        return {'template_id':template.id,'revision':template.revision,'nombre':template.nombre,
+            'configuracion_id':str(row.id),'configuracion_revision':row.revision,'configuracion_sha256':row.sha256} if row else None
     definition=await db.get(DefinicionServicio,template.definicion_version_id) if template and template.definicion_version_id else None
     if not definition or definition.incorporacion_id is None: return None
     return {'template_id':template.id,'revision':template.revision,'definicion_id':str(definition.id),

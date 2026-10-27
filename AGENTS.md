@@ -18,6 +18,11 @@
   No iniciar Specify/Plan/Tasks por rutina ni reabrir decisiones ya acordadas.
 - No cubrir todas las variantes imaginables: agregar sólo lo necesario para casos reales.
   Conservar seguridad, aislamiento, historial y recuperación sin complejizar la operación diaria.
+- **Pruebas proporcionales al cambio** (acordado con Mauro): durante el desarrollo ejecutar sólo
+  las pruebas afectadas, una vez por bloque; repetirlas si hay cambios relevantes o fallos.
+  Reservar la regresión completa para un hito importante o la entrega, sin repetirla por fase.
+  Probar en Proxmox cuando cambien despliegue, red o permisos. Conservar pruebas críticas de
+  seguridad, datos y recuperación; no eliminar cobertura útil para reducir el tiempo de ejecución.
 - Alta de aplicaciones: **elegir → agregar → disponible para solicitar**, sin crear instancias ni
   reservar capacidad. La instalación y comprobación son automáticas al desplegar el pedido aprobado;
   no volver a introducir pasos manuales de preparar, confirmar y publicar.

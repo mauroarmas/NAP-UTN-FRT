@@ -3,7 +3,7 @@ from typing import Literal
 from uuid import UUID
 import re
 
-from pydantic import Field, StrictInt, StrictBool, field_validator, model_validator
+from pydantic import Field, StrictInt, StrictBool, SecretStr, field_validator, model_validator
 from app.schemas.common import Contrato, Recursos, Destino
 from app.schemas.calendario import ANIO_LECTIVO_MINIMO, FECHA_MINIMA
 from app.schemas.tamanos import Tamano, validar_tamano
@@ -35,10 +35,13 @@ class VigenciaSolicitud(Contrato):
 class AsignacionEfectiva(Recursos):
     template_id: StrictInt = Field(ge=1)
     definicion_version_id: UUID | None = None
+    configuracion_despliegue_id: UUID | None = None
     tamano: Tamano | None = None
 
     @model_validator(mode='after')
     def tamano_coherente(self):
+        if self.definicion_version_id and self.configuracion_despliegue_id:
+            raise ValueError('Elegí un solo origen para la asignación')
         validar_tamano(self.tamano, self.model_dump())
         return self
 
@@ -53,3 +56,21 @@ class AprobacionEfectiva(SeleccionEvaluacion):
     capacidad_token: str = Field(min_length=1, max_length=4096)
     justificacion_capacidad: str | None = Field(default=None, min_length=1, max_length=2000)
     desplegar_inmediatamente: StrictBool = False
+    valores_privados: dict[str, SecretStr] | None = Field(default=None, exclude=True, repr=False)
+
+    @field_validator('valores_privados', mode='before')
+    @classmethod
+    def entrada_privada(cls, value):
+        if value is None: return None
+        from app.utils.errors import error
+        def invalid(): return error(422,'secretos_despliegue_invalidos','Completá los datos privados requeridos para este pedido')
+        if type(value) is not dict or len(value)>20: raise invalid()
+        result={}
+        for name, secret in value.items():
+            secret=secret.get_secret_value() if isinstance(secret,SecretStr) else secret
+            try:
+                if (type(name) is not str or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]{0,63}',name)
+                    or type(secret) is not str or not secret or '\x00' in secret or len(secret.encode())>4096):raise ValueError()
+            except (ValueError,UnicodeError):raise invalid() from None
+            result[name]=SecretStr(secret)
+        return result

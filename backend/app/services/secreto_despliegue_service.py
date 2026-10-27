@@ -88,13 +88,19 @@ def _decrypt(rows):
         raise error(503, 'cifrado_no_disponible', 'No se pudieron recuperar los datos privados autorizados') from None
 
 
-async def asegurar(db, pedido_id, *, usuario, aportados=None):
+async def asegurar(db, pedido_id, *, usuario, aportados=None, _decision_en_curso=False):
+    # The private flag is used only inside the locked approval transaction,
+    # after selection/token checks and before recording the approved history.
+    # It is never a field accepted from the portal.
     await requiere_admin_actual(db, usuario)
     provided = _input({} if aportados is None else aportados)
     pedido = await db.scalar(select(Pedido).where(Pedido.id == pedido_id)
         .with_for_update().execution_options(populate_existing=True))
     if pedido is None or pedido.deleted_at is not None: raise error(404, 'pedido_no_encontrado', 'Pedido no encontrado')
-    if pedido.estado not in {EstadoPedido.APROBADO, EstadoPedido.EN_DESPLIEGUE, EstadoPedido.ERROR, EstadoPedido.ACTIVO}:
+    approval_in_progress=bool(_decision_en_curso and pedido.estado==EstadoPedido.SOLICITADO
+        and pedido.revision_decision>0 and pedido.configuracion_despliegue_id
+        and (pedido.asignacion_snapshot or {}).get('configuracion_sha256'))
+    if not approval_in_progress and pedido.estado not in {EstadoPedido.APROBADO, EstadoPedido.EN_DESPLIEGUE, EstadoPedido.ERROR, EstadoPedido.ACTIVO}:
         raise _conflict()
     if pedido.tipo == TipoPedido.RENOVACION:
         service = await db.get(Servicio, pedido.servicio_id)
@@ -107,6 +113,7 @@ async def asegurar(db, pedido_id, *, usuario, aportados=None):
         if {r.nombre for r in rows} != {s['nombre'] for s in document['secretos']}: raise _conflict()
         return _refs(rows)
     config, document = await _config(db, pedido)
+    if approval_in_progress and pedido.asignacion_snapshot['configuracion_sha256']!=config.sha256:raise _conflict()
     declarations = {s['nombre']: s for s in document['secretos']}
     allowed = {n for n, d in declarations.items() if d['modo'] == 'por_pedido'}
     if set(provided) - allowed: raise _invalid()

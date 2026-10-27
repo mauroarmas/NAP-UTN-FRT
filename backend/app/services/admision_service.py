@@ -50,6 +50,9 @@ def operation_response(operation):
 
 
 async def _queue_deploy(db, pedido, *, actor, clave, payload):
+    if pedido.configuracion_despliegue_id:
+        from app.services.perfiles_service import validar_asignacion_aplicacion
+        await validar_asignacion_aplicacion(db,pedido)
     previous = await _open_operation(db, pedido)
     if previous:
         raise error(409, 'operacion_en_curso', 'Ya existe una operación abierta', operation_id=str(previous.id))
@@ -60,6 +63,8 @@ async def _queue_deploy(db, pedido, *, actor, clave, payload):
     operation.contexto_seguro = {'catedra_id': pedido.catedra_id, 'revision_decision': pedido.revision_decision,
         'asignacion': pedido.asignacion_snapshot, 'destino': pedido.destino_snapshot,
         'vigencia': pedido.decision_snapshot['vigencia'], 'modelo_servicio': pedido.modelo_servicio.value}
+    if pedido.configuracion_despliegue_id:
+        operation.contexto_seguro['configuracion_sha256']=pedido.asignacion_snapshot['configuracion_sha256']
     db.add(operation)
     await db.flush()
     from app.services.pedido_service import transicionar
@@ -81,6 +86,22 @@ async def aprobar(db, pedido_id, *, actor, payload, clave, pve=None):
     except ValidationError:
         raise error(422, 'datos_invalidos', 'La aprobación requiere selección efectiva y evaluación vigente') from None
     normalized_payload = body.model_dump(mode='json', exclude_none=True)
+    private={name:value.get_secret_value() for name,value in (body.valores_privados or {}).items()}
+    if private:
+        from app.services.secreto_despliegue_service import huella_entrada
+        # Persist only a contextual HMAC. A replay can still match a retained
+        # key after rotation, without putting private values in the decision.
+        from app.models.decision_idempotente import DecisionIdempotente
+        from app.config import get_settings
+        previous=await db.scalar(select(DecisionIdempotente).where(
+            DecisionIdempotente.actor_tipo=='usuario',DecisionIdempotente.actor_id_normalizado==str(actor.id),
+            DecisionIdempotente.idempotency_key==clave))
+        candidates=[get_settings().secret_active_key,*get_settings().secret_keyring]
+        for key_id in dict.fromkeys(candidates):
+            candidate={**normalized_payload,'entrada_privada_hmac':huella_entrada(pedido_id,private,key_id=key_id)}
+            if previous and hashlib.sha256(safe_json(candidate).encode()).hexdigest()==previous.request_hash:
+                normalized_payload=candidate;break
+        else:normalized_payload={**normalized_payload,'entrada_privada_hmac':huella_entrada(pedido_id,private)}
     selected = {key: normalized_payload[key] for key in ['asignacion', 'vigencia']}
     if body.destino:
         selected['destino'] = normalized_payload['destino']
@@ -103,11 +124,21 @@ async def aprobar(db, pedido_id, *, actor, payload, clave, pve=None):
             if body.desplegar_inmediatamente and (pedido.tipo == TipoPedido.RENOVACION or clock.now() < period.inicio_at):
                 raise error(409, 'inicio_futuro' if pedido.tipo == TipoPedido.ALTA else 'renovacion_sin_despliegue',
                             'La fecha inicial debe estar habilitada; una renovación solo registra condiciones')
+            frozen=evaluation.get('configuracion_aprobada')
             assignment = {**evaluation['seleccion']['asignacion'], 'nombre': template.nombre, 'tipo': template.tipo.value,
                 'modelo_servicio': pedido.modelo_servicio.value,
                 'image': {'volume_id': image, 'sha256': definition.manifest['image']['sha256'] if definition else None},
                 'minimum_resources': definition.manifest['minimum_resources'] if definition else {'vcpus': 1, 'ram_mb': 128, 'disk_gb': 1}}
-            if definition:
+            if frozen:
+                document=frozen['documento']
+                assignment.update(origen=document['origen'],configuracion_despliegue_id=frozen['id'],
+                    configuracion_sha256=frozen['sha256'],configuracion_revision=frozen['revision'],
+                    configuracion=document,perfil=document['perfil'],perfil_snapshot=frozen['perfil_snapshot'],
+                    network_profile_id=frozen['network_profile_id'],network_revision=frozen['network_revision'],
+                    network_sha256=frozen['network_sha256'],network_snapshot=frozen['network_snapshot'],
+                    image={'volume_id':image,'sha256':document['base']['sha256']},
+                    minimum_resources=document['minimum_resources'])
+            elif definition:
                 assignment.update(definition_sha256=definition.manifest_sha256, definition_key=definition.codigo,
                     definition_version=definition.version, product=definition.producto,
                     bundle_sha256=definition.manifest['preparation']['bundle_sha256'])
@@ -125,13 +156,21 @@ async def aprobar(db, pedido_id, *, actor, payload, clave, pve=None):
                 # regularizado no se inventa una asignación histórica.
                 if not service.asignacion_snapshot:
                     raise error(409, 'renovacion_requiere_regularizacion', 'Regularizá la asignación del servicio antes de renovar')
-                for field in ['template_id', 'definicion_version_id', 'vcpus', 'ram_mb', 'disk_gb']:
+                for field in ['template_id', 'definicion_version_id', 'configuracion_despliegue_id', 'vcpus', 'ram_mb', 'disk_gb']:
                     if assignment.get(field) != service.asignacion_snapshot.get(field):
                         raise error(422, 'renovacion_sin_cambio_recursos', 'La renovación conserva la asignación del servicio original')
                 assignment = dict(service.asignacion_snapshot)
             pedido.revision_decision += 1
             pedido.template_id, pedido.definicion_version_id = template.id, definition.id if definition else None
+            pedido.configuracion_despliegue_id=service.configuracion_despliegue_id if service else template.configuracion_despliegue_id
             pedido.asignacion_snapshot, pedido.destino_snapshot = assignment, destination
+            if pedido.configuracion_despliegue_id and not service:
+                from app.services.secreto_despliegue_service import asegurar
+                references=await asegurar(session,pedido.id,usuario=actor,aportados=private,_decision_en_curso=True)
+                assignment={**assignment,'secretos':references}
+                pedido.asignacion_snapshot=assignment
+            elif private:
+                raise error(422,'datos_privados_no_admitidos','Esta asignación no solicita datos privados nuevos')
             pedido.vigencia_tipo = VigenciaTipo(body.vigencia.tipo)
             pedido.anio_lectivo = body.vigencia.anio_lectivo
             pedido.vigencia_desde = period.inicio_at.replace(tzinfo=None)

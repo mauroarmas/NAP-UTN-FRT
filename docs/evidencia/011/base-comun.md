@@ -159,6 +159,35 @@ en 8 min 49 s. Las tres pruebas PostgreSQL nuevas se ejecutaron por separado en
 el servicio aislado (puerto 55432); no representan una nueva ejecución completa
 de aquella suite. API local: health 200 tras las verificaciones.
 
+## Admisión declarativa — T030
+
+La selección administrativa admite una configuración inmutable nueva o una definición
+histórica, sin mezclar orígenes. Evaluación/aprobación revalidan oferta, modelo, base,
+perfil habilitado, tamaños Small/Medium, destino e imagen disponible. La firma vincula
+también configuración/perfil y snapshot/hash de red institucional. El pedido de la
+cátedra sigue usando aplicación, propósito y fechas; no incorpora hardware ni campos
+internos al formulario.
+
+La aprobación conserva documento/digests, perfil, red y referencias privadas en el
+snapshot y crea un solo compromiso de capacidad. Los datos privados administrativos
+son write-only: se cifran antes de persistir y la idempotencia guarda únicamente un
+HMAC contextual. El replay no genera otra reserva ni otro secreto. Las renovaciones
+conservan la configuración de su instancia original.
+
+Se puede encolar inmediatamente o más adelante sin crear un CT dentro del HTTP.
+Al encolar se valida la revisión **aprobada**, aunque la oferta se haya retirado o
+actualizado. El bloqueo técnico del perfil o una modificación de la red aprobada
+impide continuar. Los caminos históricos e IaaS permanecen separados.
+
+Validación proporcional acordada con Mauro: **13 pruebas específicas aprobadas en
+10,67 s**, incluyendo flujo IaaS anterior, aprobación histórica, autorización de
+secretos, pedido declarativo, snapshots, retiro/bloqueo y errores de infraestructura.
+**Una carrera PostgreSQL aprobada en 2,23 s**: dos aprobaciones para la capacidad de
+un solo Medium dejan una reserva y un rechazo. No se repitió la regresión general
+de 903 pruebas ni se ejecutaron ensayos nuevos en Proxmox, porque este bloque cambia
+admisión local. T032 y las estrategias definitivas siguen pendientes: no acredita
+instalación completa ni habilita ofertas o perfiles en el laboratorio.
+
 ## Asignador de red — T023 parcial
 
 Nueva rama separada para perfiles `nap-application-network/1`, vacíos por defecto.
