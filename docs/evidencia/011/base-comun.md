@@ -53,8 +53,8 @@ El spool guarda sólo texto admitido, con secuencia/cursor transaccionales, lím
 bytes/filas/páginas, recorte explícito, replay y eliminación segura por ACK. Una
 escritura fallida no publica secuencias; al recuperarse comunica los mensajes que
 no pudo confirmar, sin inventar contadores durables tras una caída de disco/proceso.
-La ingesta en PostgreSQL está implementada; falta conectarla al tick del worker y
-comprobarla durante despliegues completos.
+La ingesta en PostgreSQL y su tick independiente están implementados; faltan la UI
+y las comprobaciones durante despliegues completos.
 
 ## Supervisor y distribución — T009/T024/T025/T027/T028/T029
 
@@ -151,7 +151,7 @@ Verificación: **17 pruebas ordinarias** de ingesta; **3 pruebas PostgreSQL** co
 sesiones concurrentes, cuota compartida entre intentos y claves locales iguales de
 productores diferentes. Depuración/colector/spool: **20 aprobadas**, incluida falta
 de memoria del consumidor sin bloquear el drenaje. La prueba PostgreSQL de exportación
-y la integración al worker/UI siguen pendientes en T033/T078/T081; no se atribuye a
+y la integración a la UI siguen pendientes en T078/T081; no se atribuye a
 estas pruebas la aceptación completa de la consola visible.
 
 Regresión ordinaria completa posterior: **903 aprobadas, 124 PostgreSQL excluidas**
@@ -187,6 +187,54 @@ un solo Medium dejan una reserva y un rechazo. No se repitió la regresión gene
 de 903 pruebas ni se ejecutaron ensayos nuevos en Proxmox, porque este bloque cambia
 admisión local. T032 y las estrategias definitivas siguen pendientes: no acredita
 instalación completa ni habilita ofertas o perfiles en el laboratorio.
+
+## Creación declarativa y worker — T012/T032 parcial/T033
+
+La rama nueva evita el bootstrap histórico. Consulta capacidades del nodo y comprueba
+la decisión vigente; reserva identidad/VMID/red, crea intento/execution_id y cabecera
+de consola, y registra el hito antes del POST a PVE. UUID y nonce hexadecimal son
+nuevos por identidad; la marca del LXC contiene sólo su hash y los hashes aprobados.
+La creación usa `unprivileged=1`, `start=0`, `onboot=0`, red estática reservada y
+`firewall=1`. No se entregan contraseñas NAP ni flags de ejecución del usuario.
+
+El recurso materializado conserva la configuración aprobada y queda sin acceso
+entregado. La intención de instalar se confirma en DB antes de enviar `start` al
+runner. Ante pérdida de respuesta se consultan tarea/trabajo existentes: takeover
+incrementa la reclamación histórica, sin cambiar intento efectivo/execution_id ni
+crear otro CT o reenviar la instalación. Un fallo conocido de creación conserva la
+consola y sólo libera identidad/red/capacidad tras ausencia confirmada de CT y discos.
+
+El worker registra ingesta cada 1 s, orquestación cada 5 s y purga cada 60 min. El
+poller adquiere un lease, lee por cursor, confirma DB y luego envía ACK, con heartbeat
+y sin SQL abierto durante SSH. No depende del navegador ni puede iniciar trabajos.
+Un lote vacío actualiza la hora de consulta exitosa, conservando la hora de captura
+y la secuencia: distingue silencio del instalador de una consulta interrumpida sin
+inventar mensajes o avance. Esta diferencia se verificó con reloj inyectado.
+Un fallo de consulta conserva incertidumbre y no se interpreta como entrega/fallo
+del instalador. Un resultado fallido sólo termina el pedido tras ingerir su cursor
+final y confirmar el ACK. Si se pierde esa respuesta, el siguiente tick reintenta
+la confirmación sin duplicar texto ni reinstalar; no cierra la operación dejando
+el spool remoto pendiente. El confirmado queda esperando las comprobaciones de T034.
+
+La admisión del instalador se serializa bajo el lock de capacidad y cuenta también
+intenciones persistidas y trabajos inciertos: máximo dos por clúster/nodo. El resto
+queda detenido con un hito de espera, sin enviar `start`. La purga conserva resumen,
+cabecera e historia incluso si ya terminó la operación. IaaS y aprobación históricas
+siguen en su rama original.
+
+Verificación acotada: **10 pruebas aprobadas en 9,50 s**, incluyendo creación detenida,
+ambas pérdidas de respuesta, seguimiento sin navegador, resultado fallido, cadencias,
+purga y regresiones IaaS/históricas. **Una carrera PostgreSQL aprobada en 2,68 s**:
+dos candidatos para un lugar libre sólo inician uno. Prueba adicional del fallo de
+creación con ausencia y liberación: **1 aprobada en 1,32 s**. Dobles PVE/runner;
+PostgreSQL real aislado. No se repitieron suites generales ni ensayos anteriores.
+El ajuste de consulta vacía/ACK perdido se verificó sólo con los dos casos afectados
+del worker; no se volvió a ejecutar el resto de esa selección.
+
+**T032 sigue parcial**: `firewall=1` no acredita aislamiento efectivo. Faltan política
+externa comprobada, TLS por instancia, estrategias definitivas y sus ensayos reales
+T050/T061 antes de habilitar perfiles. No se instalaron aplicaciones nuevas en la VM
+ni se certificó el clúster/red universitarios mediante estas pruebas.
 
 ## Asignador de red — T023 parcial
 

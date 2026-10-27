@@ -69,6 +69,9 @@ async def _finish_failure(sessions, lease, code, *, absence=None, release_unsent
     async with _locked(sessions, lease) as (db, op, identity, service, request, ledger):
         if absence is not None and identity:
             identities.retirar(identity, absence)
+            if (op.contexto_seguro.get('asignacion') or {}).get('configuracion_despliegue_id'):
+                from app.services.reserva_red_service import liberar_aplicacion
+                await liberar_aplicacion(db,identity,absence)
         if ledger:
             if absence is not None or (release_unsent and op.dispatch_started_at is None and identity is None):
                 ledger.vcpus_retenidos = ledger.ram_mb_retenida = ledger.disk_bytes_retenidos = 0
@@ -77,6 +80,13 @@ async def _finish_failure(sessions, lease, code, *, absence=None, release_unsent
                 ledger.estado = 'incierto'
         if identity and absence is None:
             identity.estado = 'incierta'
+        if (op.contexto_seguro.get('asignacion') or {}).get('configuracion_despliegue_id'):
+            from app.models.intento_despliegue import IntentoDespliegue
+            attempt=await db.scalar(select(IntentoDespliegue).where(IntentoDespliegue.operacion_id==op.id).with_for_update())
+            if attempt is not None and not op.contexto_seguro.get('application_job_requested'):
+                from app.services.consola_operacion_service import emitir_hito
+                attempt.estado='fallido';attempt.error_codigo=code;attempt.terminado_at=clock.now()
+                await emitir_hito(db,lease,hito='fallo')
         if request and request.estado == EstadoPedido.EN_DESPLIEGUE:
             await transicionar(db, request.id, EstadoPedido.ERROR, motivo='La operación requiere revisión: ' + code,
                 operacion_id=op.id, evento_clave=f'operacion:{op.id}:fallida')
@@ -126,6 +136,9 @@ async def _coverage(db, op, request, service):
 
 async def _prepare(sessions, lease, *, pve, runner):
     op, identity, service, request, ledger = await _view(sessions, lease)
+    if op.tipo=='desplegar' and (op.contexto_seguro.get('asignacion') or {}).get('configuracion_despliegue_id'):
+        from app.services.application_execution_service import preparar
+        return await preparar(sessions,lease,pve=pve,runner=runner)
     if op.tipo == 'desplegar':
         assignment = op.contexto_seguro['asignacion']
         if assignment.get('tipo') != 'lxc':
@@ -192,9 +205,10 @@ async def _dispatch(sessions, lease, action, *, pve, after_dispatch):
             'rootfs': f"{destination['storage']}:{assignment['disk_gb']}",
             'ostemplate': assignment['image']['volume_id'], 'net0': op.contexto_seguro['red_preparada'],
             'pool': identity.pool_catedra, 'description': identities.descripcion(identity),
-            'unprivileged': 1, 'start': 1, 'force': 0, 'restore': 0}
+            'unprivileged': 1, 'start': 0 if assignment.get('configuracion_despliegue_id') else 1, 'force': 0, 'restore': 0}
+        if assignment.get('configuracion_despliegue_id'):config['onboot']=0
     async with _locked(sessions, lease) as (db, op, current, service, request, ledger):
-        if current.id != identity.id or op.fase not in {'lista', 'detencion_necesaria', 'eliminacion_necesaria'}:
+        if current.id != identity.id or op.fase not in {'lista', 'creacion', 'detencion_necesaria', 'eliminacion_necesaria'}:
             raise LeasePerdido()
         if action in {'crear', 'iniciar', 'reiniciar'} and not await _coverage(db, op, request, service):
             if action == 'crear':
@@ -256,6 +270,7 @@ async def _materialize(sessions, lease, observation):
                 estado=EstadoServicio.RUNNING if observation.status == 'running' else EstadoServicio.STOPPED,
                 hostname=observation.config.get('hostname'), modelo_servicio=assignment.get('modelo_servicio'),
                 nombre_snapshot=assignment.get('nombre'), definicion_version_id=request.definicion_version_id,
+                configuracion_despliegue_id=request.configuracion_despliegue_id,
                 vcpus_asignados=assignment['vcpus'], ram_asignada_mb=assignment['ram_mb'], disk_asignado_gb=assignment['disk_gb'],
                 asignacion_snapshot=assignment, identidad_infraestructura_id=identity.id,
                 disponibilidad_aplicacion='no_verificada', deployed_at=clock.now().replace(tzinfo=None))
@@ -276,7 +291,12 @@ async def _materialize(sessions, lease, observation):
                 evento_clave=f'operacion:{op.id}:materializada', metadata=historial_service.asignacion_historica(service)))
         identity.estado, identity.ownership_verificada_at = 'materializada', clock.now()
         ledger.estado, ledger.expira_at = 'materializado', None
-        await _cas(db, lease, servicio_id=service.id, fase='bootstrap')
+        if assignment.get('configuracion_despliegue_id'):
+            from app.services.consola_operacion_service import emitir_hito
+            await _cas(db,lease,servicio_id=service.id)
+            await emitir_hito(db,lease,hito='recurso_creado')
+            await emitir_hito(db,lease,hito='recurso_para_instalar')
+        else:await _cas(db, lease, servicio_id=service.id, fase='bootstrap')
 
 
 async def _cancel_obsolete_pause(sessions, lease, observation):
@@ -362,11 +382,15 @@ async def procesar_lease(sessions, lease, *, pve=None, runner=None, after_dispat
     try:
         for _ in range(8):
             op, identity, service, request, ledger = await _view(sessions, lease)
+            if (op.contexto_seguro.get('asignacion') or {}).get('configuracion_despliegue_id') and op.fase in {'entorno','instalacion','comprobacion'}:
+                from app.services.application_execution_service import enviar_o_consultar
+                await enviar_o_consultar(sessions,lease,pve=pve,runner=runner)
+                return
             if op.fase == 'preparacion':
                 if not await _prepare(sessions, lease, pve=pve, runner=runner):
                     return
                 continue
-            if op.fase in {'lista', 'detencion_necesaria', 'eliminacion_necesaria'}:
+            if op.fase in {'lista', 'creacion', 'detencion_necesaria', 'eliminacion_necesaria'}:
                 if op.fase == 'lista' and op.tipo == 'pausar' and op.actor_tipo == 'sistema' and op.actor_id_normalizado == 'vencimiento':
                     observation = await identities.observar(identity, pve=pve)
                     if await _cancel_obsolete_pause(sessions, lease, observation):

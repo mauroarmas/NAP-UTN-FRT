@@ -27,12 +27,17 @@ class LeaseOperacion:
     generation: int
 
 
-async def reclamar(db, *, owner, lease_seconds=30):
+async def reclamar(db, *, owner, lease_seconds=30, solo_ingesta=False, excluir_ingesta=False):
     if not isinstance(owner, UUID) or not 5 <= lease_seconds <= 120:
         raise ValueError('Lease inválido')
-    operation = await db.scalar(select(OperacionInfraestructura).where(
+    if solo_ingesta and excluir_ingesta:raise ValueError('Filtros de lease incompatibles')
+    query=select(OperacionInfraestructura).where(
         OperacionInfraestructura.estado.in_(OPEN), OperacionInfraestructura.next_poll_at <= clock.now(),
         or_(OperacionInfraestructura.lease_owner.is_(None), OperacionInfraestructura.lease_until <= clock.now()))
+    requested=OperacionInfraestructura.contexto_seguro['application_job_requested'].as_boolean()
+    if solo_ingesta:query=query.where(requested.is_(True))
+    if excluir_ingesta:query=query.where(or_(requested.is_(None),requested.is_(False)))
+    operation = await db.scalar(query
         .order_by(OperacionInfraestructura.next_poll_at, OperacionInfraestructura.creado_at, OperacionInfraestructura.id)
         .with_for_update(skip_locked=True).limit(1).execution_options(populate_existing=True))
     if operation is None:

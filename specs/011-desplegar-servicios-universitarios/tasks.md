@@ -47,7 +47,7 @@ si el cambio siguiente no la afecta. No eliminar pruebas existentes por este aju
 - [X] T009 [P] Crear `infra/applications/tests/test_job_protocol.py` y `infra/applications/tests/test_job_supervisor.py` para replay, fingerprint distinto, lease obsoleto, respuesta perdida, SSH caído, reboot, identidad ajena y rechazo de comandos/rutas/unidades libres; conservar pruebas de protocolos históricos en `infra/runner/tests/test_runner.py`.
 - [X] T010 [P] Crear `infra/applications/tests/test_redaction.py`, `infra/applications/tests/test_spool.py` y `backend/tests/test_ingesta_consola_011.py`: secretos partidos en cada frontera, representaciones declaradas, UTF-8, salida desconocida, ANSI/OSC, memoria/disco lleno, límites/retención y ACK sólo tras commit; probar eventos portal sin job, colisiones de claves locales entre productores, replay de hitos y orden causal sin retención cruda.
 - [X] T011 [P] Crear `backend/tests/postgres/test_migracion_011.py` para upgrade desde `010_06_acceso_aplicacion`, constraints/FK/índices y conservación de usuarios, cátedras, pedidos, servicios y marcadores legacy; incluir política de downgrade seguro sin pérdida silenciosa.
-- [ ] T012 [P] Crear `backend/tests/postgres/test_jobs_011.py` para admisión/takeover concurrentes, unicidad de intento/execution_id, slots disjuntos y reserva de red; comprobar que reclamar lease no incrementa el intento efectivo ni duplica compromisos.
+- [X] T012 [P] Crear `backend/tests/postgres/test_jobs_011.py` para admisión/takeover concurrentes, unicidad de intento/execution_id, slots disjuntos y reserva de red; comprobar que reclamar lease no incrementa el intento efectivo ni duplica compromisos.
 
 ### Implementación común
 
@@ -71,7 +71,7 @@ si el cambio siguiente no la afecta. No eliminar pruebas existentes por este aju
 - [X] T030 Integrar la rama declarativa en `backend/app/services/perfiles_service.py`, `backend/app/services/evaluacion_service.py` y `backend/app/services/admision_service.py`: revalidación bajo locks, snapshot aprobado inmutable con hash/perfil/fuentes/red/referencias sensibles y reserva única; conservar verificación legacy e IaaS y el flujo inmediato actual para permitir el MVP antes de US3.
 - [X] T031 Implementar ingesta canónica, emisor de hitos portal y retención en `backend/app/services/consola_operacion_service.py`: lock de cabecera, deduplicación (execution_id, source, source_key), source_key derivada de source_seq para runner y estable por intento/fase/hito para portal, secuencia por raíz y evento portal con fase en la misma transacción. Sólo runner recibe ACK tras commit; si hubo job, ingerir su cursor final antes del hito final del portal. Cuota compartida 10 000 000 bytes/30 días con resultado/historia conservados; consulta sin job válida.
 - [ ] T032 Integrar creación de exactamente un CT detenido en `backend/app/services/orquestacion_service.py`, `backend/app/services/identidad_infra_service.py`, `backend/app/services/proxmox_client.py` e `infra/runner/node_executor.py`: tras T031, persistir identidad/intento/cabecera y hito seguro antes del efecto; guardar hitos con cambios de fase incluso ante fallo sin job. Marcador propio, start=0, firewall externo y acción fija nesting/keyctl sólo para CT propio/detenido Docker; no elevar el token.
-- [ ] T033 Integrar trabajos cortos de ingesta cada 1 s y purga en `backend/app/worker.py`, manteniendo tick de orquestación de 5 s y límite de dos instalaciones activas por nodo; no sostener transacciones SQL durante SSH, pull o instalación y no depender del navegador.
+- [X] T033 Integrar trabajos cortos de ingesta cada 1 s y purga en `backend/app/worker.py`, manteniendo tick de orquestación de 5 s y límite de dos instalaciones activas por nodo; no sostener transacciones SQL durante SSH, pull o instalación y no depender del navegador.
 - [ ] T034 Extender `backend/app/services/service_access_service.py` y `backend/app/services/verificacion_acceso_service.py` con acceso/probes web y TCP tipados, pertenencia vigente, TLS/certificado por instancia y comprobaciones automáticas registradas; credenciales nativas por instancia y ningún éxito por un mero exit 0 o puerto abierto.
 - [ ] T035 Añadir adaptador web genérico separado en `backend/app/application_gateway.py` según `contracts/acceso-ui.md`: origen por servicio, destino TLS fijado, métodos/streaming acotados, cookies nativas aisladas sin cookie jar compartido ni credenciales NAP upstream, redirects propios y WebSocket sólo declarado con revalidación cada 5 s; conservar adaptador Draw.io y bloqueo de service workers.
 - [ ] T036 Ejecutar las pruebas comunes T008–T012, incluidas `backend/tests/test_application_gateway_011.py` y `backend/tests/test_ingesta_consola_011.py`; verificar cookies/headers eco, origen/redirect/SSRF, revocación HTTP/WebSocket, TCP, ACK y regresión del protocolo legacy, registrando resultados y límites en `docs/evidencia/011/base-comun.md`.
@@ -333,9 +333,9 @@ El paquete se instaló en la VM con respaldo; autocomprobación real de systemd/
 spool/ACK y journal aprobada, sin CT nuevos ni perfiles habilitados. Consulta real por cuenta
 limitada aprobada; Draw.io CT 100 sigue corriendo y no quedan unidades temporales.
 
-T008 sigue parcial: faltan pruebas del gateway genérico. T012 conserva pendiente la
-admisión real más allá de las restricciones y la asignación concurrente ya probadas.
-T033/T081 unirán la ingesta al worker/UI. T078 parcial: tres pruebas PostgreSQL cubren
+T008 sigue parcial: faltan pruebas del gateway genérico. T012 y T033 se cerraron en
+el checkpoint de creación/worker, con las pruebas acotadas documentadas al final.
+T081 unirá la ingesta a la UI. T078 parcial: tres pruebas PostgreSQL cubren
 concurrencia, cuota entre intentos y claves locales por productor; falta exportación concurrente.
 T023 parcial: asignador transaccional de slots y liberación con ausencia probados; falta unir
 la identidad/nonce y TLS por instancia al camino definitivo. Red nueva vacía por defecto.
@@ -360,3 +360,12 @@ declarativa con snapshots/referencias privadas, retiro de oferta y bloqueo de pe
 No se repitió la regresión general ni el laboratorio. Criterio de pruebas proporcionales
 registrado en AGENTS.md; se conserva la cobertura existente. Siguen pendientes identidad/
 TLS de T023 e integración de creación/estrategias antes de ofrecer despliegues completos.
+
+Checkpoint de creación/worker: **30/105 tareas verificadas**. T012/T033 completadas
+con admisión concurrente, intento estable al recuperar respuestas perdidas, límite de dos
+instalaciones por nodo, ingesta independiente de 1 s y purga. T032 parcial: creación
+detenida y despacho/consulta ya integrados; firewall externo efectivo, TLS y paquetes
+definitivos siguen pendientes de sus compuertas reales. T023 añade UUID/nonce nuevos
+al reclamar la red; conserva pendiente generación/distribución de claves por instancia.
+Validación afectada: 10 pruebas + una carrera PostgreSQL + un fallo de creación con
+liberación tras ausencia; sin regresión general ni nuevas pruebas físicas simuladas.

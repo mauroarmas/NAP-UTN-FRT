@@ -23,11 +23,11 @@ async def _heartbeat(sessions, lease):
             return
 
 
-async def procesar_una(sessions=AsyncSessionLocal, *, owner=None, pve=None, runner=None, after_dispatch=None):
+async def procesar_una(sessions=AsyncSessionLocal, *, owner=None, pve=None, runner=None, after_dispatch=None, excluir_ingesta=False):
     async with sessions() as db:
         from app.services.restauracion_service import exigir_habilitacion
         await exigir_habilitacion(db, componente='worker')
-        lease = await operacion_service.reclamar(db, owner=owner or uuid4())
+        lease = await operacion_service.reclamar(db, owner=owner or uuid4(),excluir_ingesta=excluir_ingesta)
         await db.commit()
     if lease is None:
         return False
@@ -90,6 +90,8 @@ def registrar_trabajos(*, solo_notificaciones=False):
     scheduler.registrar('evaluar_alertas', alerta_service.evaluar_alertas, cada_minutos=1)
     scheduler.registrar('agregar_y_purgar_metricas', resumen_metricas_service.agregar_y_purgar, cada_minutos=1440, diario=True)
     scheduler.registrar('procesar_operaciones', procesar_operaciones, cada_segundos=5)
+    scheduler.registrar('ingerir_consolas',ingerir_consolas,cada_segundos=1)
+    scheduler.registrar('purgar_consolas',purgar_consolas,cada_minutos=60)
     from app.services.ensayo_cleanup_service import tick as limpiar_ensayos
     scheduler.registrar('limpiar_ensayos', limpiar_ensayos, cada_minutos=1)
     scheduler.registrar('procesar_ensayos', procesar_ensayos, cada_segundos=5)
@@ -101,8 +103,53 @@ async def procesar_operaciones(db):
     sessions = async_sessionmaker(db.bind, expire_on_commit=False)
     parallel = 4 if db.bind.dialect.name == 'postgresql' else 1
     await db.commit()
-    results = await asyncio.gather(*(procesar_una(sessions) for _ in range(parallel)))
+    results = await asyncio.gather(*(procesar_una(sessions,excluir_ingesta=True) for _ in range(parallel)))
     return {'afectados': sum(results)}
+
+
+async def procesar_ingesta_una(sessions=AsyncSessionLocal,*,owner=None,runner=None):
+    async with sessions() as db:
+        from app.services.restauracion_service import exigir_habilitacion
+        await exigir_habilitacion(db,componente='worker')
+        lease=await operacion_service.reclamar(db,owner=owner or uuid4(),solo_ingesta=True)
+        await db.commit()
+    if lease is None:return False
+    heartbeat=asyncio.create_task(_heartbeat(sessions,lease))
+    try:
+        from app.services.application_execution_service import ingerir_trabajo
+        await ingerir_trabajo(sessions,lease,runner=runner)
+    except Exception:
+        logger.error('Consulta de consola no confirmada; el instalador conserva su estado')
+        async with sessions() as db:
+            await operacion_service.ceder(db,lease,incierta=True,segundos=2,
+                error_codigo='consola_no_confirmada',error_detalle_seguro='No se pudo actualizar el seguimiento; no se volvió a ejecutar el instalador')
+            await db.commit()
+    finally:
+        heartbeat.cancel()
+        with suppress(asyncio.CancelledError):await heartbeat
+    return True
+
+
+async def ingerir_consolas(db):
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+    sessions=async_sessionmaker(db.bind,expire_on_commit=False)
+    parallel=4 if db.bind.dialect.name=='postgresql' else 1
+    await db.commit()
+    results=await asyncio.gather(*(procesar_ingesta_una(sessions) for _ in range(parallel)))
+    return {'afectados':sum(results)}
+
+
+async def purgar_consolas(db):
+    from datetime import timedelta
+    from sqlalchemy import select
+    from app.models.consola_operacion import ConsolaFragmento
+    from app.services.consola_operacion_service import purgar,RETENTION_DAYS
+    from app.utils.clock import clock
+    roots=list((await db.scalars(select(ConsolaFragmento.operacion_raiz_id).where(
+        ConsolaFragmento.captured_at<clock.now()-timedelta(days=RETENTION_DAYS)).distinct().limit(50))).all())
+    for root in roots:
+        await purgar(db,root);await db.commit()
+    return {'afectados':len(roots)}
 
 
 async def procesar_ensayos(db):

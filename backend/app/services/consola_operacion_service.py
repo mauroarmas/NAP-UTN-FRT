@@ -23,6 +23,8 @@ EVENTS={
     'preparando':('preparacion','Preparando el despliegue.'),
     'creando_recurso':('creacion','Creando el recurso de la aplicación.'),
     'recurso_creado':('creacion','Recurso creado.'),
+    'recurso_para_instalar':('entorno','Recurso listo para instalar la aplicación.'),
+    'esperando_instalacion':('entorno','Esperando turno para instalar la aplicación.'),
     'entorno_listo':('entorno','Entorno preparado.'),
     'instalacion_solicitada':('instalacion','Instalación solicitada al nodo.'),
     'comprobando':('comprobacion','Comprobando el funcionamiento de la aplicación.'),
@@ -185,6 +187,9 @@ async def ingerir(db,lease,*,request,response):
                 fase=item['fase'],stream=item['stream'],text=item['texto_depurado'],
                 captured_at=datetime.fromisoformat(item['captured_at'].replace('Z','+00:00')))
     attempt.ultimo_source_seq=end
+    # A successful empty batch proves the reader is alive, without inventing
+    # a new fragment or moving the producer's capture timestamp.
+    header.last_ingested_at=clock.now()
     attempt.node_boot_id=UUID(data['node_boot_id']);attempt.runner_job_id=str(attempt.execution_id)
     if data['estado'] in {'confirmado','fallido','incierto'}:
         operation.contexto_seguro={**operation.contexto_seguro,'consola_job_final':{

@@ -58,8 +58,10 @@ async def reclamar(db, operation, *, pve=None):
             vmid += 1
         if vmid in busy or vmid > 999999999:
             raise InfraNoVerificable()
-        resource_uuid, nonce = uuid4(), secrets.token_urlsafe(32)
-        product = operation.contexto_seguro['asignacion'].get('product')
+        assignment=operation.contexto_seguro['asignacion']
+        application=bool(assignment.get('configuracion_despliegue_id'))
+        resource_uuid, nonce = uuid4(), secrets.token_hex(32) if application else secrets.token_urlsafe(32)
+        product = assignment.get('product')
         if product in {'postgresql', 'bookstack', 'drawio'} or operation.contexto_seguro['asignacion'].get('origen') == 'proxmox_iaas':
             from app.services.reserva_red_service import reservar
             network_id = operation.contexto_seguro.get('preparacion_validada', {}).get('network_profile_id')
@@ -68,12 +70,18 @@ async def reclamar(db, operation, *, pve=None):
         identity = IdentidadInfraestructura(cluster_id=cluster, vmid=vmid, nodo=destination['nodo'],
             pool_catedra=f"catedra-{operation.contexto_seguro['catedra_id']}", resource_uuid=resource_uuid,
             nonce_cifrado=configured_keyring().encrypt(nonce, context=f'infra:{resource_uuid}:nonce'),
-            definition_sha256=operation.contexto_seguro['asignacion'].get('definition_sha256'),
-            bundle_sha256=operation.contexto_seguro['asignacion'].get('bundle_sha256'),
+            definition_sha256=assignment.get('configuracion_sha256') if application else assignment.get('definition_sha256'),
+            bundle_sha256=assignment['perfil_snapshot']['policy_bundle_sha256'] if application else assignment.get('bundle_sha256'),
             pedido_alta_id=operation.pedido_id, estado='reclamada', claimed_at=clock.now())
         db.add(identity)
         await db.flush()
         operation.identidad_infraestructura_id = identity.id
+        if application:
+            from app.services.reserva_red_service import reservar_aplicacion
+            allocation=await reservar_aplicacion(db,identity,network_id=assignment['network_profile_id'])
+            if allocation['network_sha256']!=assignment['network_sha256']:
+                raise error(409,'red_aplicacion_cambiada','La red aprobada requiere una nueva evaluación')
+            operation.contexto_seguro={**operation.contexto_seguro,'red_reservada':allocation}
         return identity
 
 
