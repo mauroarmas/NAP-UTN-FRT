@@ -14,8 +14,11 @@ import tempfile
 from uuid import uuid4, UUID
 
 
-JOBS = ('protocol','configuration','state','supervisor','credentials','worker','runtime','collector','spool','redaction','selfcheck','network','tls')
+JOBS = ('protocol','configuration','state','supervisor','credentials','worker','runtime','collector','spool','redaction','selfcheck','network','tls','isolation')
 SOURCES = {f'/opt/nap/applications/job/{name}.py': f'infra/applications/job/{name}.py' for name in JOBS}
+SOURCES.update({f'/opt/nap/applications/docker/{name}.py':f'infra/applications/docker/{name}.py'
+    for name in ('runtime','contract','guest','deploy','access','probes')})
+SOURCES['/opt/nap/applications/profiles/docker/ubuntu24.json']='infra/applications/profiles/docker/ubuntu24.json'
 SOURCES.update({
     '/opt/nap/applications/profiles/registry.py': 'infra/applications/profiles/registry.py',
     '/opt/nap/applications/profiles/profile_contract.py': 'backend/app/schemas/application_profiles.py',
@@ -29,7 +32,7 @@ SOURCES.update({
 TMPFILES = '/etc/tmpfiles.d/nap-application-jobs.conf'
 CONFIG = '/etc/nap/applications-011/runner.json'
 RECEIPT = '/etc/nap/applications-011/package.json'
-GENERATED = {f'/opt/nap/applications/{name}__init__.py' for name in ('', 'job/', 'profiles/')}
+GENERATED = {f'/opt/nap/applications/{name}__init__.py' for name in ('', 'job/', 'profiles/', 'docker/')}
 ALLOWED = set(SOURCES) | GENERATED | {TMPFILES, '/opt/nap/applications/job/selfcheck.py'}
 
 
@@ -163,8 +166,9 @@ def _install_files(files, *, root, apply, previous, config, verify):
         if path.exists() or path.is_symlink():
             try:
                 current = json.loads(read_safe(path)[0])
-                if (set(current) != set(config) or any(current[k] != config[k] for k in ('schema_version','cluster_uuid','node'))
-                        or type(current['profiles']) is not dict): raise ValueError()
+                if (set(current) not in (set(config),set(config)|{'networks'})
+                        or any(current[k] != config[k] for k in ('schema_version','cluster_uuid','node'))
+                        or type(current['profiles']) is not dict or type(current.get('networks',{})) is not dict): raise ValueError()
             except Exception: raise PackageError('EXISTING_CONFIGURATION_DIFFERS') from None
         else: proposed[CONFIG] = (encode(config)+b'\n', 0o600)
     manifest = {name: {'sha256': sha256(data).hexdigest(), 'mode': mode} for name,(data,mode) in files.items()}
@@ -197,7 +201,7 @@ def _install_files(files, *, root, apply, previous, config, verify):
             atomic_write(target, old, 0o600)
     applied = []
     try:
-        for path in (root/'etc/nap/applications-011', root/'var/lib/nap-application-jobs', root/'run/nap-application-jobs', root/'var/lib/nap-application-tls'):
+        for path in (root/'etc/nap/applications-011', root/'var/lib/nap-application-jobs', root/'run/nap-application-jobs', root/'var/lib/nap-application-tls', root/'var/lib/nap-application-isolation'):
             safe_directory(path, mode=0o700)
             if path.stat().st_mode & 0o077: raise PackageError('PRIVATE_DIRECTORY_REQUIRED')
         for item in changes:

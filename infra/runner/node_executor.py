@@ -284,8 +284,8 @@ class ApplicationNodeExecutor:
         self.run_command = run_command or bounded_command
         self.local_node = local_node or Path(os.readlink('/etc/pve/local')).name
 
-    def _call(self, argv, *, input=None):
-        try: return self.run_command(argv, timeout=5, limit=2097152, **({'input': input} if input is not None else {}))
+    def _call(self, argv, *, input=None, timeout=5):
+        try: return self.run_command(argv, timeout=timeout, limit=2097152, **({'input': input} if input is not None else {}))
         except Exception: raise self.protocol.JobError('UNCONFIRMED') from None
 
     def platform(self):
@@ -353,15 +353,33 @@ class ApplicationNodeExecutor:
 
     def prepare_application(self, identity, deployment):
         config, profile = self._configuration(identity)
+        self.assert_stopped(identity)
         networks = getattr(self, 'networks', None)
         if networks is None: raise self.protocol.JobError('PROFILE_UNAVAILABLE')
         policy, slot = networks.for_guest(profile, identity, config, deployment)
         issuer = getattr(self, 'tls_factory', None)
         if issuer is None: raise self.protocol.JobError('PROFILE_UNAVAILABLE')
         material = issuer().material(identity, slot)
-        self.install_isolation(identity, policy)
+        isolation=getattr(self,'isolation_factory',None)
+        if isolation is None:raise self.protocol.JobError('PROFILE_UNAVAILABLE')
+        isolation().ensure(identity,policy,assert_stopped=lambda:self.assert_stopped(identity),
+            install=lambda:self.install_isolation(identity,policy),observe=lambda:self.observe_isolation(policy))
         self.enable_environment(identity)
+        self._prepared={identity['resource_uuid']:policy}
         return {'network': slot, 'tls': material}
+
+    def assert_stopped(self,identity):
+        self.assert_owner(identity)
+        status=parse_system_json(self._call(['/usr/bin/pvesh','get',
+            '/nodes/'+self.local_node+'/lxc/'+str(identity['vmid'])+'/status/current','--output-format','json']))
+        if status.get('status')!='stopped':raise self.protocol.JobError('UNCONFIRMED')
+
+    def observe_isolation(self,policy):
+        if __package__:
+            from infra.applications.job.network import table_name
+        else:
+            from applications.job.network import table_name
+        return parse_system_json(self._call(['/usr/sbin/nft','-j','list','table','bridge',table_name(policy)]),limit=2097152)
 
     def install_isolation(self, identity, policy):
         """Internal driver action, not a new wire action or a guest parameter.
@@ -380,8 +398,9 @@ class ApplicationNodeExecutor:
             if policy['resource_uuid'] != identity['resource_uuid'] or policy['vmid'] != identity['vmid']: raise ValueError()
             entries = config['net0'].split(',')
             net = dict(item.split('=', 1) for item in entries)
-            if len(net) != len(entries) or set(net) - {'name','bridge','hwaddr','ip','gw','firewall','ip6'}: raise ValueError()
+            if len(net) != len(entries) or set(net) - {'name','bridge','hwaddr','ip','gw','firewall','ip6','type'}: raise ValueError()
             if (net.get('name') != 'eth0' or net.get('bridge') != policy['bridge']
+                    or net.get('type') not in (None, 'veth')
                     or net.get('hwaddr','').lower() != policy['mac_address']
                     or net.get('ip6') not in (None, 'manual')
                     or str(ipaddress.IPv4Interface(net['ip']).ip) != policy['address']): raise ValueError()
@@ -412,3 +431,117 @@ class ApplicationNodeExecutor:
             return True
         except self.protocol.JobError: raise
         except Exception: raise self.protocol.JobError('UNCONFIRMED') from None
+
+    def assert_confinement(self,identity):
+        self.assert_owner(identity)
+        status=parse_system_json(self._call(['/usr/bin/pvesh','get',
+            '/nodes/'+self.local_node+'/lxc/'+str(identity['vmid'])+'/status/current','--output-format','json']))
+        try:
+            pid=status['pid']
+            if status['status']!='running' or type(pid)is not int or not 1<pid<2**31:raise ValueError()
+            process=Path('/proc')/str(pid)
+            label_file=process/'attr/apparmor/current'
+            if not label_file.exists():label_file=process/'attr/current'
+            with label_file.open() as source:label=source.read(513).strip().split('//&',1)[0]
+            expected='lxc-'+str(identity['vmid'])+'_</var/lib/lxc>'
+            if label not in {expected,expected+' (enforce)'}:raise ValueError()
+            with Path('/sys/kernel/security/apparmor/profiles').open() as source:profiles=source.read(2097153)
+            if len(profiles)>2097152 or expected+' (enforce)' not in profiles.splitlines():raise ValueError()
+            with (process/'status').open() as source:raw=source.read(65537)
+            if len(raw)>65536:raise ValueError()
+            fields=dict(line.split(':',1) for line in raw.splitlines() if ':' in line)
+            uids=fields['Uid'].split()
+            if fields['Seccomp'].strip()!='2' or len(uids)!=4 or any(not v.isdecimal() or int(v)<100000 for v in uids):raise ValueError()
+            return True
+        except Exception:raise self.protocol.JobError('UNCONFIRMED') from None
+
+    def start_guest(self,identity):
+        self.assert_stopped(identity)
+        policy=getattr(self,'_prepared',{}).get(identity['resource_uuid'])
+        if policy is None:raise self.protocol.JobError('UNCONFIRMED')
+        self.observe_isolation(policy)  # No start without the installed host table.
+        self._call(['/usr/sbin/pct','start',str(identity['vmid'])],timeout=90)
+        self.assert_confinement(identity)
+        try:
+            master=(Path('/sys/class/net')/('veth'+str(identity['vmid'])+'i0')/'master').resolve(strict=True).name
+            if master==policy['bridge']:return True
+            if master!='fwbr'+str(identity['vmid'])+'i0':raise ValueError()
+            uplink=(Path('/sys/class/net')/('fwpr'+str(identity['vmid'])+'p0')/'master').resolve(strict=True).name
+            if uplink!=policy['bridge']:raise ValueError()
+            return True
+        except Exception:raise self.protocol.JobError('UNCONFIRMED') from None
+
+    def _stream_child(self,identity,argv,context,*,payload=None,capture=False,timeout=900):
+        if __package__:
+            from infra.applications.job.collector import collect_output
+        else:
+            from applications.job.collector import collect_output
+        self.assert_confinement(identity)
+        process=subprocess.Popen(argv,stdin=subprocess.PIPE if payload is not None else subprocess.DEVNULL,
+            stdout=subprocess.PIPE,stderr=subprocess.PIPE,start_new_session=True,
+            env={'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','LANG':'C.UTF-8'})
+        data=bytearray();overflow=False
+        def output(stream,raw,*,final=False):
+            nonlocal overflow
+            if capture and stream=='stdout':
+                if len(data)+len(raw)>65536:overflow=True
+                elif not overflow:data.extend(raw)
+                return
+            context.output(stream,raw,final=final)
+        result=collect_output(process,output,timeout=timeout,input_bytes=payload)
+        if overflow or not result.input_delivered:raise self.protocol.JobError('UNCONFIRMED')
+        return result.returncode,bytes(data)
+
+    def bootstrap_docker(self,identity,context):
+        _,profile=self._configuration(identity)
+        if profile['origen']!='imagen_docker':raise self.protocol.JobError('PROFILE_UNAVAILABLE')
+        # Constant guest shell only: no script/URL or interpolated user command.
+        # Package versions are validated institutional profile data, separate argv.
+        script='''set -eu
+export DEBIAN_FRONTEND=noninteractive LC_ALL=C
+mkdir -p /etc/docker /etc/systemd/system/docker.service.d
+printf '%s\\n' '{"log-driver":"none","debug":false}' > /etc/docker/daemon.json
+printf '[Service]\\nStandardOutput=null\\nStandardError=null\\n' > /etc/systemd/system/docker.service.d/nap.conf
+apt-get update
+apt-get -y --no-install-recommends install python3 ca-certificates "$@"
+systemctl daemon-reload
+systemctl enable --now docker.service
+'''
+        runtime=profile['runtime']
+        packages=['docker.io='+runtime['docker'],'containerd='+runtime['containerd'],'runc='+runtime['runc']]
+        context.begin_output(packages={'docker.io','containerd','runc'})
+        code,_=self._stream_child(identity,['/usr/sbin/pct','exec',str(identity['vmid']),'--','/bin/sh','-c',script,'nap-bootstrap',*packages],context)
+        if code!=0:raise self.protocol.JobError('DEPENDENCY_UNAVAILABLE')
+
+    def docker_action(self,identity,action,payload,context):
+        if action not in {'prepare','pull','configure','start','probe'}:raise self.protocol.JobError('INVALID_REQUEST')
+        # The source is packaged reviewed code, never an uploaded guest program.
+        path=(Path(__file__).absolute().parents[1]/'applications/docker/guest.py' if __package__ else Path('/opt/nap/applications/docker/guest.py'))
+        try:
+            info=path.lstat()
+            if (path.resolve()!=path or info.st_uid not in {0,os.geteuid()} or info.st_mode&0o022
+                    or not path.is_file() or info.st_nlink!=1 or info.st_size>1048576):raise ValueError()
+            program=path.read_text()
+            shared=path.with_name('contract.py')
+            shared_info=shared.lstat()
+            if (shared.resolve()!=shared or shared_info.st_uid not in {0,os.geteuid()} or shared_info.st_mode&0o022
+                    or not shared.is_file() or shared_info.st_nlink!=1 or shared_info.st_size>1048576):raise ValueError()
+            program=shared.read_text()+'\n'+program
+            request={**payload,'action':action,'identity':identity}
+            raw=self.protocol.canonical(request)
+            if len(raw)>1048576:raise ValueError()
+        except Exception:raise self.protocol.JobError('PROFILE_UNAVAILABLE') from None
+        code,data=self._stream_child(identity,['/usr/sbin/pct','exec',str(identity['vmid']),'--',
+            '/usr/bin/python3','-I','-c',program],context,payload=raw,capture=True)
+        try:
+            result=self.protocol.strict_json(data,limit=65536)
+            if (type(result)is not dict or set(result)!={'ok','action','resource_uuid','configuracion_sha256','error_codigo'}
+                    or type(result['ok'])is not bool or result['action']!=action
+                    or result['resource_uuid']!=identity['resource_uuid'] or result['configuracion_sha256']!=identity['configuracion_sha256']):raise ValueError()
+            if not result['ok']:
+                if result['error_codigo'] not in {'DEPENDENCY_UNAVAILABLE','NO_SPACE','UNCONFIRMED','IDENTITY_MISMATCH'}:raise ValueError()
+                raise self.protocol.JobError(result['error_codigo'])
+            if code!=0 or result['error_codigo'] is not None:raise ValueError()
+            return result
+        except self.protocol.JobError:raise
+        except Exception:raise self.protocol.JobError('UNCONFIRMED') from None

@@ -72,3 +72,26 @@ def test_deadline_is_uncertain_and_never_reported_as_exit_success():
     with pytest.raises(JobError, match='DEADLINE_EXCEEDED'):
         collect_output(process, lambda *args, **kwargs: None, timeout=0.01)
     assert process.killed
+
+
+def test_private_input_larger_than_pipe_is_delivered_while_draining_output():
+    process=PipeProcess();read_fd,write_fd=os.pipe()
+    process.stdin=os.fdopen(write_fd,'wb',buffering=0)
+    payload=b'private-fixture-input-'*12000
+    received=bytearray();captured=[]
+    def producer():
+        try:
+            os.write(process.err_writer,b'x'*65536)  # Must drain before child accepts stdin.
+            while True:
+                chunk=os.read(read_fd,16384)
+                if not chunk:break
+                received.extend(chunk)
+            os.write(process.out_writer,b'fixed-result')
+        finally:
+            os.close(read_fd);process.finish()
+    thread=Thread(target=producer);thread.start()
+    try:
+        result=collect_output(process,lambda stream,raw,**kwargs:captured.append(raw),input_bytes=payload,timeout=5)
+    finally:thread.join(timeout=2);process.finish()
+    assert result.input_delivered and received==payload and result.returncode==0
+    assert payload not in b''.join(captured)

@@ -401,3 +401,11 @@ una carrera PostgreSQL y pruebas afectadas API/UI aprobadas, con inspección vis
 móvil/escritorio. No se habilitan perfiles por fixtures. T037 conserva pendientes
 las pruebas ligadas al runtime definitivo, y T039/T044–T047/T050 siguen pendientes.
 Ver `docs/evidencia/011/us1-imagenes.md`.
+
+Checkpoint de pausa solicitado por Mauro, 27/10: runtime Docker y recibos durables
+implementados parcialmente; el ensayo Proxmox final se bloqueó antes del arranque
+por `net0.type=veth`. Corrección local con pruebas aprobadas, aún no distribuida ni
+validada en otro ensayo real. LXC/discos/pool temporales eliminados y Draw.io
+preservado. No se habilitaron perfiles ni se marcaron tareas de aceptación como
+completas: se mantiene **38/105**. Detalle y siguiente paso seguro en
+`docs/evidencia/011/us1-imagenes.md`.

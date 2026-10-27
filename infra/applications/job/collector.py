@@ -17,14 +17,18 @@ from .protocol import JobError
 class CollectionResult:
     returncode: int
     unconfirmed_chunks: int
+    input_delivered: bool = True
 
 
-def collect_output(process, output, *, timeout=2700, clock=time.monotonic):
+def collect_output(process, output, *, timeout=2700, clock=time.monotonic, input_bytes=None):
     if (type(timeout) not in {int, float} or not math.isfinite(timeout) or not 0 < timeout <= 2700):
         raise JobError('INVALID_REQUEST')
     deadline = clock() + timeout
     unconfirmed = 0
     ended = set()
+    if input_bytes is not None and (type(input_bytes) is not bytes or len(input_bytes)>1048576):raise JobError('INVALID_REQUEST')
+    pending=memoryview(input_bytes or b'')
+    input_delivered=True
     def consume(stream, raw, *, final=False):
         nonlocal unconfirmed
         try: output(stream, raw, final=final)
@@ -39,10 +43,24 @@ def collect_output(process, output, *, timeout=2700, clock=time.monotonic):
                 if file is None: raise JobError('UNCONFIRMED')
                 os.set_blocking(file.fileno(), False)
                 selector.register(file, selectors.EVENT_READ, data=stream)
+            if input_bytes is not None:
+                if process.stdin is None:raise JobError('UNCONFIRMED')
+                if pending:
+                    os.set_blocking(process.stdin.fileno(),False)
+                    selector.register(process.stdin,selectors.EVENT_WRITE,data='stdin')
+                else:process.stdin.close()
             while selector.get_map() or process.poll() is None:
                 remaining = deadline-clock()
                 if remaining <= 0: raise JobError('DEADLINE_EXCEEDED')
                 for key, _ in selector.select(min(0.25, remaining)):
+                    if key.data=='stdin':
+                        try:
+                            written=os.write(key.fd,pending[:16384]);pending=pending[written:]
+                        except BlockingIOError:continue
+                        except BrokenPipeError:pending=pending[len(pending):];input_delivered=False
+                        if not pending:
+                            selector.unregister(key.fileobj);process.stdin.close()
+                        continue
                     try: raw = os.read(key.fd, 16384)
                     except BlockingIOError: continue
                     if raw: consume(key.data, raw)
@@ -51,10 +69,11 @@ def collect_output(process, output, *, timeout=2700, clock=time.monotonic):
                         consume(key.data, b'', final=True); ended.add(key.data)
             code = process.poll()
             if type(code) is not int: raise JobError('UNCONFIRMED')
-            return CollectionResult(code, unconfirmed)
+            return CollectionResult(code, unconfirmed, input_delivered)
     except OSError:
         raise JobError('UNCONFIRMED') from None
     finally:
+        if input_bytes is not None and process.stdin is not None and not process.stdin.closed:process.stdin.close()
         cleanup_deadline = None
         for stream in ('stdout', 'stderr'):
             file = getattr(process, stream, None)

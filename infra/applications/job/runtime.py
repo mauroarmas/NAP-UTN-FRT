@@ -41,11 +41,22 @@ class StrategyLoader:
             return action(context)
         return deploy
 
+    def compatible(self,definition):
+        if not self.available(definition['origen']):return False
+        try:
+            prefix=__package__.rsplit('.',1)[0]
+            relative=self.MODULES[definition['origen']].rsplit('.',1)[0]+'.runtime'
+            module=importlib.import_module(prefix+'.'+relative)
+            module.validate_profile(definition)
+            return True
+        except Exception:return False
+
 
 class RuntimeProfiles:
     """A certificate cannot make an absent strategy or changed platform usable."""
-    def __init__(self, registry, *, available, context=None):
+    def __init__(self, registry, *, available, context=None, compatible=None):
         self.registry, self.available, self.context = registry, available, context or {}
+        self.compatible=compatible or (lambda definition:True)
 
     def capabilities(self):
         values = self.registry.capabilities()
@@ -53,7 +64,7 @@ class RuntimeProfiles:
             if value['estado'] != 'habilitado': continue
             try:
                 definition = self.registry.require({k: value[k] for k in ('id','revision','sha256')}, **self.context)
-                if not self.available(definition['origen']):
+                if not self.available(definition['origen']) or not self.compatible(definition):
                     value.update(estado='bloqueado', motivo_codigo='DEPENDENCY_UNAVAILABLE')
             except JobError:
                 value.update(estado='bloqueado', motivo_codigo='PLATFORM_CHANGED')
@@ -61,7 +72,7 @@ class RuntimeProfiles:
 
     def require(self, reference, **context):
         definition = self.registry.require(reference, **{**context, **self.context})
-        if not self.available(definition['origen']): raise JobError('PROFILE_UNAVAILABLE')
+        if not self.available(definition['origen']) or not self.compatible(definition): raise JobError('PROFILE_UNAVAILABLE')
         return definition
 
 
@@ -125,7 +136,7 @@ def build_runtime(*, config_path=Path('/etc/nap/applications-011/runner.json'),
                   node_factory=_node_factory):
     value = _config(config_path)
     strategies = StrategyLoader()
-    profiles = RuntimeProfiles(ProfileRegistry(value['profiles']), available=strategies.available)
+    profiles = RuntimeProfiles(ProfileRegistry(value['profiles']), available=strategies.available,compatible=strategies.compatible)
     state = credentials = None
     try:
         node = node_factory(profiles=profiles, cluster_uuid=value['cluster_uuid'], local_node=value['node'])
@@ -133,6 +144,9 @@ def build_runtime(*, config_path=Path('/etc/nap/applications-011/runner.json'),
         # Fixed local private paths, loaded only if a real job needs material.
         from .tls import InstanceTLS
         node.tls_factory = InstanceTLS.from_node
+        from .isolation import IsolationManager
+        node.isolation_factory = lambda: IsolationManager(directory=Path('/var/lib/nap-application-isolation'),
+            boot_id=Path('/proc/sys/kernel/random/boot_id').read_text().strip())
         if node.local_node != value['node']: raise JobError('IDENTITY_MISMATCH')
         platform = node.platform()
         profiles.context = {'cluster_uuid': value['cluster_uuid'], 'node': value['node'], 'platform': platform}

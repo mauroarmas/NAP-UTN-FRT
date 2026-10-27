@@ -66,8 +66,10 @@ def setup_node(native, policy):
     return node, values, identity, effects
 
 
-def test_native_effect_requires_owned_stopped_matching_network_and_never_replaces(native, policy):
+@pytest.mark.parametrize('nic_type', ['', ',type=veth'])
+def test_native_effect_requires_owned_stopped_matching_network_and_never_replaces(native, policy, nic_type):
     node, values, identity, effects = setup_node(native, policy)
+    values['config']['net0'] += nic_type
     assert node.install_isolation(identity, policy)
     assert effects == [compile_policy(policy)]
     with pytest.raises(JobError): node.install_isolation(identity, policy)
@@ -76,7 +78,7 @@ def test_native_effect_requires_owned_stopped_matching_network_and_never_replace
     assert not any(argv[0] == '/usr/sbin/pct' for argv in values['calls'])
 
 
-@pytest.mark.parametrize('bad', ['running','foreign','wrong-ip','extra-nic','duplicate-key'])
+@pytest.mark.parametrize('bad', ['running','foreign','wrong-ip','extra-nic','duplicate-key','wrong-type'])
 def test_network_mismatch_never_changes_host(native, policy, bad):
     node, values, identity, effects = setup_node(native, policy)
     if bad == 'running': values['status'] = 'running'
@@ -84,6 +86,7 @@ def test_network_mismatch_never_changes_host(native, policy, bad):
     if bad == 'wrong-ip': values['config']['net0'] = values['config']['net0'].replace('.81/', '.82/')
     if bad == 'extra-nic': values['config']['net1'] = 'name=eth1,bridge=vmbr0,ip=dhcp'
     if bad == 'duplicate-key': values['config']['net0'] += ',ip=172.16.36.81/24'
+    if bad == 'wrong-type': values['config']['net0'] += ',type=physical'
     with pytest.raises(JobError): node.install_isolation(identity, policy)
     assert not effects
 
@@ -200,6 +203,7 @@ def test_native_preparation_uses_institutional_policy_and_tls_before_installer(n
         seen.append(slot['host'])
         return {'private_key_pem':'fixture-key'}
     node.tls_factory=lambda:SimpleNamespace(material=material)
+    node.isolation_factory=lambda:SimpleNamespace(ensure=lambda owner,policy,**actions:actions['install']())
     result=node.prepare_application(identity,{'access':{'tipo':'web'}})
     assert result['network']['host']=='app81.nap.test' and result['tls']['private_key_pem']=='fixture-key'
     assert seen==['app81.nap.test'] and len(effects)==1

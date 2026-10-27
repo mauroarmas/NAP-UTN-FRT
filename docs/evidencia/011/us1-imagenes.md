@@ -57,3 +57,39 @@ perfil habilitado sólo tras gate real y aceptación de campus-demo, whoami, cre
 privada y persistencia. Este archivo **no acredita despliegue Docker real completo**.
 No se habilitaron perfiles ni ofertas de producción con fixtures. La consulta real
 OCI no prueba funcionamiento de la aplicación, recursos máximos ni Proxmox.
+
+## Checkpoint del runtime Docker — 27/10/2026
+
+Implementación en revisión: estrategia de cinco acciones cerradas dentro del LXC,
+paquetes y manifiestos fijados, comando original de la imagen, volúmenes por
+instancia y borde HTTPS Caddy. Las credenciales de descarga, valores privados de
+la aplicación y claves TLS viajan sólo por el canal privado de su acción. Se
+incorpora recibo durable del aislamiento y entrada privada concurrente con la
+captura de salida para evitar bloqueos por buffers llenos.
+
+Se instaló el paquete en Proxmox sin habilitar perfiles. Se generó una CA propia
+del motor en el nodo; su clave privada permaneció allí. El ensayo final usó una
+identidad nueva y el LXC temporal 900011, separado de Draw.io. **Se detuvo antes
+del arranque del invitado**: Proxmox incluye `type=veth` en `net0` y la validación
+lo rechazaba. El trabajo quedó `incierto`/`UNCONFIRMED`, sin disponibilidad ni
+reintento automático. Se conservó ese resultado para diagnóstico.
+
+La corrección en el repositorio admite exclusivamente `veth` o el campo ausente;
+rechaza otros tipos y conserva las demás comprobaciones. Todavía no se distribuyó
+esa corrección ni se repitió el ensayo real. No se acredita instalación Docker,
+acceso, persistencia o credenciales privadas reales con este intento.
+
+Validación acotada al cierre: **46 aprobadas y 2 integraciones omitidas** en
+aislamiento, estrategia Docker, collector y guardas del ensayo; comprobación
+adicional del paquete instalado de sólo lectura **1 aprobada**. Estas pruebas
+locales no sustituyen el gate Proxmox.
+
+Limpieza real confirmada: LXC 900011 ausente, sus discos ausentes y pool
+`nap011-final-gate` eliminado. Sólo permanece el LXC 100 de Draw.io, detenido y
+sin modificaciones de este ensayo. El registro de producción conserva cero
+perfiles habilitados. Los recibos privados de trabajo/TLS/aislamiento se conservan
+como historial; no reutilizar esa identidad ni repetir la ejecución incierta.
+
+Se detiene el trabajo aquí a pedido de Mauro. T039/T044–T047/T050 y la aceptación
+completa de US1 siguen pendientes; próximo paso: revisar el cierre del ensayo
+incierto, distribuir la corrección y validar con una identidad nueva.
