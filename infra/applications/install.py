@@ -14,7 +14,7 @@ import tempfile
 from uuid import uuid4, UUID
 
 
-JOBS = ('protocol','configuration','state','supervisor','credentials','worker','runtime','collector','spool','redaction','selfcheck')
+JOBS = ('protocol','configuration','state','supervisor','credentials','worker','runtime','collector','spool','redaction','selfcheck','network')
 SOURCES = {f'/opt/nap/applications/job/{name}.py': f'infra/applications/job/{name}.py' for name in JOBS}
 SOURCES.update({
     '/opt/nap/applications/profiles/registry.py': 'infra/applications/profiles/registry.py',

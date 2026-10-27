@@ -250,3 +250,39 @@ Pruebas locales nuevas + regresión de red histórica: **22 aprobadas**. Postgre
 dos asignaciones concurrentes toman slots diferentes y repetir una no duplica filas.
 No crea invitados, DNS, certificados ni claves TLS. T023 sigue pendiente hasta unir
 la creación de identidad/nonce nuevos y TLS por instancia al camino definitivo.
+
+## Política externa común — avance de T032 (27/10/2026)
+
+`infra/applications/job/network.py` compila una política cerrada de nftables bridge
+por UUID; el paquete común la incluye. El adaptador nativo sólo la instala sobre
+un CT propio, detenido y no privilegiado, con una única interfaz cuya MAC, IPv4 y
+puente coinciden. Revalida la configuración inmediatamente antes del efecto.
+No admite fragmentos nft, nombres de interfaz libres, comandos, puertos arbitrarios
+para infraestructura, redes cliente universales ni modificaciones de tablas ajenas.
+
+La tabla se crea de forma exclusiva en un solo lote. No se adopta una tabla ya
+existente ni se hace flush/delete tras una respuesta perdida: ese caso exige
+reconciliación del driver. La diferencia entre `create` y `add` está documentada
+en el [manual oficial de nftables](https://netfilter.org/projects/nftables/manpage.html).
+Las reglas se atan por nombre a la veth que aparecerá al arrancar; filtran forward,
+input y output del bridge. Bloquean suplantación de MAC/IPv4, IPv6 y protocolos no
+previstos, nodo/pares y destinos privados/especiales; las únicas excepciones de
+salida son endpoints institucionales tipados y descargas HTTP(S) públicas.
+Los clientes autorizados pueden entrar sólo al puerto principal, con respuestas
+de la conexión permitidas sin habilitar conexiones nuevas del guest hacia clientes.
+
+**Verificación acotada:** 38 pruebas aprobadas en 0,35 s para política, adaptador y
+paquete. Una de ellas usa nftables/kernel reales en un user/network namespace
+local descartable: instalación del lote, rechazo de replay sin cambio de reglas y
+conservación de una tabla ajena. Se amplió esa misma prueba con tráfico Ethernet
+real sobre dos pares veth y un bridge: pasa DNS autorizado; se bloquean nodo, par,
+metadata link-local, MAC/IP suplantadas e IPv6. Las 18 pruebas de política pasaron
+en 1,85 s tras esa ampliación. No se ejecutó la regresión completa.
+
+**Límite explícito:** no es un ensayo Proxmox ni acredita el bridge de la VM.
+T032 permanece pendiente: faltan cargar la política desde la configuración
+institucional del nodo, integrarla con el driver definitivo antes del arranque,
+reconciliar su estado durable y repetir las comprobaciones reales T050/T061.
+No se conectó una política enviada por el usuario/SSH ni se habilitaron perfiles.
+TLS por instancia (T023/T034) sigue pendiente. No se modificó la red del host,
+Proxmox ni el servicio Draw.io existente.

@@ -369,3 +369,12 @@ definitivos siguen pendientes de sus compuertas reales. T023 añade UUID/nonce n
 al reclamar la red; conserva pendiente generación/distribución de claves por instancia.
 Validación afectada: 10 pruebas + una carrera PostgreSQL + un fallo de creación con
 liberación tras ausencia; sin regresión general ni nuevas pruebas físicas simuladas.
+
+Avance 27/10 — T032 conserva estado parcial. Política común `job/network.py`
+y acción interna `ApplicationNodeExecutor.install_isolation`: tabla nft exclusiva
+por identidad, CT propio/detenido, una sola NIC, MAC/IP/puente exactos y sin
+flush/adopción de reglas. El paquete distribuye el módulo. Pruebas afectadas:
+38 aprobadas; ampliación de la prueba real en namespace local con tráfico veth,
+18 casos de política aprobados. Faltan cargador institucional, recuperación durable,
+integración previa al arranque y gate Proxmox final; no habilita perfiles ni cierra
+T023/T032/T034. Evidencia y límites en `docs/evidencia/011/base-comun.md`.

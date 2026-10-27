@@ -271,8 +271,8 @@ class ApplicationNodeExecutor:
     """Separate adapter for application jobs; legacy recipes remain unchanged.
 
     It cannot create another guest, execute a Community host script or accept
-    PVE flags from the wire. The only environment mutation here is the exact
-    Docker feature pair on an owned, stopped, unprivileged container.
+    PVE flags from the wire. Environment effects are a fixed Docker feature
+    pair and exclusive host isolation on an owned, stopped, unprivileged CT.
     """
     def __init__(self, *, profiles, cluster_uuid, run_command=None, local_node=None):
         if __package__:
@@ -284,8 +284,8 @@ class ApplicationNodeExecutor:
         self.run_command = run_command or bounded_command
         self.local_node = local_node or Path(os.readlink('/etc/pve/local')).name
 
-    def _call(self, argv):
-        try: return self.run_command(argv, timeout=5, limit=2097152)
+    def _call(self, argv, *, input=None):
+        try: return self.run_command(argv, timeout=5, limit=2097152, **({'input': input} if input is not None else {}))
         except Exception: raise self.protocol.JobError('UNCONFIRMED') from None
 
     def platform(self):
@@ -350,6 +350,41 @@ class ApplicationNodeExecutor:
     def assert_owner(self, identity):
         self._configuration(identity)
         return True
+
+    def install_isolation(self, identity, policy):
+        """Internal driver action, not a new wire action or a guest parameter.
+
+        Exclusive table creation intentionally refuses to adopt/rewrite an
+        existing table. A lost response requires reconciliation, never a flush.
+        Institutional policy loading and durable recovery belong to the driver.
+        """
+        if __package__:
+            from infra.applications.job.network import compile_policy
+        else:
+            from applications.job.network import compile_policy
+        batch = compile_policy(policy)
+        config, _ = self._configuration(identity)
+        try:
+            if policy['resource_uuid'] != identity['resource_uuid'] or policy['vmid'] != identity['vmid']: raise ValueError()
+            entries = config['net0'].split(',')
+            net = dict(item.split('=', 1) for item in entries)
+            if len(net) != len(entries) or set(net) - {'name','bridge','hwaddr','ip','gw','firewall','ip6'}: raise ValueError()
+            if (net.get('name') != 'eth0' or net.get('bridge') != policy['bridge']
+                    or net.get('hwaddr','').lower() != policy['mac_address']
+                    or net.get('ip6') not in (None, 'manual')
+                    or str(ipaddress.IPv4Interface(net['ip']).ip) != policy['address']): raise ValueError()
+            if any(re.fullmatch(r'net[1-9][0-9]*', k) for k in config): raise ValueError()
+            status = parse_system_json(self._call(['/usr/bin/pvesh', 'get',
+                '/nodes/'+self.local_node+'/lxc/'+str(identity['vmid'])+'/status/current', '--output-format', 'json']))
+            if status.get('status') != 'stopped': raise ValueError()
+            # Re-observe ownership immediately before the only effect. No start,
+            # privilege change, nft delete/flush or shell command is permitted.
+            latest, _ = self._configuration(identity)
+            if latest != config: raise ValueError()
+            self._call(['/usr/sbin/nft', '-f', '-'], input=batch)
+            return True
+        except self.protocol.JobError: raise
+        except Exception: raise self.protocol.JobError('UNCONFIRMED') from None
 
     def enable_environment(self, identity):
         config, profile = self._configuration(identity)
