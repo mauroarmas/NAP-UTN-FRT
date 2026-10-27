@@ -286,3 +286,38 @@ reconciliar su estado durable y repetir las comprobaciones reales T050/T061.
 No se conectó una política enviada por el usuario/SSH ni se habilitaron perfiles.
 TLS por instancia (T023/T034) sigue pendiente. No se modificó la red del host,
 Proxmox ni el servicio Draw.io existente.
+
+## Arranque protegido y TLS por identidad — integración común (27/10/2026)
+
+El runtime acepta `networks` institucionales opcionales en el archivo privado del
+nodo, sin ampliar el protocolo SSH. Un registro vacío sigue siendo válido para
+consultar perfiles; intentar instalar sin red preparada se rechaza. Los slots
+se cotejan por IP y MAC con la configuración real del CT; no se infiere DHCP.
+El worker de producción recibe el adaptador del nodo y prepara red, material TLS
+y aislamiento antes de invocar cualquier estrategia. Un fallo impide entrar al
+instalador y conserva incertidumbre. Los workers de pruebas pueden inyectar dobles;
+el entry point instalado siempre suministra el adaptador real.
+
+`job/tls.py` emite una clave EC y certificado de servidor únicos por resource UUID,
+con SAN DNS/IP exactos y máximo 180 días, limitado además por la CA institucional.
+La CA se lee sólo desde `/etc/nap/applications-011/pki/{ca.crt,ca.key}`, con recorrido
+sin enlaces, archivos privados y tamaño acotado. El paquete prepara el directorio
+privado `/var/lib/nap-application-tls`; cada material se escribe atómicamente bajo
+lock por recurso. El replay verifica firma, clave, SAN, vigencia, CA y binding
+clúster/recurso/nonce. No cambia material existente al vencer, corromperse o cambiar
+la identidad. Otra instancia del mismo slot obtiene otra clave/serial.
+La CA y las claves no se incorporan al manifiesto del job, respuesta SSH ni spool.
+La clave de instancia se registra también en la depuración de salida antes del
+instalador y se conserva al cambiar de colector. La CA privada nunca va al guest.
+
+Pruebas afectadas del bloque: **45 aprobadas y una integración de nft omitida**
+(al no repetirla por rutina). Selección posterior de TLS y conexión del adaptador:
+**12 aprobadas en 0,23 s**, incluyendo dos casos añadidos y revalidación del módulo
+TLS tras incorporar su loader privado. TLS se comprobó con sockets/SSL reales y
+certificados efímeros de prueba: DNS/IP correctos aceptados y nombre ajeno rechazado.
+También se comprobaron replay, identidad distinta, expiración, corrupción, enlaces,
+permisos y ausencia de entrada al instalador tras fallo de aislamiento.
+
+T023/T032/T034 continúan parciales: faltan configurar CA/red reales en el nodo,
+conectar el borde/probes y registrar entrega automática; no se instaló este paquete
+nuevo en Proxmox ni se habilitó un perfil con estas pruebas locales.

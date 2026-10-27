@@ -166,3 +166,41 @@ print('isolated nft batch: installed; replay rejected; unrelated table preserved
         input=compile_policy(policy), capture_output=True, timeout=15)
     assert result.returncode == 0, result.stderr.decode()
     assert b'isolated nft batch: installed' in result.stdout
+
+
+def test_institutional_network_requires_matching_reserved_slot(native,policy):
+    from infra.applications.job.network import NetworkRegistry
+    node,values,identity,effects=setup_node(native,policy)
+    _,profile=node._configuration(identity)
+    entry={'cluster_uuid':identity['cluster_uuid'],'nodes':[identity['node']],
+        **{k:policy[k] for k in ('bridge','client_cidrs','management_addresses','peer_cidrs','endpoints')},
+        'slots':{'app81':{'host':'app81.nap.test','address':policy['address'],'mac_address':policy['mac_address']}}}
+    registry=NetworkRegistry({profile['network_profile_id']:entry},cluster_uuid=identity['cluster_uuid'],node=identity['node'])
+    expected,slot=registry.for_guest(profile,identity,values['config'],{'access':{'tipo':'web'}})
+    assert expected['service_port']==8443 and slot['host']=='app81.nap.test'
+    entry['slots']['app81']['address']='172.16.36.82'  # defensive copy
+    assert registry.for_guest(profile,identity,values['config'],{'access':{'tipo':'web'}})[1]==slot
+    values['config']['net0']=values['config']['net0'].replace('.81/','.83/')
+    with pytest.raises(JobError): registry.for_guest(profile,identity,values['config'],{'access':{'tipo':'web'}})
+    assert not effects
+
+
+def test_native_preparation_uses_institutional_policy_and_tls_before_installer(native,policy):
+    from types import SimpleNamespace
+    from infra.applications.job.network import NetworkRegistry
+    node,values,identity,effects=setup_node(native,policy)
+    _,profile=node._configuration(identity)
+    entry={'cluster_uuid':identity['cluster_uuid'],'nodes':[identity['node']],
+        **{k:policy[k] for k in ('bridge','client_cidrs','management_addresses','peer_cidrs','endpoints')},
+        'slots':{'app81':{'host':'app81.nap.test','address':policy['address'],'mac_address':policy['mac_address']}}}
+    node.networks=NetworkRegistry({profile['network_profile_id']:entry},cluster_uuid=identity['cluster_uuid'],node=identity['node'])
+    seen=[]
+    def material(owner,slot):
+        assert owner==identity and not effects
+        seen.append(slot['host'])
+        return {'private_key_pem':'fixture-key'}
+    node.tls_factory=lambda:SimpleNamespace(material=material)
+    result=node.prepare_application(identity,{'access':{'tipo':'web'}})
+    assert result['network']['host']=='app81.nap.test' and result['tls']['private_key_pem']=='fixture-key'
+    assert seen==['app81.nap.test'] and len(effects)==1
+    assert values['config']['features']=='nesting=1,keyctl=1'

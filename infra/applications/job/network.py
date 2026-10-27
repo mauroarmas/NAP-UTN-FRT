@@ -108,3 +108,58 @@ def compile_policy(value):
         lines.append(f'add chain bridge {table} {name} {{ type filter hook {hook} priority -300; policy accept; }}')
         lines.extend(f'add rule bridge {table} {name} {direction} "{veth}" jump {target}' for direction, target in rules)
     return ('\n'.join(lines)+'\n').encode('ascii')
+
+
+class NetworkRegistry:
+    """Institutional node data, independent of application/SSH inputs.
+
+    Missing data means unavailable; no DHCP discovery, inferred subnet, or
+    arbitrary route is used to complete it. Slots are matched by MAC AND IP.
+    """
+    def __init__(self, entries, *, cluster_uuid, node):
+        from copy import deepcopy
+        try:
+            if type(entries) is not dict or len(entries) > 50 or len(canonical(entries)) > 1048576: raise ValueError()
+            self.entries = deepcopy(entries)
+            self.cluster_uuid, self.node = cluster_uuid, node
+            seen = set()
+            for name, value in self.entries.items():
+                if not re.fullmatch(r'[a-z][a-z0-9-]{0,63}', name): raise ValueError()
+                if type(value) is not dict or set(value) != {'cluster_uuid','nodes','bridge','client_cidrs',
+                        'management_addresses','peer_cidrs','endpoints','slots'}: raise ValueError()
+                if (value['cluster_uuid'] != cluster_uuid or type(value['nodes']) is not list
+                        or not 1 <= len(value['nodes']) <= 100 or node not in value['nodes']
+                        or any(type(n) is not str or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,99}',n) for n in value['nodes'])): raise ValueError()
+                if type(value['slots']) is not dict or not 1 <= len(value['slots']) <= 256: raise ValueError()
+                for slot_id, slot in value['slots'].items():
+                    if not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,63}', slot_id): raise ValueError()
+                    if type(slot) is not dict or set(slot) != {'host','address','mac_address'}: raise ValueError()
+                    host = slot['host']
+                    if type(host) is not str or len(host) > 253 or not host or any(not re.fullmatch(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?', label) for label in host.split('.')): raise ValueError()
+                    for key, item in slot.items():
+                        if (key,item) in seen: raise ValueError()
+                        seen.add((key,item))
+                    validate_policy(self._policy(value, slot, resource_uuid='00000000-0000-0000-0000-000000000001', vmid=100, port=8443))
+        except Exception: raise JobError('PROFILE_UNAVAILABLE') from None
+
+    @staticmethod
+    def _policy(value, slot, *, resource_uuid, vmid, port):
+        return {key:value[key] for key in ('bridge','client_cidrs','management_addresses','peer_cidrs','endpoints')} | {
+            'resource_uuid':resource_uuid,'vmid':vmid,'address':slot['address'],
+            'mac_address':slot['mac_address'],'service_port':port}
+
+    def for_guest(self, profile, identity, config, deployment):
+        from copy import deepcopy
+        try:
+            value = self.entries[profile['network_profile_id']]
+            if self.node not in value['nodes']: raise ValueError()
+            parts = config['net0'].split(','); net = dict(p.split('=',1) for p in parts)
+            if len(parts) != len(net) or net.get('bridge') != value['bridge']: raise ValueError()
+            address = str(ipaddress.IPv4Interface(net['ip']).ip)
+            matches = [v for v in value['slots'].values() if v['address'] == address and v['mac_address'] == net.get('hwaddr','').lower()]
+            if len(matches) != 1: raise ValueError()
+            port = 8443 if deployment['access']['tipo'] == 'web' else deployment['access']['puerto']
+            policy = self._policy(value, matches[0], resource_uuid=identity['resource_uuid'], vmid=identity['vmid'], port=port)
+            validate_policy(policy)
+            return deepcopy(policy), deepcopy(matches[0])
+        except Exception: raise JobError('PROFILE_UNAVAILABLE') from None

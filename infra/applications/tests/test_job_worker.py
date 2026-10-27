@@ -83,3 +83,36 @@ def test_wrong_unit_cannot_claim_or_consume_the_credential_source(worker_rig):
     assert worker.run(rig.request['execution_id'], invocation_id=str(uuid4())) == 1
     assert list(rig.credentials.path.iterdir())  # Unknown caller cannot delete the source.
     assert not rig.store.read_job(rig.request['execution_id'])['credentials_loaded']
+
+
+def test_environment_is_required_before_strategy_and_private_tls_never_reaches_console(worker_rig):
+    from types import SimpleNamespace
+    rig=worker_rig; order=[]
+    tls_key='fixture-TLS-private-material-011'
+    def prepare(identity,config):
+        order.append('isolation')
+        return {'network':{'host':'app81.nap.test'},'tls':{'private_key_pem':tls_key}}
+    def strategy(context):
+        order.append('installer')
+        assert context.network['host']=='app81.nap.test'
+        context.begin_output()
+        context.output('stdout',tls_key.encode(),final=True)
+        context.phase('comprobacion')
+        return RESULT
+    worker=ApplicationWorker(supervisor=rig.supervisor,credentials=rig.credentials,
+        strategies={'imagen_docker':strategy},emit=rig.messages.append,node=SimpleNamespace(prepare_application=prepare))
+    assert worker.run(rig.request['execution_id'],invocation_id=rig.invocation)==0
+    assert order==['isolation','installer']
+    assert tls_key not in str(rig.messages)
+
+
+def test_isolation_failure_prevents_installer_and_guest_start(worker_rig):
+    from types import SimpleNamespace
+    rig=worker_rig; installed=[]
+    def prepare(*args): raise JobError('UNCONFIRMED')
+    worker=ApplicationWorker(supervisor=rig.supervisor,credentials=rig.credentials,
+        strategies={'imagen_docker':lambda context:installed.append(True)},emit=rig.messages.append,
+        node=SimpleNamespace(prepare_application=prepare))
+    assert worker.run(rig.request['execution_id'],invocation_id=rig.invocation)==1
+    assert not installed
+    assert rig.store.read_job(rig.request['execution_id'])['estado']=='incierto'

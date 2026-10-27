@@ -351,6 +351,18 @@ class ApplicationNodeExecutor:
         self._configuration(identity)
         return True
 
+    def prepare_application(self, identity, deployment):
+        config, profile = self._configuration(identity)
+        networks = getattr(self, 'networks', None)
+        if networks is None: raise self.protocol.JobError('PROFILE_UNAVAILABLE')
+        policy, slot = networks.for_guest(profile, identity, config, deployment)
+        issuer = getattr(self, 'tls_factory', None)
+        if issuer is None: raise self.protocol.JobError('PROFILE_UNAVAILABLE')
+        material = issuer().material(identity, slot)
+        self.install_isolation(identity, policy)
+        self.enable_environment(identity)
+        return {'network': slot, 'tls': material}
+
     def install_isolation(self, identity, policy):
         """Internal driver action, not a new wire action or a guest parameter.
 

@@ -14,7 +14,7 @@ import tempfile
 from uuid import uuid4, UUID
 
 
-JOBS = ('protocol','configuration','state','supervisor','credentials','worker','runtime','collector','spool','redaction','selfcheck','network')
+JOBS = ('protocol','configuration','state','supervisor','credentials','worker','runtime','collector','spool','redaction','selfcheck','network','tls')
 SOURCES = {f'/opt/nap/applications/job/{name}.py': f'infra/applications/job/{name}.py' for name in JOBS}
 SOURCES.update({
     '/opt/nap/applications/profiles/registry.py': 'infra/applications/profiles/registry.py',
@@ -197,7 +197,7 @@ def _install_files(files, *, root, apply, previous, config, verify):
             atomic_write(target, old, 0o600)
     applied = []
     try:
-        for path in (root/'etc/nap/applications-011', root/'var/lib/nap-application-jobs', root/'run/nap-application-jobs'):
+        for path in (root/'etc/nap/applications-011', root/'var/lib/nap-application-jobs', root/'run/nap-application-jobs', root/'var/lib/nap-application-tls'):
             safe_directory(path, mode=0o700)
             if path.stat().st_mode & 0o077: raise PackageError('PRIVATE_DIRECTORY_REQUIRED')
         for item in changes:

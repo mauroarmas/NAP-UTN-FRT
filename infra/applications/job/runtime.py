@@ -7,6 +7,7 @@ import stat
 import sys
 
 from .credentials import CredentialChannel
+from .network import NetworkRegistry
 from .protocol import JobError, strict_json
 from .spool import Spool
 from .state import PrivateDirectory, StateStore, uuid_text
@@ -73,10 +74,12 @@ def _config(path):
                 info = os.fstat(source.fileno()); folder._private_file(info)
                 if info.st_size > 1048576: raise ValueError()
                 value = strict_json(source.read(1048577))
-        if (set(value) != {'schema_version', 'cluster_uuid', 'node', 'profiles'}
+        if (set(value) not in ({'schema_version', 'cluster_uuid', 'node', 'profiles'},
+                             {'schema_version', 'cluster_uuid', 'node', 'profiles', 'networks'})
                 or value['schema_version'] != 'nap-application-node/1'
                 or type(value['node']) is not str or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,99}', value['node'])): raise ValueError()
         uuid_text(value['cluster_uuid']); ProfileRegistry(value['profiles'])
+        NetworkRegistry(value.get('networks', {}), cluster_uuid=value['cluster_uuid'], node=value['node'])
         return value
     except Exception: raise JobError('PROFILE_UNAVAILABLE') from None
 
@@ -126,6 +129,10 @@ def build_runtime(*, config_path=Path('/etc/nap/applications-011/runner.json'),
     state = credentials = None
     try:
         node = node_factory(profiles=profiles, cluster_uuid=value['cluster_uuid'], local_node=value['node'])
+        node.networks = NetworkRegistry(value.get('networks', {}), cluster_uuid=value['cluster_uuid'], node=value['node'])
+        # Fixed local private paths, loaded only if a real job needs material.
+        from .tls import InstanceTLS
+        node.tls_factory = InstanceTLS.from_node
         if node.local_node != value['node']: raise JobError('IDENTITY_MISMATCH')
         platform = node.platform()
         profiles.context = {'cluster_uuid': value['cluster_uuid'], 'node': value['node'], 'platform': platform}

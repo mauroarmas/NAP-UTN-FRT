@@ -48,7 +48,7 @@ def retry_transition(action):
 
 
 class WorkerContext:
-    def __init__(self, *, supervisor, job, invocation_id, values, emit):
+    def __init__(self, *, supervisor, job, invocation_id, values, emit, node=None):
         self.supervisor, self.configuration = supervisor, job['configuracion']
         self.identity = job['identity']
         self._execution = self.identity['execution_id']
@@ -58,6 +58,10 @@ class WorkerContext:
         self._closed_streams = set()
         self._phase = job['fase']
         self.dropped_messages = 0
+        self.node = node
+        self.network = None
+        self.tls = None
+        self._runtime_secrets = []
 
     def secret(self, name):
         if type(name) is not str or name not in self._values: raise JobError('INVALID_REQUEST')
@@ -91,14 +95,15 @@ class WorkerContext:
     def begin_output(self, *, extra_secrets=(), packages=frozenset()):
         """Register a child's complete secret set before executing that child."""
         self.flush()
-        self._output = ClosedOutput([*self._values.values(), *extra_secrets], packages=packages)
+        self._output = ClosedOutput([*self._values.values(), *self._runtime_secrets, *extra_secrets], packages=packages)
         self._closed_streams.clear()
 
 
 class ApplicationWorker:
-    def __init__(self, *, supervisor, credentials, strategies, emit):
+    def __init__(self, *, supervisor, credentials, strategies, emit, node=None):
         self.supervisor, self.credentials = supervisor, credentials
         self.strategies, self.emit = strategies, emit
+        self.node = node
 
     def run(self, execution_id, *, invocation_id):
         context = None
@@ -113,12 +118,17 @@ class ApplicationWorker:
                 return retry_transition(lambda: self.supervisor.claim_worker(execution_id, **binding))
             values = self.credentials.load_and_retire(execution_id, fingerprint=job['fingerprint'], mark_loaded=claim)
             if values is None: return 0
-            context = WorkerContext(supervisor=self.supervisor, job=job, invocation_id=invocation_id, values=values, emit=self.emit)
+            context = WorkerContext(supervisor=self.supervisor, job=job, invocation_id=invocation_id, values=values, emit=self.emit, node=self.node)
             self.supervisor.profiles.require(job['identity']['perfil'], cluster_uuid=self.supervisor.cluster_uuid,
                 node=self.supervisor.node, platform=self.supervisor.platform)
             strategy = self.strategies.get(job['configuracion']['origen'])
             if not callable(strategy): raise JobError('PROFILE_UNAVAILABLE')
             context.phase('entorno')
+            if self.node is not None:
+                environment = self.node.prepare_application(context.identity, context.configuration)
+                context.network, context.tls = environment['network'], environment['tls']
+                context._runtime_secrets.append(context.tls['private_key_pem'])
+                context.begin_output()
             result = strategy(context)
             if context._phase != 'comprobacion': raise JobError('UNCONFIRMED')
             context.flush()
@@ -150,7 +160,7 @@ def main():
         signal.signal(signal.SIGTERM, deadline)
         with build_runtime() as runtime:
             return ApplicationWorker(supervisor=runtime.supervisor, credentials=runtime.credentials,
-                strategies=runtime.strategies, emit=runtime.emitter(execution)).run(execution, invocation_id=invocation)
+                strategies=runtime.strategies, emit=runtime.emitter(execution), node=runtime.node).run(execution, invocation_id=invocation)
     except Exception:
         return 1
 

@@ -378,3 +378,10 @@ flush/adopción de reglas. El paquete distribuye el módulo. Pruebas afectadas:
 18 casos de política aprobados. Faltan cargador institucional, recuperación durable,
 integración previa al arranque y gate Proxmox final; no habilita perfiles ni cierra
 T023/T032/T034. Evidencia y límites en `docs/evidencia/011/base-comun.md`.
+
+Avance siguiente 27/10 — aislamiento ya conectado al entry point del worker antes
+de la estrategia, con registro institucional privado de redes y correspondencia
+IP/MAC del slot. TLS por identidad en `job/tls.py`, CA local privada, persistencia
+atómica/replay y redacción de claves de instancia. Validación afectada: 45 aprobadas,
+una integración omitida; selección posterior TLS/adaptador 12 aprobadas. T023/T032/T034
+siguen parciales hasta configurar el nodo y completar borde/probes/gates reales.
