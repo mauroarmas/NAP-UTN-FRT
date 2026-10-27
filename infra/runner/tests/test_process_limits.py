@@ -2,6 +2,14 @@
 import pytest
 
 
+def test_nonzero_status_is_allowed_only_when_the_internal_caller_explicitly_requests_it():
+    from infra.runner.node_executor import bounded_command
+    from app.schemas.guest_runner import RunnerError
+    command=['/usr/bin/python3','-c','print("public observation");raise SystemExit(1)']
+    with pytest.raises(RunnerError):bounded_command(command,timeout=3)
+    assert bounded_command(command,timeout=3,accepted_codes=(0,1))==b'public observation\n'
+
+
 pytestmark = pytest.mark.integration
 
 

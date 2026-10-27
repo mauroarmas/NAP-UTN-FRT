@@ -3,6 +3,7 @@ import hashlib
 import ipaddress
 import json
 import os
+import re
 from pathlib import Path
 import selectors
 import signal
@@ -93,7 +94,7 @@ def parse_system_json(raw, *, limit=65536):
         raise RunnerError('UNCONFIRMED') from None
 
 
-def bounded_command(argv, *, input=None, timeout=30, limit=2097152):
+def bounded_command(argv, *, input=None, timeout=30, limit=2097152, accepted_codes=(0,)):
     """Drenar stdout con límite, sin capturar stderr ni usar un shell."""
     process = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
         start_new_session=True, env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LANG': 'C.UTF-8'})
@@ -129,7 +130,7 @@ def bounded_command(argv, *, input=None, timeout=30, limit=2097152):
                         if not pending:
                             selector.unregister(key.fileobj); process.stdin.close()
             process.wait(timeout=max(0.01, deadline - time.monotonic()))
-            if process.returncode != 0:
+            if process.returncode not in accepted_codes:
                 raise RunnerError('UNCONFIRMED')
             return bytes(output)
     except (OSError, subprocess.SubprocessError):
@@ -264,3 +265,103 @@ class NodeExecutor:
         self._identity(request)
         return {**{key: request[key] for key in ['cluster_uuid', 'resource_uuid', 'node', 'vmid', 'pool', 'nonce',
             'definition_sha256', 'bundle_sha256']}, 'type': 'lxc', 'unprivileged': True, **result}
+
+
+class ApplicationNodeExecutor:
+    """Separate adapter for application jobs; legacy recipes remain unchanged.
+
+    It cannot create another guest, execute a Community host script or accept
+    PVE flags from the wire. The only environment mutation here is the exact
+    Docker feature pair on an owned, stopped, unprivileged container.
+    """
+    def __init__(self, *, profiles, cluster_uuid, run_command=None, local_node=None):
+        if __package__:
+            from infra.applications.job import protocol as job_protocol
+        else:
+            from applications.job import protocol as job_protocol
+        self.protocol = job_protocol
+        self.profiles, self.cluster_uuid = profiles, cluster_uuid
+        self.run_command = run_command or bounded_command
+        self.local_node = local_node or Path(os.readlink('/etc/pve/local')).name
+
+    def _call(self, argv):
+        try: return self.run_command(argv, timeout=5, limit=2097152)
+        except Exception: raise self.protocol.JobError('UNCONFIRMED') from None
+
+    def platform(self):
+        raw = self._call(['/usr/bin/pveversion'])
+        try:
+            match = re.match(rb'^pve-manager/([0-9]+\.[0-9]+(?:\.[0-9]+)?)/', raw)
+            architecture = {'x86_64': 'amd64', 'aarch64': 'arm64'}[os.uname().machine]
+            if not match: raise ValueError()
+            return {'pve': match[1].decode('ascii'), 'kernel': os.uname().release, 'arquitectura': architecture}
+        except Exception: raise self.protocol.JobError('PROFILE_UNAVAILABLE') from None
+
+    @staticmethod
+    def _features(config):
+        raw = config.get('features')
+        if raw in (None, ''): return {}
+        if type(raw) is not str: raise ValueError()
+        result = {}
+        for part in raw.split(','):
+            name, value = part.split('=', 1)
+            if name in result: raise ValueError()
+            result[name] = value
+        return result
+
+    def _configuration(self, identity):
+        try:
+            expected_keys = self.protocol.IDENTITY_FIELDS - {'protocol', 'nonce', 'lease_generation'} | {'nonce_sha256'}
+            if type(identity) is not dict or set(identity) != expected_keys: raise ValueError()
+            synthetic = {k: v for k, v in identity.items() if k != 'nonce_sha256'}
+            synthetic.update(protocol=self.protocol.PROTOCOL, action='status', lease_generation=1, nonce='0'*64)
+            self.protocol.parse_request(self.protocol.canonical(synthetic))
+            if not re.fullmatch(r'[a-f0-9]{64}', identity['nonce_sha256']): raise ValueError()
+            if identity['node'] != self.local_node or identity['cluster_uuid'] != self.cluster_uuid: raise ValueError()
+            profile = self.profiles.require(identity['perfil'], cluster_uuid=self.cluster_uuid, node=self.local_node)
+            resources = parse_system_json(self._call(['/usr/bin/pvesh', 'get', '/cluster/resources', '--type', 'vm', '--output-format', 'json']), limit=2097152)
+            if type(resources) is not list: raise ValueError()
+            matches = [row for row in resources if row.get('vmid') == identity['vmid']]
+            if (len(matches) != 1 or matches[0].get('node') != self.local_node or matches[0].get('type') != 'lxc'
+                    or matches[0].get('pool') != identity['pool']): raise ValueError()
+            path = '/nodes/'+self.local_node+'/lxc/'+str(identity['vmid'])+'/config'
+            config = parse_system_json(self._call(['/usr/bin/pvesh', 'get', path, '--output-format', 'json']))
+            marker = self.protocol.strict_json(config['description'].encode(), limit=16384)
+            expected = {'cluster_uuid': self.cluster_uuid, 'resource_uuid': identity['resource_uuid'],
+                'nonce_sha256': identity['nonce_sha256'], 'pool': identity['pool'],
+                'definition_sha256': identity['configuracion_sha256'], 'bundle_sha256': profile['policy_bundle_sha256']}
+            if marker != {'nap': expected}: raise ValueError()
+            unprivileged = config.get('unprivileged')
+            if not (unprivileged is True or type(unprivileged) is int and unprivileged == 1): raise ValueError()
+            if any(k == 'lxc' or k.startswith('lxc.') or k == 'hookscript' or re.fullmatch(r'(?:mp|dev)[0-9]+', k) for k in config): raise ValueError()
+            features = self._features(config)
+            if features and not (profile['origen'] == 'imagen_docker' and features == {'nesting': '1', 'keyctl': '1'}): raise ValueError()
+            cores, memory = config.get('cores'), config.get('memory')
+            if type(cores) is not int or type(memory) is not int: raise ValueError()
+            rootfs = config.get('rootfs')
+            size = re.search(r'(?:^|,)size=([0-9]+)G(?:,|$)', rootfs) if type(rootfs) is str else None
+            if not size or (cores, memory, int(size[1])) not in {(1,512,4), (2,1024,8)}: raise ValueError()
+            actual = {'vcpus': cores, 'ram_mb': memory, 'disk_gb': int(size[1])}
+            if any(actual[k] < v for k, v in profile['minimum_resources'].items()): raise ValueError()
+            return config, profile
+        except self.protocol.JobError: raise
+        except Exception: raise self.protocol.JobError('IDENTITY_MISMATCH') from None
+
+    def assert_owner(self, identity):
+        self._configuration(identity)
+        return True
+
+    def enable_environment(self, identity):
+        config, profile = self._configuration(identity)
+        if profile['origen'] != 'imagen_docker' or self._features(config) == {'nesting': '1', 'keyctl': '1'}: return True
+        path = '/nodes/'+self.local_node+'/lxc/'+str(identity['vmid'])+'/status/current'
+        try:
+            status = parse_system_json(self._call(['/usr/bin/pvesh', 'get', path, '--output-format', 'json']))
+            if status.get('status') != 'stopped': raise self.protocol.JobError('UNCONFIRMED')
+            self.assert_owner(identity)
+            self._call(['/usr/sbin/pct', 'set', str(identity['vmid']), '--features', 'nesting=1,keyctl=1'])
+            verified, _ = self._configuration(identity)
+            if self._features(verified) != {'nesting': '1', 'keyctl': '1'}: raise self.protocol.JobError('UNCONFIRMED')
+            return True
+        except self.protocol.JobError: raise
+        except Exception: raise self.protocol.JobError('UNCONFIRMED') from None

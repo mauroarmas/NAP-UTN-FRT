@@ -52,7 +52,22 @@ def _destination(entry):
         raise RunnerError('RUNNER_UNAVAILABLE') from None
 
 
+def ssh_argv(entry):
+    """Only an institutional destination and a fixed forced command."""
+    host, user, port, key, hosts = _destination(entry)
+    options = ['BatchMode=yes', 'StrictHostKeyChecking=yes', 'IdentitiesOnly=yes', 'IdentityAgent=none',
+        'UserKnownHostsFile=' + hosts, 'GlobalKnownHostsFile=/dev/null', 'UpdateHostKeys=no', 'VerifyHostKeyDNS=no',
+        'ProxyCommand=none', 'ProxyJump=none', 'PermitLocalCommand=no', 'PasswordAuthentication=no',
+        'KbdInteractiveAuthentication=no', 'PreferredAuthentications=publickey', 'ConnectionAttempts=1',
+        'ConnectTimeout=10', 'ServerAliveInterval=15', 'ServerAliveCountMax=2', 'RequestTTY=no',
+        'ClearAllForwardings=yes', 'ControlMaster=no', 'ControlPath=none', 'ControlPersist=no', 'EscapeChar=none']
+    argv = ['/usr/bin/ssh', '-F', '/dev/null', '-T', '-i', key, '-p', str(port), '-l', user]
+    for option in options: argv += ['-o', option]
+    return argv + ['--', host, 'nap-guest-runner']
+
+
 class GuestRunnerClient:
+    response_limit = 65536
     def __init__(self, *, config=None, start_process=None, timeout_seconds=180):
         self.config = get_settings().runner_nodes if config is None else config
         self.start_process = start_process or asyncio.create_subprocess_exec
@@ -68,7 +83,7 @@ class GuestRunnerClient:
             # Doble explícito de transporte usado en pruebas; el proceso real
             # siempre usa streams acotados y descarta stderr desde su creación.
             output, _ = await process.communicate(input=raw)
-            if not isinstance(output, bytes) or len(output) > 65536:
+            if not isinstance(output, bytes) or len(output) > self.response_limit:
                 raise RunnerError('UNCONFIRMED')
             return output
         async def send():
@@ -88,7 +103,7 @@ class GuestRunnerClient:
                 if not chunk:
                     return bytes(result)
                 result.extend(chunk)
-                if len(result) > 65536:
+                if len(result) > self.response_limit:
                     raise RunnerError('UNCONFIRMED')
         tasks = [asyncio.create_task(send()), asyncio.create_task(receive()), asyncio.create_task(process.wait())]
         try:
@@ -118,17 +133,7 @@ class GuestRunnerClient:
             raise RunnerError('INVALID_REQUEST') from None
         request = parse_request(raw)
         entry = self.config.get(request['node']) if isinstance(self.config, dict) else None
-        host, user, port, key, hosts = _destination(entry)
-        options = ['BatchMode=yes', 'StrictHostKeyChecking=yes', 'IdentitiesOnly=yes', 'IdentityAgent=none',
-            'UserKnownHostsFile=' + hosts, 'GlobalKnownHostsFile=/dev/null', 'UpdateHostKeys=no', 'VerifyHostKeyDNS=no',
-            'ProxyCommand=none', 'ProxyJump=none', 'PermitLocalCommand=no', 'PasswordAuthentication=no',
-            'KbdInteractiveAuthentication=no', 'PreferredAuthentications=publickey', 'ConnectionAttempts=1',
-            'ConnectTimeout=10', 'ServerAliveInterval=15', 'ServerAliveCountMax=2', 'RequestTTY=no',
-            'ClearAllForwardings=yes', 'ControlMaster=no', 'ControlPath=none', 'ControlPersist=no', 'EscapeChar=none']
-        argv = ['/usr/bin/ssh', '-F', '/dev/null', '-T', '-i', key, '-p', str(port), '-l', user]
-        for option in options:
-            argv += ['-o', option]
-        argv += ['--', host, 'nap-guest-runner']
+        argv = ssh_argv(entry)
         process = None
         try:
             async with asyncio.timeout(self.timeout_seconds):

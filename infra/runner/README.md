@@ -1,5 +1,33 @@
 # Runner del nodo
 
+## Paquete común de aplicaciones 011
+
+El recorrido histórico sigue separado de `nap-application-job/1`. El paquete nuevo
+requiere Python 3 y `python3-jsonschema` en el nodo. Desde un checkout revisado,
+`bash infra/runner/install.sh --config /ruta/privada/runner.json` instala ambos
+protocolos. Para una actualización anterior al primer recibo, aportar además
+`--previous /ruta/privada/hashes-revisados.json`; los hashes deben provenir de la
+revisión previamente instalada, nunca de aceptar automáticamente el destino actual.
+El instalador rechaza versiones desconocidas, enlaces y trabajos activos o inciertos;
+guarda respaldo y revierte si falla la importación del paquete instalado.
+
+El laboratorio usa `infra/laboratorio/011/preparar_entorno.py --install-package
+--source-root /checkout/revisado --config /ruta/privada/runner.json --previous
+/ruta/privada/hashes-revisados.json`, primero sin `--apply` para consultar el plan y
+luego con `--apply`. Esta acción no configura registry, red, cuentas ni perfiles.
+El archivo inicial es `nap-application-node/1`, con cluster_uuid, node y profiles
+vacío; la configuración existente se conserva. Los perfiles se validan por separado.
+
+Estados/tombstones/spool quedan en `/var/lib/nap-application-jobs` (0700). Las
+credenciales se entregan por un archivo 0600 en `/run/nap-application-jobs`, que
+systemd copia a su espacio privado mediante LoadCredential. El worker confirma
+durablemente la carga y retira el origen antes de ejecutar la estrategia; systemd
+retira su copia al finalizar. Una regla tmpfiles recrea el directorio tras reiniciar.
+Ni stdin/stdout/stderr de la unidad ni propiedades/argv/journal contienen valores.
+El instalador y `selfcheck.py` son herramientas explícitas de root, sin acciones
+equivalentes en el protocolo del portal. La autocomprobación prueba mecanismos
+comunes; no certifica perfiles ni despliegues completos de aplicaciones.
+
 El wrapper y los ejemplos requieren instalación institucional explícita en T101. El backend integra T095 y bloquea la preparación si faltan sus artefactos, destinos o red. Las pruebas locales no acreditan una instalación en Proxmox.
 
 `install.sh` copia código revisado como root a `/opt/nap/runner` y el wrapper a `/usr/local/sbin/nap-guest-runner`. No ejecutar sobre el equipo de desarrollo. Copia el protocolo estándar de `backend/app/schemas/guest_runner.py` como `protocol.py`, sin dependencia de FastAPI/SQLAlchemy en el nodo. Instalar desde un checkout que incluya todos los cambios; no copiar módulos aislados de revisiones distintas.

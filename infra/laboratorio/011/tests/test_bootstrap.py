@@ -3,12 +3,22 @@ import json
 from pathlib import Path
 
 import pytest
+from uuid import uuid4
 
 
 ROOT = Path(__file__).parents[1]
 spec = importlib.util.spec_from_file_location('bootstrap011', ROOT / 'preparar_entorno.py')
 bootstrap = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bootstrap)
+
+
+def test_common_package_plan_has_no_effect_and_stays_separate_from_initial_bootstrap(tmp_path):
+    source = ROOT.parents[2]
+    root = tmp_path/'node'; root.mkdir(mode=0o700)
+    cold = {'schema_version':'nap-application-node/1','cluster_uuid':str(uuid4()),'node':'proxmox','profiles':{}}
+    result = bootstrap.install_common_package(source, cold, root=root)
+    assert result['state'] == 'plan' and result['profiles_enabled_by_install'] == []
+    assert not (root/'opt').exists()
 
 
 def candidate():

@@ -229,6 +229,19 @@ def controller_config(registry_root):
                                'host': f'app{n}.nap011.test'} for n in range(1, 9)]}}
 
 
+def install_common_package(source_root, config, *, previous=None, apply=False, root=Path('/')):
+    """Explicit package-only step, independent of registry/network bootstrap."""
+    path = Path(__file__).parents[2]/'applications/install.py'
+    spec = importlib.util.spec_from_file_location('nap011_package', path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    if apply and root == Path('/'):
+        subprocess.run(['/usr/bin/python3','-I','-c','import jsonschema'],stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True,timeout=10)
+    return module.install_files(module.build_files(source_root), config=config, previous=previous,
+        apply=apply, root=root, verify=module.verify_installed if apply and root == Path('/') else None)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--controller', action='store_true')
@@ -237,11 +250,19 @@ def main():
     parser.add_argument('--config', type=Path)
     parser.add_argument('--apply', action='store_true')
     parser.add_argument('--diagnose', action='store_true', help='Inventario y conexión de sólo lectura, sin aplicar')
+    parser.add_argument('--install-package', action='store_true', help='Sólo paquete común, sin registry/red/invitados')
+    parser.add_argument('--source-root', type=Path)
+    parser.add_argument('--previous', type=Path)
     args = parser.parse_args()
     if args.diagnose and (args.controller or args.apply):
         parser.error('--diagnose no se combina con --controller o --apply')
+    if args.install_package and (args.controller or args.diagnose or not args.source_root or not args.config):
+        parser.error('--install-package requiere --source-root y --config, sin --controller/--diagnose')
     try:
-        if args.controller:
+        if args.install_package:
+            result = install_common_package(args.source_root, preflight.read_json(args.config),
+                previous=preflight.read_json(args.previous) if args.previous else None, apply=args.apply)
+        elif args.controller:
             registry = sibling('registry_lab')
             parent = args.private_dir.parent
             if args.apply:

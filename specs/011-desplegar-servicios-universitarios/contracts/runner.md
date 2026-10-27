@@ -24,6 +24,8 @@ Toda acción sobre un recurso incluye: protocol, operation_id, operacion_raiz_id
 execution_id, lease_generation, cluster_uuid, node, VMID, resource_uuid, pool, nonce de propiedad,
 configuracion_sha256 y perfil con revisión/hash. El wrapper valida formato, perfil registrado,
 marcador JSON exacto del LXC, destino, recurso y relación del trabajo antes/después de efectos.
+El nonce original sólo pertenece al request privado. Las respuestas y los manifiestos
+incluyen `nonce_sha256` en su lugar; nunca devuelven el secreto de propiedad.
 
 `start` añade la configuración aprobada y, por canal privado, sus secretos efectivos. El hash del
 trabajo incluye configuración no sensible y referencias/versiones de secretos; no se registran

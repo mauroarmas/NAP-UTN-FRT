@@ -15,6 +15,9 @@ COPY backend/app ./app
 COPY backend/alembic ./alembic
 COPY backend/alembic.ini .
 COPY backend/scripts ./scripts
+# Same closed wire contract as the node; no node executor is shipped to the API.
+COPY infra/applications/job/protocol.py infra/applications/job/configuration.py ./infra/applications/job/
+COPY infra/applications/schemas/nap-deployment-1.json ./infra/applications/schemas/
 
 COPY backend/scripts/startup.sh /app/startup.sh
 RUN chmod +x /app/startup.sh

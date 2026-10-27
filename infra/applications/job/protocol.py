@@ -124,10 +124,19 @@ def parse_request(raw):
 
 def fingerprint(request):
     public = {k: v for k, v in request.items() if k not in {'action', 'lease_generation', 'secretos'}}
+    if 'nonce' in public:
+        public['nonce_sha256'] = sha256(public.pop('nonce').encode('utf-8')).hexdigest()
     # Secret reference order is not an execution difference.
     if 'secreto_referencias' in public:
         public['secreto_referencias'] = sorted(public['secreto_referencias'], key=lambda ref: ref['nombre'])
     return sha256(canonical(public)).hexdigest()
+
+
+def public_identity(request):
+    """Proof of ownership is accepted privately, never echoed in status or state."""
+    result = {k: request[k] for k in IDENTITY_FIELDS - {'protocol', 'nonce'}}
+    result['nonce_sha256'] = sha256(request['nonce'].encode('utf-8')).hexdigest()
+    return json.loads(canonical(result))
 
 
 def _keys(value, expected):
@@ -168,16 +177,18 @@ def parse_response(raw, *, request):
                 if pair in seen: raise ValueError()
                 seen.add(pair)
             return value
-        identity = IDENTITY_FIELDS - {'protocol'}
+        expected_identity = public_identity(request)
+        identity = set(expected_identity)
         extra = {'items', 'dropped_ranges'} if action == 'read' else set()
         _keys(data, identity | {'estado', 'fase', 'fingerprint', 'node_boot_id',
               'last_source_seq', 'acknowledged_seq', 'resultado', 'error_codigo'} | extra)
         if action not in {'start', 'status', 'read', 'ack'}: raise ValueError()
-        if any(data[k] != request[k] or type(data[k]) is not type(request[k]) for k in identity): raise ValueError()
+        if any(data[k] != expected_identity[k] or type(data[k]) is not type(expected_identity[k]) for k in identity): raise ValueError()
         if data['estado'] not in JOB_STATES or data['fase'] not in PHASES: raise ValueError()
         _uuid(data['node_boot_id']); _match(r'[a-f0-9]{64}', data['fingerprint'])
         _integer(data['last_source_seq'], 0, 2**63-1)
         _integer(data['acknowledged_seq'], 0, data['last_source_seq'])
+        if action == 'ack' and data['acknowledged_seq'] < request['through_seq']: raise ValueError()
         if data['error_codigo'] is not None and data['error_codigo'] not in ERROR_CODES: raise ValueError()
         result = data['resultado']
         if result is not None:

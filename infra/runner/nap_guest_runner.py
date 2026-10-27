@@ -219,14 +219,55 @@ class Runner:
             return self._response(request, status='unconfirmed', phase=phase, identity=False, code='UNCONFIRMED')
 
 
+def is_application_request(raw):
+    """Choose only the explicit new protocol; never execute a client command."""
+    try:
+        value = parse_json(raw, limit=1048576)
+        return isinstance(value, dict) and value.get('protocol') == 'nap-application-job/1'
+    except Exception:
+        return False
+
+
+def handle_application_request(raw, *, runtime_factory=None):
+    """Separate application dispatcher; legacy recipe registry is not consulted."""
+    protocol = 'nap-application-job/1'
+    try:
+        sys.dont_write_bytecode = True
+        if __package__:
+            from infra.applications.job.protocol import parse_request as parse_job
+        else:
+            root = Path('/opt/nap')
+            info = root.lstat()
+            if root.resolve() != root or info.st_uid != 0 or info.st_mode & 0o022: raise ValueError()
+            sys.path.insert(0, str(root))
+            from applications.job.protocol import parse_request as parse_job
+        parse_job(raw)  # Reject invalid input before loading profiles or private state.
+        if runtime_factory is None:
+            if __package__:
+                from infra.applications.job.runtime import build_runtime
+            else:
+                from applications.job.runtime import build_runtime
+            runtime_factory = build_runtime
+        with runtime_factory() as runtime:
+            return runtime.supervisor.handle(raw)
+    except Exception as exc:
+        allowed = {'INVALID_REQUEST','PROFILE_UNAVAILABLE','IDENTITY_MISMATCH','STALE_CONTROLLER',
+            'EXECUTION_CONFLICT','DEPENDENCY_UNAVAILABLE','NO_SPACE','DEADLINE_EXCEEDED','UNCONFIRMED'}
+        code = getattr(exc, 'code', None)
+        return {'protocol': protocol, 'ok': False, 'error': code if type(code) is str and code in allowed else 'UNCONFIRMED'}
+
+
 def main():
     # Rutas fijas root; nunca opciones/entorno aportados por la cuenta SSH.
     if os.geteuid() != 0 or len(sys.argv) != 1:
         raise SystemExit(1)
     import signal
     signal.alarm(10)
-    raw = sys.stdin.buffer.read(65537)
+    raw = sys.stdin.buffer.read(1048577)
     signal.alarm(0)
+    if is_application_request(raw):
+        print(canonical(handle_application_request(raw)))
+        return
     try:
         registry = parse_json(trusted_file('/etc/nap/runner/registry.json'), limit=2097152)
         # Entradas nuevas distribuidas por el builder en directorio institucional.

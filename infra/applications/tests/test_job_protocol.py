@@ -1,5 +1,6 @@
 """Protocolo cerrado: identidad completa y fingerprints sin valores secretos."""
 from copy import deepcopy
+from hashlib import sha256
 import json
 from uuid import uuid4
 
@@ -73,7 +74,8 @@ def test_closed_error_codes():
 
 def status_response(request):
     return {'protocol': 'nap-application-job/1', 'ok': True, 'action': 'status', 'data': {
-        **{k: v for k, v in request.items() if k not in {'protocol', 'action'}},
+        **{k: v for k, v in request.items() if k not in {'protocol', 'action', 'nonce'}},
+        'nonce_sha256': sha256(request['nonce'].encode()).hexdigest(),
         'estado': 'ejecutando', 'fase': 'instalacion', 'fingerprint': 'f'*64,
         'node_boot_id': str(uuid4()), 'last_source_seq': 2, 'acknowledged_seq': 0,
         'resultado': None, 'error_codigo': None}}
@@ -82,6 +84,7 @@ def status_response(request):
 def test_status_response_has_complete_identity_and_closed_safe_result(request_identity):
     value = status_response(request_identity)
     assert parse_response(wire(value), request=request_identity) == value
+    assert request_identity['nonce'] not in wire(value).decode()
     for mutation in ['identity', 'secret', 'error', 'boolean', 'phase', 'result']:
         changed = deepcopy(value)
         if mutation == 'identity': changed['data']['resource_uuid'] = str(uuid4())

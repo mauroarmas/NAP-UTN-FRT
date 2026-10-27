@@ -11,11 +11,12 @@ el despliegue definitivo de aplicaciones. Draw.io conserva su camino existente.
 - `nap-application-job/1`: requests por acción; respuestas cerradas y correlacionadas
   con la identidad completa. Rechaza comandos, rutas, unidades y cursores inválidos.
   La huella liga configuración y referencias/versiones; excluye valores privados
-  y generación del controlador. Todavía falta el supervisor y el cliente SSH.
+  y generación del controlador. El nonce privado viaja sólo en la petición;
+  manifiesto y respuesta conservan su SHA-256, nunca el valor original.
 - Registro institucional compartido: hash de definición, plataforma/base/runtime
   exactos, estados explícitos, evidencia referida al hash final, 2700 s y dos trabajos
   por nodo. Registro vacío por defecto; no activa capacidades por ejecutar pruebas.
-  El instalador futuro debe empaquetar el contrato común y `jsonschema` explícitamente.
+  El paquete copia el contrato común y exige `jsonschema` explícitamente.
 
 ## Persistencia y secretos
 
@@ -43,13 +44,55 @@ No se copian valores a snapshots, contexto, oferta o campos legacy de Servicio.
 
 ## Depuración previa a consola
 
-`redaction.py` es una biblioteca todavía sin integrar al ejecutor definitivo.
+`redaction.py` está integrado al worker y al colector del paquete común.
 Procesa UTF-8 incremental y controles ANSI/OSC/bidi; cubre representaciones declaradas,
 fronteras entre chunks y prefijos truncados. El texto desconocido se descarta incluso
 si no contiene un secreto registrado. Sólo eventos cerrados y paquetes admitidos por
 el perfil producen mensajes; entradas/colas de memoria tienen límites explícitos.
-Faltan el spool, la ingesta transaccional, el servicio systemd y la comprobación real
-de ausencia de secretos en journal/archivos durante despliegues completos.
+El spool guarda sólo texto admitido, con secuencia/cursor transaccionales, límite de
+bytes/filas/páginas, recorte explícito, replay y eliminación segura por ACK. Una
+escritura fallida no publica secuencias; al recuperarse comunica los mensajes que
+no pudo confirmar, sin inventar contadores durables tras una caída de disco/proceso.
+Faltan la ingesta en PostgreSQL y la comprobación durante despliegues completos.
+
+## Supervisor y distribución — T009/T024/T025/T027/T028/T029
+
+El dispatcher nuevo conserva el recorrido histórico separado. El supervisor escribe
+manifiesto e índice antes de solicitar una unidad de nombre fijo `Type=exec`, sin
+PTY, pipe/wait ni salida cruda en journal. Los archivos se anclan a directorios
+privados, sin enlaces; los locks de admisión/recurso son breves. La generación
+obsoleta se rechaza, el replay no inicia otra unidad y un cambio de boot/unidad o
+una salida sin resultado probado queda incierto. Cuenta también trabajos inciertos
+para el máximo de dos activos. La reclamación del worker es de un solo uso y liga
+fingerprint, boot e InvocationID. Una respuesta perdida no reinstala ni libera capacidad.
+
+`install.py` construye sólo archivos de código revisados y una regla tmpfiles para
+`/run`; valida versiones previas o el recibo anterior, rechaza cambios desconocidos
+y trabajos activos/desconocidos, comparte el lock de admisión y conserva respaldo
+con reversión ante fallo. Se instala explícitamente por `preparar_entorno.py
+--install-package`; no modifica SSH, cuentas, puentes, pools ni invitados. Conserva
+la configuración existente y no habilita perfiles.
+
+En la VM real se instaló `python3-jsonschema` y el paquete común (recibo de código
+`28dffb74042e9f5f84d44f3fe826131ab1653f7698a295fb2f08519f75776617`). La comprobación
+root `selfcheck.run()` usó una unidad systemd temporal y un canario aleatorio:
+entrega por LoadCredential, registro durable de carga antes de retirar el origen,
+retiro de la copia al finalizar, depuración byte a byte, replay/ACK y ausencia del
+canario en spool/metadata/journal. También comprobó una unidad inexistente mediante
+el adaptador real: systemctl devuelve 1 en ese caso, que se admite sólo para esta
+consulta cerrada. Se retiraron unidad y directorio de comprobación. Un primer control
+agotó 5 s consultando el journal; el diagnóstico ahora tiene 15 s y límite de salida.
+
+Esta comprobación acredita **mecanismos comunes del nodo**, sin certificar perfiles,
+Docker/Core definitivos, red de invitados ni entrega de una aplicación. El inventario
+posterior conserva sólo CT 100 Draw.io, corriendo. No se habilitó ningún perfil nuevo.
+
+El cliente del portal usa OpenSSH con destino institucional y hostkey fijada,
+stdin privado y respuesta acotada/correlacionada. Las llamadas duran hasta 30 s;
+sólo las consultas pueden repetirse. Start y ACK se envían una vez; cortar o cancelar
+el transporte local no cancela ni reinicia el trabajo remoto. La imagen de API incluye
+únicamente el contrato del nodo, sin su ejecutor root. Construcción comprobada y
+consulta real `profiles` desde la cuenta limitada: respuesta válida con lista vacía.
 
 ## Validación
 
@@ -70,7 +113,16 @@ de ausencia de secretos en journal/archivos durante despliegues completos.
   siendo distinto de los ensayos físicos documentados en `compuertas.md`.
 
 No se certificó la red o el clúster universitario. El uso productivo de perfiles
-continúa condicionado a T028, T050 y T061 y a las aceptaciones de cada historia.
+continúa condicionado a T050 y T061 y a las aceptaciones de cada historia.
+
+Validación adicional de este incremento: **158 aprobadas y 6 integraciones omitidas**
+en aplicaciones/runner/builder; **3 aprobadas** con procesos locales reales para
+stdin, códigos de salida, cuota y deadline; **70 aprobadas** para cliente nuevo,
+cliente histórico y contrato del backend. Laboratorio + infra en contenedor aislado:
+**248 aprobadas y 13 omitidas**, antes de los últimos ajustes de observación de unidad
+y lock de actualización; selección posterior de instalador/autocomprobación/bootstrap:
+**17 aprobadas**, más una nueva prueba de manifiesto corrupto (instalador: **7 aprobadas**).
+Estos conteos son ejecuciones distintas y no se suman como pruebas únicas.
 
 ## Asignador de red — T023 parcial
 

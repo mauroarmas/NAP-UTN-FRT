@@ -16,6 +16,7 @@ from .protocol import JobError, PHASES, strict_json
 MASK = '[REDACTED]'
 SUPPRESSED = 'Salida omitida por seguridad.'
 MAX_INPUT_BYTES = 65536
+MAX_KNOWN_SECRETS = 64  # Application declarations plus private infrastructure credentials.
 
 
 class TerminalCleaner:
@@ -58,7 +59,7 @@ class SecretRedactor:
         for value in values: self.register(value)
 
     def register(self, value):
-        if self._started or type(value) is not str or not value or self._values >= 20:
+        if self._started or type(value) is not str or not value or self._values >= MAX_KNOWN_SECRETS:
             raise JobError('INVALID_REQUEST')
         try:
             raw = value.encode('utf-8')
