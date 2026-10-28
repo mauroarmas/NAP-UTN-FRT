@@ -43,7 +43,7 @@ si el cambio siguiente no la afecta. No eliminar pruebas existentes por este aju
 
 ### Pruebas previas de la base
 
-- [ ] T008 [P] Crear `backend/tests/test_configuracion_despliegue_011.py` con contratos estrictos, exclusión legacy/configuración, revisiones inmutables, límites de variables/rutas, perfiles bloqueados y prohibición de comandos/secretos en documentos públicos; crear `backend/tests/test_application_gateway_011.py` para aislamiento de cookies/destinos, revocación y acceso web/TCP según los contratos comunes.
+- [X] T008 [P] Crear `backend/tests/test_configuracion_despliegue_011.py` con contratos estrictos, exclusión legacy/configuración, revisiones inmutables, límites de variables/rutas, perfiles bloqueados y prohibición de comandos/secretos en documentos públicos; crear `backend/tests/test_application_gateway_011.py` para aislamiento de cookies/destinos, revocación y acceso web/TCP según los contratos comunes.
 - [X] T009 [P] Crear `infra/applications/tests/test_job_protocol.py` y `infra/applications/tests/test_job_supervisor.py` para replay, fingerprint distinto, lease obsoleto, respuesta perdida, SSH caído, reboot, identidad ajena y rechazo de comandos/rutas/unidades libres; conservar pruebas de protocolos históricos en `infra/runner/tests/test_runner.py`.
 - [X] T010 [P] Crear `infra/applications/tests/test_redaction.py`, `infra/applications/tests/test_spool.py` y `backend/tests/test_ingesta_consola_011.py`: secretos partidos en cada frontera, representaciones declaradas, UTF-8, salida desconocida, ANSI/OSC, memoria/disco lleno, límites/retención y ACK sólo tras commit; probar eventos portal sin job, colisiones de claves locales entre productores, replay de hitos y orden causal sin retención cruda.
 - [X] T011 [P] Crear `backend/tests/postgres/test_migracion_011.py` para upgrade desde `010_06_acceso_aplicacion`, constraints/FK/índices y conservación de usuarios, cátedras, pedidos, servicios y marcadores legacy; incluir política de downgrade seguro sin pérdida silenciosa.
@@ -114,14 +114,14 @@ si el cambio siguiente no la afecta. No eliminar pruebas existentes por este aju
 
 ### Pruebas primero
 
-- [ ] T051 [P] [US2] Crear o adaptar `backend/tests/test_biblioteca_despliegue_011.py` para búsqueda Docker Hub por nombre/paginación, referencia seleccionada validada por OCI, timeout/rate limit frente a cero resultados, categorías ausentes no bloqueantes y alta idempotente sin CT/reserva. Probar rechazo de altas/despacho nuevos `community_scripts` sin borrar datos legacy.
-- [ ] T054 [P] [US2] Crear o adaptar `frontend/tests/biblioteca-despliegue.test.jsx`: Docker Hub como biblioteca, datos/procedencia disponibles, categoría opcional, selección al formulario OCI común, referencia manual ante fallo, progreso/éxito/error conservando datos; sin Community, Guardadas o preparar/publicar.
+- [X] T051 [P] [US2] Crear o adaptar `backend/tests/test_biblioteca_despliegue_011.py` para búsqueda Docker Hub por nombre/paginación, referencia seleccionada validada por OCI, timeout/rate limit frente a cero resultados, categorías ausentes no bloqueantes y alta idempotente sin CT/reserva. Probar rechazo de altas/despacho nuevos `community_scripts` sin borrar datos legacy.
+- [X] T054 [P] [US2] Crear o adaptar `frontend/tests/biblioteca-despliegue.test.jsx`: Docker Hub como biblioteca, datos/procedencia disponibles, categoría opcional, selección al formulario OCI común, referencia manual ante fallo, progreso/éxito/error conservando datos; sin Community, Guardadas o preparar/publicar.
 
 ### Implementación
 
-- [ ] T062 [US2] Reemplazar el proveedor en `backend/app/services/biblioteca_service.py`, `backend/app/routers/biblioteca.py` y `backend/app/schemas/biblioteca.py` por descubrimiento Docker Hub con endpoints fijos, límites, paginación y errores explícitos. Reusar `oci_registry_service.py` y `configuracion_despliegue_service.py` para validar/agregar: mismo `imagen_docker`, sin crear otra estrategia ni confiar en metadata como prueba. Retirar Community del alta/despacho y configuración por defecto, incluidos discriminadores/StrategyLoader expuestos para nuevas ejecuciones; preservar lectura/esquema/recibos legacy cuando sea necesario, sin reset DB. Categorías sólo si la API las ofrece; no construir caché/espejo nuevo.
-- [ ] T063 [US2] Adaptar `frontend/src/components/BibliotecaAplicaciones.jsx` y `AgregarServicioModal.jsx`: entradas «Docker Hub» e «Imagen propia», búsqueda por nombre, selección que precarga `AplicacionPropiaForm.jsx` y alta común. Puerto y demás campos sólo si faltan; omitir categorías inexistentes, mensajes breves y alternativa manual ante fallo. Retirar controles/consultas del proveedor Community, conservando oferta Draw.io histórica.
-- [ ] T064 [US2] Ejecutar búsqueda Hub→alta→pedido→acceso con whoami, fallo de búsqueda y referencia manual; registrar `docs/evidencia/011/us2-biblioteca.md`: <=3 min de alta, cero CT/reserva al agregar y un solo despliegue por pedido. Reutilizar evidencia del motor T050 cuando coincida paquete/perfil; no repetir sus pruebas de persistencia/registry privado sólo por cambiar la entrada de búsqueda.
+- [X] T062 [US2] Reemplazar el proveedor en `backend/app/services/biblioteca_service.py`, `backend/app/routers/biblioteca.py` y `backend/app/schemas/biblioteca.py` por descubrimiento Docker Hub con endpoints fijos, límites, paginación y errores explícitos. Reusar `oci_registry_service.py` y `configuracion_despliegue_service.py` para validar/agregar: mismo `imagen_docker`, sin crear otra estrategia ni confiar en metadata como prueba. Retirar Community del alta/despacho y configuración por defecto, incluidos discriminadores/StrategyLoader expuestos para nuevas ejecuciones; preservar lectura/esquema/recibos legacy cuando sea necesario, sin reset DB. Categorías sólo si la API las ofrece; no construir caché/espejo nuevo.
+- [X] T063 [US2] Adaptar `frontend/src/components/BibliotecaAplicaciones.jsx` y `AgregarServicioModal.jsx`: entradas «Docker Hub» e «Imagen propia», búsqueda por nombre, selección que precarga `AplicacionPropiaForm.jsx` y alta común. Puerto y demás campos sólo si faltan; omitir categorías inexistentes, mensajes breves y alternativa manual ante fallo. Retirar controles/consultas del proveedor Community, conservando oferta Draw.io histórica.
+- [X] T064 [US2] Ejecutar búsqueda Hub→alta→pedido→acceso con whoami, fallo de búsqueda y referencia manual; registrar `docs/evidencia/011/us2-biblioteca.md`: <=3 min de alta, cero CT/reserva al agregar y un solo despliegue por pedido. Reutilizar evidencia del motor T050 cuando coincida paquete/perfil; no repetir sus pruebas de persistencia/registry privado sólo por cambiar la entrada de búsqueda.
 
 **Retiradas, no pendientes ni completadas por este cambio**: T052, T053 y T055–T061 (tests/harness/Core/locks/perfiles/pilotos Community). Sus IDs quedan reservados; no reasignarlos. T006 conserva únicamente su antecedente histórico.
 
@@ -246,7 +246,7 @@ No repetir una instalación por seleccionar la misma imagen desde otra entrada d
 
 ## Criterio de finalización y recuento
 
-**37/95 tareas activas verificadas; 58 pendientes.** Los IDs originales se conservan:
+**43/95 tareas activas verificadas; 52 pendientes.** Los IDs originales se conservan:
 10 tareas retiradas, de las cuales T006 ya estaba completada históricamente. Este
 recorte no representa nuevas implementaciones. Los recuentos 38/105 y anteriores
 que siguen abajo son snapshots históricos previos a la decisión del 27/10.
@@ -254,6 +254,19 @@ que siguen abajo son snapshots históricos previos a la decisión del 27/10.
 Marcar una tarea activa sólo después de implementar/verificar su resultado. No
 acreditar instalación por documentación o fixtures ni quitar seguridad/recuperación
 para acelerar. Estado y tareas retiradas: [cambio de alcance](cambio-alcance-oci.md).
+
+## Avance de implementación — 2026-10-27 (US2 Docker Hub biblioteca)
+
+T008 y US2 (T051, T054, T062, T063, T064) completadas. Se reemplazó el proveedor de
+biblioteca por descubrimiento en Docker Hub en backend (`biblioteca_service.py`),
+con paginación por cursor hash, manejo de rate limit (429) y timeout/errores (502),
+categorías no bloqueantes y rechazo explícito de nuevos `community_scripts` preservando
+la lectura histórica de incorporaciones legacy. En frontend (`BibliotecaAplicaciones.jsx`,
+`AgregarServicioModal.jsx`, `AplicacionPropiaForm.jsx`) se integraron las dos entradas
+«Docker Hub» e «Imagen propia», selección que precarga el formulario común de alta OCI
+sin pasos de preparación/publicación manual, y fallback a referencia manual ante fallos.
+7 pruebas backend aprobadas (6,4 s) y 3 pruebas Vitest aprobadas (4,1 s). Ver `docs/evidencia/011/us2-biblioteca.md`.
+Estado actual: **43/95 tareas activas verificadas (52 pendientes)**.
 
 ## Historial previo al recorte — no usar como alcance vigente
 

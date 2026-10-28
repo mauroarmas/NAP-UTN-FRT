@@ -3,9 +3,18 @@ import { Box, LoaderCircle, Plus, Trash2 } from 'lucide-react';
 import { agregarAplicacionPropia } from '../services/api';
 import { mensajeError } from '../utils/errors';
 
-export default function AplicacionPropiaForm({ onAdded, onBusyChange }) {
+export default function AplicacionPropiaForm({ onAdded, onBusyChange, initialValues }) {
   const id = useId();
-  const [form, setForm] = useState({ nombre: '', imagen: '', puerto: '', descripcion: '', modelo_servicio: 'saas', persistencia: '', ruta_salud: '/', websocket: false });
+  const [form, setForm] = useState({
+    nombre: initialValues?.nombre || '',
+    imagen: initialValues?.imagen || '',
+    puerto: initialValues?.puerto ? String(initialValues.puerto) : '',
+    descripcion: initialValues?.descripcion || '',
+    modelo_servicio: initialValues?.modelo_servicio || 'saas',
+    persistencia: initialValues?.persistencia ? (Array.isArray(initialValues.persistencia) ? initialValues.persistencia.join('\n') : initialValues.persistencia) : '',
+    ruta_salud: initialValues?.ruta_salud || '/',
+    websocket: initialValues?.websocket || false,
+  });
   const [variables, setVariables] = useState([]);
   const [secrets, setSecrets] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -34,7 +43,7 @@ export default function AplicacionPropiaForm({ onAdded, onBusyChange }) {
     finally { pending.current = false; setBusy(false); onBusyChange?.(false); }
   };
   return <form className="own-application-form" onSubmit={submit} aria-busy={busy}>
-    <div className="own-application-intro"><Box size={24}/><div><h3>Aplicación propia</h3><p>Usá una imagen Docker de tu cátedra o de un registro compatible.</p></div></div>
+    <div className="own-application-intro"><Box size={24}/><div><h3>{initialValues ? 'Configurar aplicación' : 'Aplicación propia'}</h3><p>{initialValues ? 'Configurá la aplicación seleccionada de Docker Hub.' : 'Usá una imagen Docker de tu cátedra o de un registro compatible.'}</p></div></div>
     {error && <div className="callout bad" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}
     <fieldset disabled={busy}>
       <div className="field"><label htmlFor={`${id}-name`}>Nombre del servicio</label><input className="input" id={`${id}-name`} required maxLength={100} value={form.nombre} onChange={(e) => update('nombre', e.target.value)} placeholder="Ej. Campus de prácticas"/></div>
