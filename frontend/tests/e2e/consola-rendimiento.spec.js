@@ -87,3 +87,4 @@ test('apertura de consola con 200 mensajes en menos de 3 segundos', async ({ pag
   const elapsed = (Date.now() - t0) / 1000;
   expect(elapsed).toBeLessThanOrEqual(3.0);
 });
+

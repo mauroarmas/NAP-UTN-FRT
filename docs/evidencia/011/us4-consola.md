@@ -73,3 +73,4 @@
 ## Trazabilidad de tareas (US4)
 - T077 a T087: Completadas y verificadas.
 - Total acumulado de la spec 011: **66/95 tareas activas verificadas, 29 pendientes**.
+

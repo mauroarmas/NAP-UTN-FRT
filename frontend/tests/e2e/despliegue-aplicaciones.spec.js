@@ -200,3 +200,4 @@ test('la consola maneja pérdida de autorización (403) limpiando el buffer', as
   await expect(consolaDialog.getByText(/Acceso revocado/i)).toBeVisible({ timeout: 5000 });
   await expect(consolaDialog.getByText('Creando recurso de aplicación.')).toHaveCount(0);
 });
+

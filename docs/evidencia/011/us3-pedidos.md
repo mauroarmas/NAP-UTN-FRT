@@ -43,3 +43,4 @@
 ## Trazabilidad de tareas (US3)
 - T065 a T076: Completadas y verificadas.
 - Total acumulado de la spec 011: **55/95 tareas activas verificadas, 40 pendientes**.
+
