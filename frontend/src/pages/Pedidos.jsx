@@ -648,6 +648,7 @@ export function DetalleDialog({
   onDesplegar, onReintentar, motivoReversion, setMotivoReversion, onRevertir,
 }) {
   const [mostrarRechazo, setMostrarRechazo] = useState(false);
+  const [mostrarReversion, setMostrarReversion] = useState(false);
   const [historialAbierto, setHistorialAbierto] = useState(false);
 
   const cfg = ESTADO_CONFIG[detalle.estado] || {};
@@ -696,49 +697,43 @@ export function DetalleDialog({
         </div>
       </div>
 
-      {/* 2. Contenido Destacado de la Solicitud (Propósito, Software, Justificación) */}
+      {/* 2. Contenido Destacado de la Solicitud */}
       <div className="detalle-content-card">
-        <div className="row between wrap gap-2" style={{ marginBottom: 6 }}>
+        <div className="row between wrap gap-2" style={{ alignItems: 'center' }}>
           <div className="row gap-2" style={{ alignItems: 'center' }}>
             <FileText size={16} style={{ color: 'var(--color-accent)' }} />
             <span style={{ fontWeight: 600, fontSize: 15, color: 'var(--text-strong)' }}>
-              {parsed.titulo || 'Detalles de la Solicitud'}
+              {parsed.titulo || nombreCabecera || 'Detalles de la Solicitud'}
             </span>
+            {parsed.software && parsed.software.toLowerCase() !== (parsed.titulo || '').toLowerCase() && (
+              <span className="tag accent" style={{ fontSize: 11 }}>
+                {parsed.software}
+              </span>
+            )}
           </div>
-          {parsed.software && (
-            <span className="tag accent" style={{ fontSize: 12 }}>
-              Software: {parsed.software}
+          {specs && (
+            <span className="tag neutral" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+              <Server size={12} />
+              <span>{specs}</span>
             </span>
           )}
         </div>
 
-        <p className="card-meta" style={{ marginTop: 8 }}>Justificación pedagógica</p>
-        {parsed.justificacion ? (
-          <div
-            style={{
-              fontSize: 13.5,
-              lineHeight: 1.6,
-              color: 'var(--text-body)',
-              background: 'var(--color-bg)',
-              border: '1px solid var(--color-divider)',
-              borderRadius: 'var(--radius-md)',
-              padding: '12px 14px',
-              whiteSpace: 'pre-wrap',
-              marginTop: 6,
-            }}
-          >
-            {parsed.justificacion}
-          </div>
-        ) : (
-          <div style={{ fontSize: 13, color: 'var(--text-faint)', fontStyle: 'italic', marginTop: 4 }}>
-            Sin justificación provista por la cátedra.
-          </div>
-        )}
-
-        {specs && (
-          <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-soft)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <Server size={13} />
-            <span>Recursos asignados: <strong>{specs}</strong></span>
+        {parsed.justificacion && (
+          <div style={{ borderTop: '1px solid var(--color-divider)', paddingTop: 10, marginTop: 10 }}>
+            <div className="card-meta" style={{ marginBottom: 4, fontSize: 12 }}>
+              Justificación pedagógica
+            </div>
+            <div
+              style={{
+                fontSize: 13.5,
+                lineHeight: 1.5,
+                color: 'var(--text-body)',
+                whiteSpace: 'pre-wrap',
+              }}
+            >
+              {parsed.justificacion}
+            </div>
           </div>
         )}
       </div>
@@ -769,157 +764,307 @@ export function DetalleDialog({
         </div>
       )}
 
-      <VigenciaPedido pedido={detalle} formatDate={formatDate} />
       {sinActualizar && <p role="alert" className="callout warn">No se pudo actualizar el pedido. Mostramos el último estado y volveremos a consultar.</p>}
-      {detalle.tipo !== 'renovacion' && ['en_despliegue', 'error'].includes(detalle.estado)
-        ? (
-          <div>
-            <ProgresoDespliegue pedido={detalle} operacion={operacion} isAdmin={isAdmin}/>
-            {isAdmin && (detalle.operation_id || operacion?.operation_id) && (
-              <div style={{ marginTop: '8px' }}>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={() => onVerConsola?.(detalle.operation_id || operacion?.operation_id)}
-                >
-                  Ver consola
-                </button>
+
+      {/* 4. Acción Principal / Operativa según estado */}
+
+      {/* Estado: APROBADO (Listo para desplegar / Despliegue programado) */}
+      {detalle.estado === 'aprobado' && (
+        <div className="detalle-action-card detalle-action-card--deploy">
+          <div className="row between wrap gap-3">
+            <div style={{ flex: 1, minWidth: 260 }}>
+              <div style={{ fontWeight: 600, fontSize: 15, color: 'var(--text-strong)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <CheckCircle2 size={18} style={{ color: 'var(--st-ok)' }} />
+                <span>{detalle.despliegue_habilitado ? 'Listo para desplegar en Proxmox' : 'Aprobado — Despliegue programado'}</span>
               </div>
-            )}
-          </div>
-        )
-        : detalle.operation_id && (
-          <div>
-            <p role="status">{textoOperacion(operacion)}</p>
+              <p className="text-muted" style={{ margin: '4px 0 0', fontSize: 13, lineHeight: 1.4 }}>
+                {detalle.compromiso_capacidad?.estado === 'reservado' && detalle.compromiso_capacidad.expira_at ? (
+                  <>Capacidad reservada en el clúster hasta el <strong>{formatDate(detalle.compromiso_capacidad.expira_at)}</strong>.</>
+                ) : (
+                  'Capacidad validada en el clúster.'
+                )}
+                {!detalle.despliegue_habilitado && detalle.vigencia_aprobada?.desde && (
+                  ` Se habilitará a partir del ${formatFechaCorta(detalle.vigencia_aprobada.desde)}.`
+                )}
+              </p>
+            </div>
+
             {isAdmin && (
-              <div style={{ marginTop: '4px' }}>
+              <div className="row gap-2" style={{ alignItems: 'center' }}>
+                {puedeRevertir && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost text-muted btn-sm"
+                    onClick={() => setMostrarReversion(!mostrarReversion)}
+                    disabled={transicionando}
+                  >
+                    Deshacer aprobación…
+                  </button>
+                )}
                 <button
                   type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={() => onVerConsola?.(detalle.operation_id || operacion?.operation_id)}
+                  className="btn btn-primary"
+                  onClick={() => onDesplegar(detalle.id)}
+                  disabled={transicionando || !detalle.despliegue_habilitado}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 16px', fontWeight: 600, fontSize: 13.5 }}
                 >
-                  Ver consola
+                  <Server size={15} /> Desplegar en Proxmox
                 </button>
               </div>
             )}
           </div>
-        )}
-      {detalle.tipo === 'renovacion' && detalle.estado === 'activo' && <p>Las nuevas condiciones quedaron registradas. Consultá el estado del servicio para saber si está encendido.</p>}
+
+          {/* Formulario colapsable para Deshacer aprobación */}
+          {puedeRevertir && mostrarReversion && (
+            <div className="rechazo-panel" style={{ marginTop: 12, background: 'var(--st-warn-bg)', borderColor: 'var(--st-warn-bd)' }}>
+              <div style={{ fontSize: 13, color: 'var(--text-strong)', fontWeight: 600, marginBottom: 4 }}>
+                Deshacer la aprobación y liberar capacidad
+              </div>
+              <p style={{ fontSize: 12.5, color: 'var(--text-soft)', margin: '0 0 10px 0', lineHeight: 1.4 }}>
+                Libera inmediatamente la capacidad que este pedido tiene reservada, sin esperar a que la reserva venza sola. La cátedra verá el motivo y podrá volver a pedir lo mismo.
+              </p>
+              <div className="field" style={{ margin: 0 }}>
+                <label style={{ fontSize: 12, fontWeight: 500 }}>Motivo (la cátedra lo va a ver):</label>
+                <input
+                  className="input"
+                  placeholder="Ej: Aprobado por error / cambio de cronograma"
+                  value={motivoReversion}
+                  onChange={(e) => setMotivoReversion(e.target.value)}
+                  disabled={transicionando}
+                  autoFocus
+                />
+              </div>
+              <div className="row right gap-2" style={{ marginTop: 10 }}>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setMostrarReversion(false)}
+                  disabled={transicionando}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-danger btn-sm"
+                  onClick={onRevertir}
+                  disabled={transicionando}
+                >
+                  Deshacer aprobación y liberar capacidad
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Estado: EN DESPLIEGUE */}
+      {detalle.tipo !== 'renovacion' && detalle.estado === 'en_despliegue' && (
+        <div className="decision-container">
+          <ProgresoDespliegue pedido={detalle} operacion={operacion} isAdmin={isAdmin}/>
+          {isAdmin && (detalle.operation_id || operacion?.operation_id) && (
+            <div className="row right" style={{ marginTop: 8 }}>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => onVerConsola?.(detalle.operation_id || operacion?.operation_id)}
+              >
+                Ver consola
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Estado: ERROR */}
+      {detalle.estado === 'error' && (
+        <div className="decision-container" style={{ borderColor: 'var(--st-bad-bd)' }}>
+          <ProgresoDespliegue pedido={detalle} operacion={operacion} isAdmin={isAdmin}/>
+          {isAdmin && (
+            <div className="row between wrap gap-2" style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--color-divider)' }}>
+              <div className="row gap-2">
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={() => onReintentar(detalle.id)}
+                  disabled={transicionando || !detalle.despliegue_habilitado}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                >
+                  <RefreshCw size={14} /> Reintentar despliegue
+                </button>
+                {(detalle.operation_id || operacion?.operation_id) && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => onVerConsola?.(detalle.operation_id || operacion?.operation_id)}
+                  >
+                    Ver consola
+                  </button>
+                )}
+              </div>
+              <button
+                type="button"
+                className="btn btn-ghost text-muted btn-sm"
+                onClick={() => setMostrarRechazo(!mostrarRechazo)}
+                disabled={transicionando}
+              >
+                Cerrar pedido fallido…
+              </button>
+            </div>
+          )}
+          {isAdmin && mostrarRechazo && (
+            <div className="rechazo-panel" style={{ marginTop: 8 }}>
+              <label htmlFor="reject-error-reason" style={{ fontSize: 12, fontWeight: 500 }}>
+                Motivo de cierre del pedido fallido
+              </label>
+              <textarea
+                id="reject-error-reason"
+                value={motivoRechazo}
+                maxLength={2000}
+                onChange={(e) => setMotivoRechazo(e.target.value)}
+                disabled={transicionando}
+                style={{ marginTop: 6 }}
+              />
+              <div className="row right gap-2" style={{ marginTop: 8 }}>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setMostrarRechazo(false)}
+                  disabled={transicionando}
+                >
+                  Cancelar
+                </button>
+                <button
+                  className="btn btn-danger btn-sm"
+                  onClick={onRechazar}
+                  disabled={transicionando || !motivoRechazo.trim()}
+                >
+                  Cerrar pedido fallido como rechazado
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Operación activa no en_despliegue / no error */}
+      {detalle.estado !== 'en_despliegue' && detalle.estado !== 'error' && detalle.operation_id && (
+        <div className="callout info" style={{ marginBottom: 'var(--space-3)' }}>
+          <p role="status" style={{ margin: 0 }}>{textoOperacion(operacion)}</p>
+          {isAdmin && (
+            <div style={{ marginTop: 6 }}>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => onVerConsola?.(detalle.operation_id || operacion?.operation_id)}
+              >
+                Ver consola
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Estado: SOLICITADO */}
       {isAdmin && detalle.estado === 'solicitado' && (
         <div className="decision-container">
-          <p>Revisá recursos, fechas y capacidad antes de confirmar la asignación.</p>
-          <div className="row gap-2 wrap">
-            <button className="btn btn-primary" onClick={onAbrirAprobar} disabled={transicionando}><CheckCircle2 size={15} /> Revisar y aprobar…</button>
-            <button className="btn btn-warning" onClick={onAbrirAjuste} disabled={transicionando}>Pedir aclaración</button>
-            <button className="btn btn-ghost" onClick={() => setMostrarRechazo(!mostrarRechazo)} disabled={transicionando}><XCircle size={15} /> Rechazar…</button>
+          <div className="row between wrap gap-2">
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 15, color: 'var(--text-strong)' }}>Revisión de solicitud</div>
+              <p className="text-muted" style={{ margin: '4px 0 0', fontSize: 13 }}>
+                Revisá recursos, fechas y capacidad antes de confirmar la asignación.
+              </p>
+            </div>
+            <div className="row gap-2 wrap">
+              <button className="btn btn-primary" onClick={onAbrirAprobar} disabled={transicionando}>
+                <CheckCircle2 size={15} /> Revisar y aprobar…
+              </button>
+              <button className="btn btn-warning" onClick={onAbrirAjuste} disabled={transicionando}>
+                Pedir aclaración
+              </button>
+              <button className="btn btn-ghost" onClick={() => setMostrarRechazo(!mostrarRechazo)} disabled={transicionando}>
+                <XCircle size={15} /> Rechazar…
+              </button>
+            </div>
           </div>
-          {mostrarRechazo && <div className="col gap-2">
-            <label htmlFor="reject-reason">Motivo de rechazo (visible para la cátedra)</label>
-            <textarea id="reject-reason" value={motivoRechazo} maxLength={2000} onChange={(e) => setMotivoRechazo(e.target.value)} disabled={transicionando} />
-            <button className="btn btn-danger" onClick={onRechazar} disabled={transicionando || !motivoRechazo.trim()}>Confirmar rechazo</button>
-          </div>}
+          {mostrarRechazo && (
+            <div className="rechazo-panel">
+              <label htmlFor="reject-reason" style={{ fontSize: 12, fontWeight: 500 }}>
+                Motivo de rechazo (visible para la cátedra)
+              </label>
+              <textarea
+                id="reject-reason"
+                value={motivoRechazo}
+                maxLength={2000}
+                onChange={(e) => setMotivoRechazo(e.target.value)}
+                disabled={transicionando}
+                style={{ marginTop: 6 }}
+              />
+              <div className="row right gap-2" style={{ marginTop: 8 }}>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setMostrarRechazo(false)}
+                  disabled={transicionando}
+                >
+                  Cancelar
+                </button>
+                <button
+                  className="btn btn-danger btn-sm"
+                  onClick={onRechazar}
+                  disabled={transicionando || !motivoRechazo.trim()}
+                >
+                  Confirmar rechazo
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
-      {isAdmin && detalle.estado === 'error' && <section className="decision-container">
-        <p>El cierre exige ausencia confirmada o una operación sin envío, sin recursos ni compromisos pendientes.</p>
-        <label htmlFor="reject-error-reason">Motivo de cierre del pedido fallido</label>
-        <textarea id="reject-error-reason" value={motivoRechazo} maxLength={2000} onChange={(e) => setMotivoRechazo(e.target.value)} disabled={transicionando} />
-        <button className="btn btn-danger" onClick={onRechazar} disabled={transicionando || !motivoRechazo.trim()}>Cerrar pedido fallido como rechazado</button>
-      </section>}
-
-      {/* 5. Acciones de Ajuste (cuando requiere ajuste) */}
+      {/* Estado: REQUIERE AJUSTE */}
       {detalle.estado === 'requiere_ajuste' && (
         <div className="decision-container">
-          <div className="section-label" style={{ margin: 0, fontSize: '0.84rem' }}>Aclaración pendiente</div>
-          <p className="text-muted" style={{ margin: 0 }}>
-            Revisá las observaciones, completá la información y reenviá el pedido para que administración lo evalúe nuevamente.
-          </p>
-          <div className="row gap-2 wrap" style={{ paddingTop: 'var(--space-2)' }}>
-            <button className="btn btn-primary btn-sm" onClick={onAbrirReenviar} disabled={transicionando}>
-              {isAdmin ? 'Modificar y reenviar solicitud' : 'Responder aclaración'}
-            </button>
-            {isAdmin && <button className="btn btn-danger btn-sm" onClick={() => onCancelarPedido(detalle.id)} disabled={transicionando}>
-              Cancelar solicitud
-            </button>}
-          </div>
-        </div>
-      )}
-
-      {/* 6. Deshacer aprobación */}
-      {puedeRevertir && (
-        <div className="decision-container" style={{ borderColor: 'var(--st-warn-bd)' }}>
-          <div className="section-label" style={{ margin: 0, fontSize: '0.84rem', color: 'var(--st-warn)' }}>
-            Deshacer la aprobación
-          </div>
-          <p className="text-muted" style={{ margin: 0 }}>
-            Libera en el acto la capacidad que este pedido tiene reservada, sin esperar a que la
-            reserva venza sola. La cátedra ve el motivo y puede volver a pedir lo mismo.
-          </p>
-          <div className="field" style={{ margin: 0 }}>
-            <label style={{ fontSize: 12 }}>Motivo (la cátedra lo va a ver):</label>
-            <input
-              className="input"
-              placeholder="Ej: Aprobado por error / cambio de cronograma"
-              value={motivoReversion}
-              onChange={(e) => setMotivoReversion(e.target.value)}
-            />
-          </div>
-          <div className="row right" style={{ paddingTop: 'var(--space-2)' }}>
-            <button className="btn btn-danger btn-sm" onClick={onRevertir} disabled={transicionando}>
-              Deshacer aprobación y liberar capacidad
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* 7. Otras transiciones de administración (Desplegar, Reintentar, etc.) */}
-      {isAdmin && (detalle.estado === 'aprobado' || detalle.estado === 'error') && (
-        <div className="decision-container">
-          <div className="section-label" style={{ margin: 0, fontSize: '0.84rem' }}>Acciones Operativas</div>
-          <div className="row gap-2 wrap" style={{ paddingTop: 'var(--space-2)' }}>
-            {detalle.estado === 'aprobado' && (
-              <button
-                className="btn btn-primary btn-sm"
-                onClick={() => onDesplegar(detalle.id)}
-                disabled={transicionando || (detalle.estado === 'aprobado' && !detalle.despliegue_habilitado)}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-              >
-                <Server size={14} /> Desplegar en Proxmox
+          <div className="row between wrap gap-2">
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 15, color: 'var(--text-strong)' }}>Aclaración pendiente</div>
+              <p className="text-muted" style={{ margin: '4px 0 0', fontSize: 13 }}>
+                Revisá las observaciones, completá la información y reenviá el pedido para que administración lo evalúe nuevamente.
+              </p>
+            </div>
+            <div className="row gap-2 wrap">
+              <button className="btn btn-primary btn-sm" onClick={onAbrirReenviar} disabled={transicionando}>
+                {isAdmin ? 'Modificar y reenviar solicitud' : 'Responder aclaración'}
               </button>
-            )}
-            {detalle.estado === 'error' && (
-              <button
-                className="btn btn-primary btn-sm"
-                onClick={() => onReintentar(detalle.id)}
-                disabled={transicionando || (detalle.estado === 'aprobado' && !detalle.despliegue_habilitado)}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-              >
-                <RefreshCw size={14} /> Reintentar despliegue
-              </button>
-            )}
+              {isAdmin && (
+                <button className="btn btn-danger btn-sm" onClick={() => onCancelarPedido(detalle.id)} disabled={transicionando}>
+                  Cancelar solicitud
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
 
-      {/* 8. Historial de Estados y Auditoría (Plegable al final) */}
+      {/* Estado: ACTIVO */}
+      {detalle.estado === 'activo' && (
+        <div className="callout ok" style={{ marginBottom: 'var(--space-3)' }}>
+          <CheckCircle2 size={16} />
+          <div>
+            <strong>Servicio activo y registrado.</strong>
+            <div style={{ marginTop: 2 }}>
+              {detalle.tipo === 'renovacion'
+                ? 'Las nuevas condiciones quedaron registradas. Consultá el estado del servicio para verificar su operación.'
+                : 'El servicio se encuentra operativo.'}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 5. Historial de Estados y Auditoría (Plegable al final) */}
       <div style={{ marginTop: 'var(--space-3)', borderTop: '1px solid var(--color-divider)', paddingTop: 'var(--space-3)' }}>
         <button
           type="button"
           onClick={() => setHistorialAbierto(!historialAbierto)}
-          style={{
-            width: '100%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '8px 12px',
-            fontSize: 13,
-            color: 'var(--text-soft)',
-            background: 'var(--color-surface)',
-            border: '1px solid var(--color-divider)',
-            borderRadius: 'var(--radius-md)',
-            cursor: 'pointer',
-          }}
+          className="detalle-history-toggle"
         >
           <div className="row gap-2" style={{ alignItems: 'center' }}>
             <History size={14} />

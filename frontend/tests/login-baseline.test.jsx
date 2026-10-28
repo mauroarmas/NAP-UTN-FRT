@@ -22,3 +22,18 @@ test.each(['Credenciales inválidas', {
   expect(onLogin).not.toHaveBeenCalled();
   expect(getMe).not.toHaveBeenCalled();
 });
+
+test('el botón con icono de ojo conmuta la visibilidad de la contraseña', async () => {
+  render(<MemoryRouter><Login onLogin={vi.fn()} /></MemoryRouter>);
+  const user = userEvent.setup();
+  const inputPass = screen.getByLabelText('Contraseña');
+  expect(inputPass).toHaveAttribute('type', 'password');
+
+  const toggleBtn = screen.getByRole('button', { name: /mostrar clave/i });
+  await user.click(toggleBtn);
+  expect(inputPass).toHaveAttribute('type', 'text');
+
+  const hideBtn = screen.getByRole('button', { name: /ocultar clave/i });
+  await user.click(hideBtn);
+  expect(inputPass).toHaveAttribute('type', 'password');
+});

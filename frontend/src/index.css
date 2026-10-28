@@ -1071,6 +1071,40 @@ select option:disabled { color: var(--color-neutral-600); }
 }
 .input-search .input { padding-left: 34px; }
 
+.input-password {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+.input-password .input {
+  padding-right: 36px;
+}
+.input-password__toggle {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border: none;
+  background: transparent;
+  color: var(--text-soft);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+.input-password__toggle:hover {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+}
+.input-password__toggle:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
 /* =============================== Diálogo ================================ */
 
 .dialog-backdrop {
@@ -1550,6 +1584,42 @@ select option:disabled { color: var(--color-neutral-600); }
   border-radius: var(--radius-md);
   padding: 12px 14px;
   margin-top: 6px;
+}
+
+.detalle-action-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  margin-bottom: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.detalle-action-card--deploy {
+  border-color: color-mix(in srgb, var(--color-accent) 35%, var(--color-divider));
+  background: color-mix(in srgb, var(--color-accent) 5%, var(--color-surface));
+}
+
+.detalle-history-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text-soft);
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.detalle-history-toggle:hover {
+  background: var(--color-surface-2);
+  color: var(--color-text);
 }
 
 /* =============================== Utilidades ============================= */

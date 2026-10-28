@@ -1,6 +1,7 @@
 import { mensajeError } from '../utils/errors.js';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Eye, EyeOff } from 'lucide-react';
 import { login } from '../services/api';
 import useTheme from '../hooks/useTheme';
 import utnLogo from '../assets/utn-logo.jpeg';
@@ -8,6 +9,7 @@ import utnLogo from '../assets/utn-logo.jpeg';
 export default function Login({ onLogin }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [mostrarPassword, setMostrarPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
@@ -63,16 +65,27 @@ export default function Login({ onLogin }) {
           </div>
           <div className="field">
             <label htmlFor="login-pass">Contraseña</label>
-            <input
-              id="login-pass"
-              className="input"
-              type="password"
-              autoComplete="current-password"
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
+            <div className="input-password">
+              <input
+                id="login-pass"
+                className="input"
+                type={mostrarPassword ? 'text' : 'password'}
+                autoComplete="current-password"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+              <button
+                type="button"
+                className="input-password__toggle"
+                onClick={() => setMostrarPassword((prev) => !prev)}
+                aria-label={mostrarPassword ? 'Ocultar clave' : 'Mostrar clave'}
+                title={mostrarPassword ? 'Ocultar contraseña' : 'Ver contraseña'}
+              >
+                {mostrarPassword ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}
+              </button>
+            </div>
           </div>
 
           <button type="submit" className="btn btn-primary btn-block" disabled={loading}>
