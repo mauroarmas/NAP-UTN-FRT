@@ -254,7 +254,7 @@ async def actualizar_template(
             )
 
     relevant = {'definicion_version_id', 'default_vcpus', 'default_ram_mb', 'default_disk_gb',
-        'modelo_servicio', 'os_template', 'config_extra', 'activo'}
+        'modelo_servicio', 'os_template', 'config_extra', 'activo', 'configuracion_despliegue_id'}
     prospective = SimpleNamespace(**{**{field: getattr(template, field) for field in relevant | {'tipo'}}, **cambios})
     if prospective.activo and (template.definicion_version_id or relevant & cambios.keys()):
         await exigir_definicion(db, prospective, bloquear=True)
