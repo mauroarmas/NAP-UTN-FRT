@@ -101,3 +101,4 @@ Resultado: `6 passed in 10.9s`.
 
 El conjunto de pruebas automatizadas cubre íntegramente los requerimientos funcionales y no funcionales de la especificación 011: catálogo Docker Hub, referencias de imágenes propias, aprobación indivisible, despliegue programado, consola de lectura en tiempo real con truncamiento seguro y cuota de 10 MB, ciclo de vida sin pull repetido, reintentos idempotentes y compatibilidad de regresión con IaaS y Draw.io.
 No se reportan fallos pendientes.
+

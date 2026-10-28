@@ -14,12 +14,14 @@ services:
       - ./backend/alembic:/app/alembic
       - ./backend/scripts:/app/scripts
       - ./backend/alembic.ini:/app/alembic.ini
+      - ./infra:/app/infra:ro
     environment:
       APP_RELOAD: "true"
 
   notificaciones:
     volumes:
       - ./backend/app:/app/app
+      - ./infra:/app/infra:ro
 
   frontend:
     build:
