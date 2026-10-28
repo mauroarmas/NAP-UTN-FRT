@@ -1,13 +1,19 @@
 from uuid import UUID
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Header, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.routers.auth import get_current_user
+from app.models.operacion_infraestructura import OperacionInfraestructura
+from app.models.usuario import Usuario
+from app.routers.auth import get_current_user, require_admin
 from app.schemas.operacion import ConsolaOperacionResponse
-from app.services.operacion_service import obtener, presentar, listar
+from app.schemas.servicio import OrdenServicioRequest
+from app.services.operacion_service import obtener, presentar, listar, OPEN
 from app.services.consola_operacion_service import consultar
+from app.services.orquestacion_service import reintentar_despliegue
+from app.utils.errors import error
+from app.utils.responses import respuesta_decision
 
 router = APIRouter(prefix='/operaciones', tags=['Operaciones'])
 
@@ -50,3 +56,30 @@ async def consultar_consola(
     serialized = ConsolaOperacionResponse.model_validate(data).model_dump(mode='json')
     return JSONResponse(serialized, headers={'Cache-Control': 'no-store'})
 
+
+@router.post('/{operation_id}/reintentar')
+async def reintentar_operacion(
+    operation_id: UUID,
+    body: OrdenServicioRequest = OrdenServicioRequest(),
+    clave: str = Header(alias='Idempotency-Key'),
+    current_user: Usuario = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    operation = await db.get(OperacionInfraestructura, operation_id)
+    if operation is None:
+        raise error(404, 'operacion_no_encontrada', 'Operación no encontrada')
+    if operation.estado in OPEN or operation.estado == 'incierta':
+        raise error(409, 'operacion_en_curso' if operation.estado in OPEN else 'reconciliacion_pendiente',
+                    'Solo se reintenta una operación fallida confirmada')
+    if operation.estado != 'fallida':
+        raise error(409, 'estado_incompatible', 'Solo se reintenta una operación fallida revisada')
+    if not operation.pedido_id:
+        raise error(409, 'requiere_nueva_decision', 'La operación no corresponde a un pedido reintentable')
+
+    try:
+        result = await reintentar_despliegue(db, operation.pedido_id, current_user, clave=clave, motivo=body.motivo)
+        await db.commit()
+        return respuesta_decision(result)
+    except Exception:
+        await db.rollback()
+        raise

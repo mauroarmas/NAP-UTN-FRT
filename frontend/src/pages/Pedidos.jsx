@@ -641,7 +641,7 @@ export default function Pedidos({ user }) {
   );
 }
 
-function DetalleDialog({
+export function DetalleDialog({
   detalle, isAdmin, templateDe, templateNombre, catedraNombre, formatDate, onClose, transicionando,
   operacion, sinActualizar, onVerConsola,
   motivoRechazo, setMotivoRechazo, onAbrirAprobar, onAbrirAjuste, onAbrirReenviar, onCancelarPedido, onRechazar,

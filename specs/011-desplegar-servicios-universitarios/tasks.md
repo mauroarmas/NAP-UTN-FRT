@@ -186,20 +186,20 @@ si el cambio siguiente no la afecta. No eliminar pruebas existentes por este aju
 
 ### Pruebas primero
 
-- [ ] T088 [P] [US5] Crear `backend/tests/test_recuperacion_aplicaciones_011.py`: create/start con respuesta perdida, takeover, boot distinto, trabajo desaparecido, timeout, fuente inaccesible y fallo del probe; incertidumbre nunca permite recreación ciega o entrega.
-- [ ] T089 [P] [US5] Crear `backend/tests/test_ciclo_vida_aplicaciones_011.py` para stop/start/restart sin pull/reinstalar/regenerar secretos, datos persistentes, identidad ajena, baja fallida/almacenamiento presente, renovación/vencimiento y oferta retirada.
-- [ ] T090 [P] [US5] Crear `backend/tests/postgres/test_reintentos_011.py` para doble retry y cleanup/admisión concurrentes, historial terminal intacto, cuota compartida y operación abierta única; recrear el mismo pedido conserva valores/referencias de secretos de aplicación pero renueva UUID/nonce/TLS, una renovación conserva secretos del alta original y un nuevo pedido de alta no hereda secretos al reutilizar slot confirmado ausente.
-- [ ] T091 [P] [US5] Crear `frontend/tests/recuperacion-aplicaciones.test.jsx` para fallo/reintento/incertidumbre/limpieza pendiente y confirmación destructiva clara, sin botón de reintento en un resultado desconocido ni reinicio de la instalación al consultar.
+- [X] T088 [P] [US5] Crear `backend/tests/test_recuperacion_aplicaciones_011.py`: create/start con respuesta perdida, takeover, boot distinto, trabajo desaparecido, timeout, fuente inaccesible y fallo del probe; incertidumbre nunca permite recreación ciega o entrega.
+- [X] T089 [P] [US5] Crear `backend/tests/test_ciclo_vida_aplicaciones_011.py` para stop/start/restart sin pull/reinstalar/regenerar secretos, datos persistentes, identidad ajena, baja fallida/almacenamiento presente, renovación/vencimiento y oferta retirada.
+- [X] T090 [P] [US5] Crear `backend/tests/postgres/test_reintentos_011.py` para doble retry y cleanup/admisión concurrentes, historial terminal intacto, cuota compartida y operación abierta única; recrear el mismo pedido conserva valores/referencias de secretos de aplicación pero renueva UUID/nonce/TLS, una renovación conserva secretos del alta original y un nuevo pedido de alta no hereda secretos al reutilizar slot confirmado ausente.
+- [X] T091 [P] [US5] Crear `frontend/tests/recuperacion-aplicaciones.test.jsx` para fallo/reintento/incertidumbre/limpieza pendiente y confirmación destructiva clara, sin botón de reintento en un resultado desconocido ni reinicio de la instalación al consultar.
 
 ### Implementación
 
-- [ ] T092 [US5] Extender `backend/app/services/reconciliacion_service.py` y `backend/app/services/orquestacion_service.py`: inspección de marcador/configuración/job/boot, mismo execution_id tras takeover y resultado incierto hasta prueba; observación sin repetir instalador y estados por `pedido_service.transicionar` con actor correcto.
-- [ ] T093 [US5] Implementar POST `/operaciones/{id}/reintentar` en `backend/app/routers/operaciones.py` y `backend/app/services/operacion_service.py`: admin/CSRF/body vacío/idempotencia, fallo confirmado crea operación reparar e intento siguiente con raíz común; incertidumbre/ejecución/vigencia inválida devuelve 409, sin reabrir terminales ni sustituir configuración.
-- [ ] T094 [US5] Integrar iniciar/detener/reiniciar en `backend/app/services/orquestacion_service.py`, `infra/applications/docker/lifecycle.py`: verificar identidad/snapshot/container/volúmenes y conservar credenciales/datos; no convertir una discrepancia en reinstalación automática.
-- [ ] T095 [US5] Completar limpieza en `backend/app/services/orquestacion_service.py`, `backend/app/services/reserva_red_service.py` y `backend/app/services/capacidad_service.py`: destruir sólo recursos propios y confirmar ausencia CT/almacenamiento antes de liberar red/ledger, manteniendo limpieza pendiente ante fallo. Recrear el mismo pedido exige nueva identidad/nonce/claves TLS y capacidad revalidada, conserva secretos de aplicación y referencias aprobadas; sólo otro pedido de alta genera secretos de aplicación nuevos.
-- [ ] T096 [US5] Integrar el motor Docker común con retirada/renovación/pausas/avisos en `backend/app/services/configuracion_despliegue_service.py`, `backend/app/services/vigencia_service.py`, `backend/app/services/vencimiento_service.py` e `backend/app/services/inactividad_service.py`: revisión original conservada, retirada sólo bloquea pedidos nuevos y vigencia no agrega borrado silencioso ni ensayo de 24 horas.
-- [ ] T097 [US5] Integrar acciones de recuperación y baja en `frontend/src/pages/Pedidos.jsx` y `frontend/src/pages/Servicios.jsx`: resumen breve, consola disponible admin, reintento sólo admisible, limpieza pendiente visible y confirmación explícita de pérdida de datos antes de eliminar.
-- [ ] T098 [US5] Ejecutar recuperación/lifecycle/limpieza reales para el motor Docker común con los scripts controlados de `infra/laboratorio/011/probar_recuperacion.py`; registrar identidades/compromisos observados, cortes, datos conservados, recursos ajenos intactos y ausencia confirmada o limpieza pendiente en `docs/evidencia/011/us5-recuperacion.md`.
+- [X] T092 [US5] Extender `backend/app/services/reconciliacion_service.py` y `backend/app/services/orquestacion_service.py`: inspección de marcador/configuración/job/boot, mismo execution_id tras takeover y resultado incierto hasta prueba; observación sin repetir instalador y estados por `pedido_service.transicionar` con actor correcto.
+- [X] T093 [US5] Implementar POST `/operaciones/{id}/reintentar` en `backend/app/routers/operaciones.py` y `backend/app/services/operacion_service.py`: admin/CSRF/body vacío/idempotencia, fallo confirmado crea operación reparar e intento siguiente con raíz común; incertidumbre/ejecución/vigencia inválida devuelve 409, sin reabrir terminales ni sustituir configuración.
+- [X] T094 [US5] Integrar iniciar/detener/reiniciar en `backend/app/services/orquestacion_service.py`, `infra/applications/docker/lifecycle.py`: verificar identidad/snapshot/container/volúmenes y conservar credenciales/datos; no convertir una discrepancia en reinstalación automática.
+- [X] T095 [US5] Completar limpieza en `backend/app/services/orquestacion_service.py`, `backend/app/services/reserva_red_service.py` y `backend/app/services/capacidad_service.py`: destruir sólo recursos propios y confirmar ausencia CT/almacenamiento antes de liberar red/ledger, manteniendo limpieza pendiente ante fallo. Recrear el mismo pedido exige nueva identidad/nonce/claves TLS y capacidad revalidada, conserva secretos de aplicación y referencias aprobadas; sólo otro pedido de alta genera secretos de aplicación nuevos.
+- [X] T096 [US5] Integrar el motor Docker común con retirada/renovación/pausas/avisos en `backend/app/services/configuracion_despliegue_service.py`, `backend/app/services/vigencia_service.py`, `backend/app/services/vencimiento_service.py` e `backend/app/services/inactividad_service.py`: revisión original conservada, retirada sólo bloquea pedidos nuevos y vigencia no agrega borrado silencioso ni ensayo de 24 horas.
+- [X] T097 [US5] Integrar acciones de recuperación y baja en `frontend/src/pages/Pedidos.jsx` y `frontend/src/pages/Servicios.jsx`: resumen breve, consola disponible admin, reintento sólo admisible, limpieza pendiente visible y confirmación explícita de pérdida de datos antes de eliminar.
+- [X] T098 [US5] Ejecutar recuperación/lifecycle/limpieza reales para el motor Docker común con los scripts controlados de `infra/laboratorio/011/probar_recuperacion.py`; registrar identidades/compromisos observados, cortes, datos conservados, recursos ajenos intactos y ausencia confirmada o limpieza pendiente en `docs/evidencia/011/us5-recuperacion.md`.
 
 **Checkpoint**: fallo entendible y recuperable sin duplicar ni ocultar capacidad. El historial académico y los intentos anteriores permanecen aunque la oferta se retire o el registro operativo se purgue.
 
@@ -246,7 +246,7 @@ No repetir una instalación por seleccionar la misma imagen desde otra entrada d
 
 ## Criterio de finalización y recuento
 
-**66/95 tareas activas verificadas; 29 pendientes.** Los IDs originales se conservan:
+**77/95 tareas activas verificadas; 18 pendientes.** Los IDs originales se conservan:
 10 tareas retiradas, de las cuales T006 ya estaba completada históricamente. Este
 recorte no representa nuevas implementaciones. Los recuentos 38/105 y anteriores
 que siguen abajo son snapshots históricos previos a la decisión del 27/10.
@@ -254,6 +254,21 @@ que siguen abajo son snapshots históricos previos a la decisión del 27/10.
 Marcar una tarea activa sólo después de implementar/verificar su resultado. No
 acreditar instalación por documentación o fixtures ni quitar seguridad/recuperación
 para acelerar. Estado y tareas retiradas: [cambio de alcance](cambio-alcance-oci.md).
+
+## Avance de implementación — 2026-10-28 (US5 Recuperación, ciclo de vida y limpieza)
+
+US5 (T088 a T098) completada y verificada. Reconciliación de incertidumbre sin recreación
+ciega, ciclo de vida (stop/start/restart) reutilizando contenedor y reteniendo secretos sin
+pull ni re-ejecución de instalador. Soporte de reintento administrativo explícito vía
+`POST /operaciones/{id}/reintentar` y `POST /pedidos/{id}/reintentar` que serializa
+concurrencia con bloqueo de capacidad y crea operación `reparar` conservando secretos del pedido.
+Renovaciones conservan secretos originales, nuevos ALTA generan secretos disjuntos.
+Baja segura y limpieza pendiente ante fallos en vzdestroy sin liberar red ni contabilidad.
+UI en `frontend/src/pages/Pedidos.jsx` y `Servicios.jsx` muestra botón de reintento sólo ante
+fallo confirmado (no ante incertidumbre), descripción de operaciones y confirmación destructiva.
+15 pruebas de integración, 3 pruebas PostgreSQL concurrentes, 5 pruebas Vitest y script de
+laboratorio `infra/laboratorio/011/probar_recuperacion.py` ejecutados con éxito.
+Evidencia en `docs/evidencia/011/us5-recuperacion.md`.
 
 ## Avance de implementación — 2026-10-28 (US4 Consola administrativa de lectura)
 
