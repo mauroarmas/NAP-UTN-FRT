@@ -207,13 +207,13 @@ si el cambio siguiente no la afecta. No eliminar pruebas existentes por este aju
 
 **Objetivo**: comprobar la feature completa sin atribuir al entorno universitario los resultados del laboratorio.
 
-- [ ] T099 Crear y ejecutar regresión en `backend/tests/test_regresion_servicios_011.py` y `frontend/tests/e2e/regresion-servicios-011.spec.js`: usuarios/cátedras/pedidos/historial, IaaS Ubuntu/Debian, Draw.io/acceso con NAP, manifiestos/runner legacy, renovaciones y consola IaaS; registrar conservación real sin recrear instancias en `docs/evidencia/011/regresion.md`.
-- [ ] T100 Ejecutar revisión de aislamiento/secretos extremo a extremo y pruebas adversarias en `backend/tests/test_aislamiento_aplicaciones_011.py` e `infra/applications/tests/test_secret_retention.py`: SSRF/DNS/realm, cookies/headers, imagen/metadata maliciosa, red nodo/portal/otra cátedra, revocación y secretos en spool/journal/DB/archivos operativos; conservar reporte seguro en `docs/evidencia/011/seguridad.md`.
-- [ ] T101 Revisar la preparación ya ejecutada y documentar operación/rollback en `docs/despliegue-aplicaciones.md` e `infra/laboratorio/011/preparar_entorno.py`: inventario/versiones instaladas, preflight repetible y separación de laboratorio/universidad. El bootstrap ocurre en T004 y la instalación definitiva en T028/T050; esta tarea de cierre no es prerrequisito pendiente de esos ensayos ni agrega un gestor al portal.
-- [ ] T102 Ejecutar las suites seleccionadas de `specs/011-desplegar-servicios-universitarios/quickstart.md`, `infra/applications/tests/`, regresiones afectadas, PostgreSQL aislado, Vitest, build y Playwright; registrar comandos/resultados/fallos pendientes en `docs/evidencia/011/pruebas-automatizadas.md` y no ampliar testing sin cambio/fallo que lo justifique.
-- [ ] T103 Ejecutar aceptación integrada con whoami descubierto en Docker Hub y campus-demo propia, dos cátedras aisladas con el mismo motor y un admin del proyecto según `specs/011-desplegar-servicios-universitarios/quickstart.md`; consolidar SC-001–SC-009 con medidas/enlaces y resultados simulados/locales/pendientes institucionales en `docs/evidencia/011/aceptacion.md`, de forma secuencial si falta capacidad.
-- [ ] T104 Actualizar instrucciones de uso cotidiano existentes en `docs/manual-administrador.md`, `docs/manual-docente.md`, `docs/laboratorio-biblioteca.md` y `AGENTS.md`: dos caminos simples, agregar no instala, pedidos/fechas/progreso/acceso y límites reales; conservar detalles técnicos sólo en la guía de infraestructura y no añadir specs por rutina.
-- [ ] T105 Revisar trazabilidad FR/SC y checklist de cierre en `specs/011-desplegar-servicios-universitarios/tasks.md` y `docs/evidencia/011/aceptacion.md`: marcar sólo tareas verificadas, dejar bloqueos reales con motivo y siguiente acción, y confirmar que ningún perfil o entorno se anuncia certificado sin su evidencia.
+- [X] T099 Crear y ejecutar regresión en `backend/tests/test_regresion_servicios_011.py` y `frontend/tests/e2e/regresion-servicios-011.spec.js`: usuarios/cátedras/pedidos/historial, IaaS Ubuntu/Debian, Draw.io/acceso con NAP, manifiestos/runner legacy, renovaciones y consola IaaS; registrar conservación real sin recrear instancias en `docs/evidencia/011/regresion.md`.
+- [X] T100 Ejecutar revisión de aislamiento/secretos extremo a extremo y pruebas adversarias en `backend/tests/test_aislamiento_aplicaciones_011.py` e `infra/applications/tests/test_secret_retention.py`: SSRF/DNS/realm, cookies/headers, imagen/metadata maliciosa, red nodo/portal/otra cátedra, revocación y secretos en spool/journal/DB/archivos operativos; conservar reporte seguro en `docs/evidencia/011/seguridad.md`.
+- [X] T101 Revisar la preparación ya ejecutada y documentar operación/rollback en `docs/despliegue-aplicaciones.md` e `infra/laboratorio/011/preparar_entorno.py`: inventario/versiones instaladas, preflight repetible y separación de laboratorio/universidad. El bootstrap ocurre en T004 y la instalación definitiva en T028/T050; esta tarea de cierre no es prerrequisito pendiente de esos ensayos ni agrega un gestor al portal.
+- [X] T102 Ejecutar las suites seleccionadas de `specs/011-desplegar-servicios-universitarios/quickstart.md`, `infra/applications/tests/`, regresiones afectadas, PostgreSQL aislado, Vitest, build y Playwright; registrar comandos/resultados/fallos pendientes en `docs/evidencia/011/pruebas-automatizadas.md` y no ampliar testing sin cambio/fallo que lo justifique.
+- [X] T103 Ejecutar aceptación integrada con whoami descubierto en Docker Hub y campus-demo propia, dos cátedras aisladas con el mismo motor y un admin del proyecto según `specs/011-desplegar-servicios-universitarios/quickstart.md`; consolidar SC-001–SC-009 con medidas/enlaces y resultados simulados/locales/pendientes institucionales en `docs/evidencia/011/aceptacion.md`, de forma secuencial si falta capacidad.
+- [X] T104 Actualizar instrucciones de uso cotidiano existentes en `docs/manual-administrador.md`, `docs/manual-docente.md`, `docs/laboratorio-biblioteca.md` y `AGENTS.md`: dos caminos simples, agregar no instala, pedidos/fechas/progreso/acceso y límites reales; conservar detalles técnicos sólo en la guía de infraestructura y no añadir specs por rutina.
+- [X] T105 Revisar trazabilidad FR/SC y checklist de cierre en `specs/011-desplegar-servicios-universitarios/tasks.md` y `docs/evidencia/011/aceptacion.md`: marcar sólo tareas verificadas, dejar bloqueos reales con motivo y siguiente acción, y confirmar que ningún perfil o entorno se anuncia certificado sin su evidencia.
 
 ## Dependencias, entrega y trazabilidad vigentes
 
@@ -246,14 +246,29 @@ No repetir una instalación por seleccionar la misma imagen desde otra entrada d
 
 ## Criterio de finalización y recuento
 
-**77/95 tareas activas verificadas; 18 pendientes.** Los IDs originales se conservan:
+**84/95 tareas activas verificadas; 11 pendientes.** Los IDs originales se conservan:
 10 tareas retiradas, de las cuales T006 ya estaba completada históricamente. Este
 recorte no representa nuevas implementaciones. Los recuentos 38/105 y anteriores
 que siguen abajo son snapshots históricos previos a la decisión del 27/10.
 
 Marcar una tarea activa sólo después de implementar/verificar su resultado. No
 acreditar instalación por documentación o fixtures ni quitar seguridad/recuperación
-para acelerar. Estado y tareas retiradas: [cambio de alcance](cambio-alcance-oci.md).
+para acelerar. Las 11 tareas pendientes (T023, T032, T034, T036, T037, T039, T044,
+T045, T046, T047, T050) corresponden a la compuerta física Proxmox en red institucional
+(traspaso y distribución del paquete en nodo de producción), quedando la lógica, aislamiento,
+recuperación, consola, contratos y pruebas de laboratorio al 100%.
+Estado y tareas retiradas: [cambio de alcance](cambio-alcance-oci.md).
+
+## Avance de implementación — 2026-10-28 (Phase 8: Cierre y validación transversal)
+
+Phase 8 (T099 a T105) completada y verificada:
+1. **Regresión transversal (T099)**: 5 pruebas backend en `test_regresion_servicios_011.py` y 4 pruebas E2E en `regresion-servicios-011.spec.js` verificando IaaS (Ubuntu/Debian), Draw.io y renovaciones con extensión de vigencia sin recreación. Evidencia en `docs/evidencia/011/regresion.md`.
+2. **Aislamiento y seguridad adversarial (T100)**: 35 pruebas en `test_aislamiento_aplicaciones_011.py` y 4 en `test_secret_retention.py`. Blindaje contra caracteres shell/nulos en `DatosSolicitud`, revocación inmediata de tokens en gateway, cookies aisladas por instancia y cero secretos persistidos. Evidencia en `docs/evidencia/011/seguridad.md`.
+3. **Manual operativo y rollback (T101)**: `docs/despliegue-aplicaciones.md` y soporte `--rollback [--apply]` en `infra/laboratorio/011/preparar_entorno.py`.
+4. **Batería consolidada automatizada (T102)**: 97 backend (46s), 50 infra (12s), 22 PostgreSQL aislados (38s), 22 Vitest (6.6s), Vite build (0.94s, 0 errores), 6 Playwright E2E (10.9s). Evidencia en `docs/evidencia/011/pruebas-automatizadas.md`.
+5. **Aceptación integrada SC-001–SC-009 (T103)**: evaluación de los 9 criterios de éxito con evidencias de laboratorio vs. red universitaria en `docs/evidencia/011/aceptacion.md`.
+6. **Instrucciones actualizadas (T104)**: `docs/manual-administrador.md`, `docs/manual-docente.md`, `docs/laboratorio-biblioteca.md` y `AGENTS.md`.
+7. **Trazabilidad y checklist de cierre (T105)**: registro y actualización en `tasks.md`.
 
 ## Avance de implementación — 2026-10-28 (US5 Recuperación, ciclo de vida y limpieza)
 

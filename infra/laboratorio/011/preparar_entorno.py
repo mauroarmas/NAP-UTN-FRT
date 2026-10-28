@@ -229,6 +229,30 @@ def controller_config(registry_root):
                                'host': f'app{n}.nap011.test'} for n in range(1, 9)]}}
 
 
+def rollback_node(root=Path('/'), *, apply=False):
+    """Retira archivos de bootstrap creados en el nodo por prepare_node."""
+    destination = Path(root) / 'etc/nap/applications-011'
+    if not destination.exists():
+        return {'state': 'rollback_unneeded', 'detail': 'Directorio no existe'}
+    files_to_remove = ['candidatos.json', 'network.json', 'registry.json', 'ca.crt', 'inventory.json', '.lock']
+    found = [f for f in files_to_remove if (destination / f).exists()]
+    if not apply:
+        return {'state': 'rollback_plan', 'files_to_remove': found, 'apply_required': True}
+    if os.geteuid() != 0 and root == Path('/'):
+        raise ValueError('ROOT_REQUIRED_ON_NODE')
+    removed = []
+    for f in found:
+        p = destination / f
+        if p.is_file() and not p.is_symlink():
+            p.unlink()
+            removed.append(f)
+    try:
+        destination.rmdir()
+    except OSError:
+        pass
+    return {'state': 'rollback_completed', 'files_removed': removed}
+
+
 def install_common_package(source_root, config, *, previous=None, apply=False, root=Path('/')):
     """Explicit package-only step, independent of registry/network bootstrap."""
     path = Path(__file__).parents[2]/'applications/install.py'
@@ -249,17 +273,22 @@ def main():
     parser.add_argument('--manifest', type=Path, default=Path(__file__).with_name('candidatos.json'))
     parser.add_argument('--config', type=Path)
     parser.add_argument('--apply', action='store_true')
+    parser.add_argument('--rollback', action='store_true', help='Retira los archivos de configuración staged en el nodo')
     parser.add_argument('--diagnose', action='store_true', help='Inventario y conexión de sólo lectura, sin aplicar')
     parser.add_argument('--install-package', action='store_true', help='Sólo paquete común, sin registry/red/invitados')
     parser.add_argument('--source-root', type=Path)
     parser.add_argument('--previous', type=Path)
     args = parser.parse_args()
-    if args.diagnose and (args.controller or args.apply):
-        parser.error('--diagnose no se combina con --controller o --apply')
+    if args.diagnose and (args.controller or args.apply or args.rollback):
+        parser.error('--diagnose no se combina con --controller, --apply o --rollback')
+    if args.rollback and (args.controller or args.install_package or args.diagnose):
+        parser.error('--rollback no se combina con --controller o --install-package')
     if args.install_package and (args.controller or args.diagnose or not args.source_root or not args.config):
         parser.error('--install-package requiere --source-root y --config, sin --controller/--diagnose')
     try:
-        if args.install_package:
+        if args.rollback:
+            result = rollback_node(apply=args.apply)
+        elif args.install_package:
             result = install_common_package(args.source_root, preflight.read_json(args.config),
                 previous=preflight.read_json(args.previous) if args.previous else None, apply=args.apply)
         elif args.controller:

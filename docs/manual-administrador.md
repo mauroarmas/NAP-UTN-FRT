@@ -72,25 +72,19 @@ Para aprobar, seleccionar un servicio compatible, tamaño **Small** o **Medium**
 
 Aprobar una alta reserva capacidad en la misma transacción. Si el inicio es futuro, se conserva la reserva durante la espera: el plazo ordinario de veinticuatro horas comienza en el posterior entre aprobación e inicio, limitado por el fin de vigencia. No se despliega antes del inicio. Revertir una aprobación sólo libera lo que aún no está enviado/materializado; un resultado incierto exige reconciliación.
 
-## Catálogo y despliegue
+## Catálogo y despliegue de aplicaciones
 
-La lista de **Cátedras** muestra el ID en la primera columna y un botón **Verificar infraestructura** por fila. La consulta muestra si el pool está preparado, pendiente del primer servicio o requiere atención; antes de consultarlo figura **Sin verificar**. No crea pools ni mueve invitados. El estado se refiere al pool, no certifica la red, el catálogo o la entrega de aplicaciones.
+El catálogo administrativo unifica dos caminos simples para incorporar aplicaciones:
+1. **Docker Hub**: búsqueda por nombre de imágenes públicas (por ejemplo `traefik/whoami`), mostrando procedencia y distintivos oficiales.
+2. **Imagen propia**: referencia directa a imágenes en repositorios universitarios autorizados (por ejemplo `campus-demo:acceptance`).
 
-Al desplegar un servicio aprobado, NAP comprueba el pool `catedra-{id}` y lo crea si falta. Reutiliza los existentes, comprueba permisos y pertenencia de sus miembros y crea el contenedor dentro del pool. No concede permisos automáticamente ni asigna cuotas por cátedra. La cuenta API necesita `Pool.Allocate`, `VM.Allocate`, `VM.Audit` y `VM.PowerMgmt` en el alcance de ese pool; los permisos adicionales de almacenamiento/red corresponden al despliegue ordinario. Si faltan permisos, no se crea el contenedor: la operación conserva su reserva y vuelve a comprobar antes de desplegar, sujeta a vigencia y expiración. Un pool con miembros desconocidos requiere revisión manual; no se vacía ni se adopta.
-
-Los pools de Proxmox sobreviven a la limpieza de la base de NAP. Se reutilizan por ID de cátedra y no reservan hardware por existir. **Pool View** los muestra agrupados; **Server View** muestra los invitados por nodo.
-
-Seguir la [guía técnica de productos](../infra/services/README.md) para construir/sanear imágenes, ensayar dos instancias y registrar evidencia. Catálogo nuevo: LXC Ubuntu 24.04, PostgreSQL 16 y BookStack de referencia; QEMU queda en lectura histórica.
-
-En **Catálogo** (`/catalogo`), abrir **Agregar servicio**, elegir una aplicación y completar nombre, descripción opcional y Small/Medium. Pulsar **Preparar aplicación**, abrirla con **Ver acceso** y elegir **Funciona correctamente → Publicar servicio** o **No funciona, eliminar**. NAP resuelve los pasos técnicos. La publicación no vence a las 24 horas. Ver [administración sencilla de servicios](administracion-servicios.md). Una oferta retirada bloquea pedidos nuevos y conserva los ya aprobados. La biblioteca permite descubrir aplicaciones; sólo las preparaciones compatibles pueden instalarse desde NAP.
-
-El antiguo script de publicación específico de la PC está retirado. `scripts.publicar_catalogo` sólo comprueba coherencia local de archivos mediante `--manifest`, `--evidence`, `--cluster-uuid` y `--definition-id`; no registra/publica, no crea perfiles y no modifica usuarios.
-
-Para PostgreSQL/BookStack, infraestructura prepara un pool de UUID/DNS/TLS/reservas DHCP por MAC en los perfiles de portal y runner. NAP elige una identidad no utilizada, conserva su asignación antes de crear y utiliza siempre los mismos datos en los reintentos. El pool se prepara en lote; no se editan perfiles por cada despliegue. Sin destinos preparados se informa el agotamiento antes de crear. El contrato y la lista de entrega a infraestructura están en [conexion-infraestructura.md](conexion-infraestructura.md).
-
-Desde **Servicios** (`/servicios`) se ordena desplegar desde la fecha inicial. Una respuesta 202 admite una operación, no acredita éxito. El worker confirma tarea y propiedad, prepara el producto y registra salud local. El acceso sigue pendiente de comprobación desde la red prevista.
-
-Abrir **Ver acceso**, revelar sólo para validación, realizar las pruebas funcionales e importar el documento `acceso_instancia` en **Registrar evidencia institucional**. Confirmar con el UUID, endpoint e instante coincidentes. Sólo después se entrega el servicio como utilizable. No marcar pruebas simuladas como reales. No modificar una cuenta ni inventar resultados para forzar publicación.
+Ambas entradas reutilizan un **único motor OCI** sobre contenedores LXC no privilegiados con Ubuntu 24.04:
+- **Elegir → Agregar → Disponible para solicitar**: el alta en catálogo guarda la configuración y deja la aplicación lista para ser solicitada por las cátedras. **No crea instancias ni consume capacidad de cómputo o almacenamiento anticipadamente**.
+- No existen pasos manuales de «preparar, abrir y confirmar publicación» ni ensayos de 24 horas.
+- **Aprobación indivisible**: al aprobar un pedido, la reserva de cómputo y almacenamiento se realiza en forma atómica en el libro mayor (`CompromisoCapacidad`). Si el inicio es futuro, el despliegue queda programado y se inicia automáticamente al llegar la fecha autorizada.
+- **Consola operativa de despliegue**: los administradores disponen del botón **«Ver consola»** en Pedidos y Servicios para seguir en tiempo real la salida del instalador (fondo negro, texto blanco monoespaciado, texto literal seguro sin HTML/ANSI, retención de hasta 10 MB y 30 días). Cerrar o consultar la consola nunca altera ni cancela operaciones en marcha.
+- **Recuperación ante fallos**: ante una falla transitoria de red o infraestructura, la operación queda marcada como `fallida` y se habilita el botón **«Reintentar despliegue»**. El reintento preserva los secretos del pedido y revalida la capacidad antes de despachar una operación `reparar`. Si el estado de la infraestructura es incierto tras un reinicio, NAP reconcilia con Proxmox sin duplicar contenedores.
+- **Baja y retiro**: dar de baja un servicio destruye el contenedor y **sólo libera la dirección IP y la capacidad tras confirmar la ausencia física y lógica** del recurso en Proxmox. Ante cualquier falla en la destrucción, el servicio pasa a `limpieza_pendiente` visible en el portal y no se libera la cuota. Retirar una oferta del catálogo bloquea nuevas solicitudes pero mantiene intactas las instancias existentes.
 
 ## Operación, métricas, avisos y recuperación
 

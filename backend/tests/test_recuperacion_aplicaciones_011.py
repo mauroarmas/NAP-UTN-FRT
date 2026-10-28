@@ -316,3 +316,4 @@ async def test_fallo_del_probe_de_acceso_nunca_entrega_servicio(
     assert service.disponibilidad_aplicacion != "utilizable"
     assert op.estado != "confirmada"
     assert pedido.estado != EstadoPedido.ACTIVO
+

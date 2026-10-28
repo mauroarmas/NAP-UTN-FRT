@@ -31,8 +31,10 @@ class DatosSolicitud(Contrato):
             ref = self.referencia_imagen.strip()
             if any(prefix in ref.lower() for prefix in ('http://', 'https://', 'ssh://')):
                 raise ValueError('La referencia de imagen no debe incluir protocolo')
-            if any(c in ref for c in (' ', '\t', '\n', '\r')):
+            if any(c in ref for c in (' ', '\t', '\n', '\r', '\x00')):
                 raise ValueError('La referencia de imagen no puede contener espacios')
+            if any(c in ref for c in (';', '&', '|', '`', '$', '(', ')', '{', '}', '<', '>')):
+                raise ValueError('La referencia de imagen contiene caracteres no permitidos')
             if '@' in ref:
                 parts = ref.split('@', 1)
                 # Digest allowed, e.g. @sha256:...

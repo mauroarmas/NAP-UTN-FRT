@@ -184,8 +184,8 @@ async def test_renovacion_conserva_snapshot_y_una_unica_reserva(
     body_renov = deepcopy(app.body)
     body_renov["vigencia"] = {
         "tipo": "personalizado",
-        "desde": "2026-11-27",
-        "hasta": "2026-12-26",
+        "desde": "2026-11-28",
+        "hasta": "2026-12-27",
     }
 
     # Evaluar renovación

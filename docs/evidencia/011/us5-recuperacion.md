@@ -93,3 +93,4 @@
 ## Trazabilidad de tareas (US5)
 - T088 a T098: Completadas y verificadas.
 - Total acumulado de la spec 011: **77/95 tareas activas verificadas, 18 pendientes**.
+

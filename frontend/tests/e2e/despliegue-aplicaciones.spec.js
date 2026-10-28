@@ -191,7 +191,7 @@ test('la consola maneja pérdida de autorización (403) limpiando el buffer', as
 
   await page.goto('/pedidos');
   await page.getByRole('button', { name: 'Ver detalle', exact: true }).click();
-  await page.getByRole('button', { name: 'Ver consola' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Ver consola' }).click();
 
   const consolaDialog = page.getByRole('dialog', { name: 'Consola de operación' });
   await expect(consolaDialog).toBeVisible();

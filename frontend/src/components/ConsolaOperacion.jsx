@@ -1,6 +1,8 @@
 import { AlertCircle, AlertTriangle, ArrowDown, Check, Copy, Download, Loader2, Pause, Play, RefreshCw, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import useConsolaOperacion from '../hooks/useConsolaOperacion';
+import { activateModal } from '../utils/modalFocus';
 
 export default function ConsolaOperacion({ operationId, onClose, intervalMs = 1000 }) {
   const {
@@ -22,6 +24,17 @@ export default function ConsolaOperacion({ operationId, onClose, intervalMs = 10
 
   const scrollRef = useRef(null);
   const lastItemSeqRef = useRef(null);
+  const layerRef = useRef(null);
+  const panelRef = useRef(null);
+
+  useLayoutEffect(() => {
+    return activateModal({
+      panel: panelRef.current,
+      layer: layerRef.current,
+      previous: document.activeElement,
+      dismiss: onClose,
+    });
+  }, [onClose]);
 
   // Auto-scroll when new items arrive and not paused
   useEffect(() => {
@@ -109,9 +122,16 @@ export default function ConsolaOperacion({ operationId, onClose, intervalMs = 10
           ? 'badge-warning'
           : 'badge-info';
 
-  return (
-    <div className="consola-modal-overlay" role="dialog" aria-modal="true" aria-label="Consola de operación">
-      <div className="consola-container">
+  return createPortal(
+    <div
+      ref={layerRef}
+      className="consola-modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Consola de operación"
+      tabIndex={-1}
+    >
+      <div ref={panelRef} className="consola-container" tabIndex={-1}>
         {/* Header */}
         <header className="consola-header">
           <div className="consola-header__info">
@@ -282,6 +302,7 @@ export default function ConsolaOperacion({ operationId, onClose, intervalMs = 10
           </div>
         </footer>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

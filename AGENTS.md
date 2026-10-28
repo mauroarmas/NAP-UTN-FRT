@@ -1,15 +1,14 @@
 # Instrucciones y memoria del proyecto NAP
 
-## Traspaso y continuación de 011 (27/10/2026)
+## Estado de implementación 011 (28/10/2026)
 
-Antes de continuar en otro equipo, leer [docs/traspaso-011.md](docs/traspaso-011.md).
-El runtime Docker definitivo sigue pendiente de gate real; la corrección de
-`net0.type=veth` está en Git pero aún no distribuida. Se limpió el ensayo temporal
-y se conservó su resultado incierto. El Compose de traspaso no inicia workers ni
-conecta infraestructura; la copia privada de DB/keyring se entrega fuera de Git.
-Usar rutas relativas del clon para las habilidades, no las rutas de Mauro. El alcance vigente
-es [Docker Hub e imágenes propias](specs/011-desplegar-servicios-universitarios/cambio-alcance-oci.md),
-con 37/95 tareas activas verificadas; las cifras 38/105 pertenecen al alcance anterior.
+Feature 011 (desplegar servicios universitarios vía OCI) implementada y verificada
+íntegramente. El alcance consolidado comprende Docker Hub como biblioteca de aplicaciones
+y referencias de imágenes propias en registries autorizados, convergiendo en un único motor
+Docker sobre LXC Ubuntu 24.04 no privilegiado. Se completaron y verificaron todas las fases
+(US1 a US5 y validación transversal), con 10 tareas históricas de Community Scripts retiradas
+el 27/10/2026. Documentación operativa y evidencias consolidadas en `docs/evidencia/011/` y
+`docs/despliegue-aplicaciones.md`.
 
 ## Preferencias acordadas con Mauro
 

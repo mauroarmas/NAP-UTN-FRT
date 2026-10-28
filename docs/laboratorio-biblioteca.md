@@ -180,3 +180,12 @@ Comprobación real: se consultaron 28 categorías y las fichas públicas; MariaD
 de Databases. Las pruebas visuales de la nueva interfaz usan backend simulado, sin instalar servicios
 ni modificar Proxmox. El despliegue genérico de aplicaciones propias sigue pendiente, descrito en
 [rumbo del producto](rumbo-mini-cloud.md).
+
+## Motor Docker OCI y aplicaciones (011 - 28/10/2026)
+
+- **Dos entradas unificadas**: Docker Hub e imágenes propias en registry autorizado se incorporan al catálogo mediante **Elegir → Agregar → Disponible para solicitar**.
+- No hay preparación ni publicación manual: la instalación ocurre al desplegar el pedido aprobado.
+- **Diagnóstico y preflight**: `python infra/laboratorio/011/preparar_entorno.py --diagnose` comprueba estado y herramientas sin alterar el nodo.
+- **Rollback de configuración**: `python infra/laboratorio/011/preparar_entorno.py --rollback --apply` retira archivos temporales en `/etc/nap/applications-011/`.
+- **Consola de lectura**: `GET /operaciones/{id}/consola` transmite la salida del instalador en tiempo real con truncamiento seguro hasta 10 MB y 30 días de retención.
+- **Reintento seguro**: `POST /operaciones/{id}/reintentar` permite relanzar despliegues fallidos conservando secretos de la solicitud sin duplicar contenedores.

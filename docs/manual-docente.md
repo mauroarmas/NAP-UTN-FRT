@@ -17,25 +17,26 @@ Cinco fallos de autenticación dentro de quince minutos producen una espera temp
 
 Desde el panel o **Catálogo** (`/catalogo`), abrí una solicitud. También podés iniciarla desde **Pedidos** (`/pedidos`). No existe un asistente separado en `/solicitar`.
 
-1. Elegí el tipo de servicio y una opción del catálogo. En Plataforma y Software también podés elegir **Otro** e indicar qué servicio necesitás.
-2. Elegí una de tus cátedras. Si sólo tenés una, puede aparecer seleccionada.
-3. Completá el nombre de la solicitud y la **justificación pedagógica**: actividades, cantidad estimada de estudiantes y necesidades del servicio.
-4. Elegí primer cuatrimestre, segundo cuatrimestre o anual y un año lectivo **desde 2026**. Las fechas provienen del calendario que configura administración. Si faltan, solicitá su configuración o elegí un rango personalizado válido, con fechas desde el 01/01/2026.
-5. Comprobá las fechas y pulsá **Enviar solicitud**. No necesitás indicar nodo, VMID, hostname ni parámetros de Proxmox.
+1. Elegí una aplicación del catálogo (disponibles desde Docker Hub o imágenes propias universitarias) o una plantilla de infraestructura Linux (Ubuntu 24.04 o Debian 13).
+   - En Plataforma y Software también podés elegir **Otro** para solicitar un software específico; podés indicar el nombre, una referencia de imagen Docker opcional e instrucciones breves sin completar datos técnicos ni elegir hardware.
+2. Elegí una de tus cátedras. Si sólo tenés una, aparece preseleccionada.
+3. Completá el nombre del pedido y la **justificación pedagógica**: actividades, estimación de estudiantes y requerimientos docentes.
+4. Seleccioná el período lectivo (cuatrimestral o anual) o indicá fechas personalizadas dentro del año académico.
+5. Comprobá los datos y pulsá **Enviar solicitud**. No necesitás indicar IPs, puertos, memorias ni parámetros de virtualización.
 
-Si elegís **Otro**, el pedido queda pendiente para que administración evalúe la necesidad, prepare el servicio y lo incorpore al catálogo. Después puede seleccionar esa oferta al aprobar tu pedido. Describir una aplicación no la instala automáticamente. Para Infraestructura se requiere una plantilla publicada.
+Si elegís **Otro**, el pedido queda registrado para que administración revise la solicitud y asigne una imagen compatible al momento de aprobar. La solicitud no crea contenedores ni reserva capacidad anticipadamente; la reserva se efectúa cuando administración aprueba el pedido.
 
-Consultá el detalle y el historial desde **Pedidos**. Los estados son `solicitado`, `requiere_ajuste`, `aprobado`, `en_despliegue`, `activo`, `suspendido`, `error`, `rechazado` y `cancelado`. Una renovación aprobada registra condiciones; no afirma que el contenedor esté encendido.
-
-El docente crea y consulta pedidos, solicita renovaciones y opera sus servicios. Si administración pulsa **Pedir aclaración**, el pedido queda como **Aclaración pendiente**: se registra un aviso en el portal y se encola un correo según tus preferencias. Abrí el detalle, pulsá **Responder aclaración**, completá la información y reenviá para revisión. Sólo podés hacerlo sobre pedidos de tus cátedras en ese estado; no elegís hardware ni aprobás la asignación. Administración recibe el aviso de respuesta. Aprobar, rechazar y cancelar continúa siendo administrativo.
+Consultá el avance desde **Pedidos**:
+- La barra de cuatro etapas (**Preparar recursos → Crear instancia → Iniciar aplicación → Habilitar acceso**) muestra el progreso real del despliegue en curso sin porcentajes simulados.
+- Los estados posibles son `solicitado`, `requiere_ajuste`, `aprobado`, `en_despliegue`, `activo`, `suspendido`, `error`, `rechazado` y `cancelado`.
+- Si administración pulsa **Pedir aclaración**, el pedido pasa a **Aclaración pendiente**: podés responder en el detalle y reenviar el pedido sin perder el historial.
 
 ## Usar los servicios
 
-En **Servicios** (`/servicios`) aparecen los recursos de tus cátedras, su estado observado, períodos autorizados, operaciones y acciones habilitadas. IaaS es infraestructura Linux, PaaS es PostgreSQL y SaaS es BookStack; todos se ejecutan en LXC. No se ofrecen nuevas máquinas QEMU.
-
-Una orden en curso o de resultado incierto no equivale a éxito. Esperá la confirmación y consultá su diagnóstico antes de repetirla. Si el acceso aún está pendiente de verificación, el contenedor puede estar encendido sin estar entregado como utilizable.
-
-Abrí **Ver acceso** y revelá deliberadamente las credenciales iniciales cuando esté habilitado. No se incluyen en listados ni correos. Si cambiaste una contraseña dentro del servicio, utilizá la nueva: NAP no la sincroniza ni la restablece al reintentar.
+En **Servicios** (`/servicios`) aparecen los recursos activos de tus cátedras:
+- **Acceso web seguro a aplicaciones**: Pulsá **«Ver acceso»** y luego **«Abrir aplicación»**. El sistema abre la herramienta mediante el gateway HTTPS protegido de NAP vinculado a tu sesión académica, sin exponer contraseñas en el navegador ni requerir complementos.
+- **Acceso a infraestructura Linux (IaaS)**: En servicios Ubuntu o Debian, usá **«Ver acceso»** para revelar de forma segura las credenciales SSH (`root`) generadas por el sistema o consultar el enlace directo a la consola interactiva.
+- **Ciclo de vida**: Podés iniciar, detener o reiniciar tus servicios según la actividad del curso. El reinicio o detención conserva intactos todos los datos guardados en los volúmenes del contenedor.
 
 | Servicio | Acceso y uso |
 |---|---|
