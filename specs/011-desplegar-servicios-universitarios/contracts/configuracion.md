@@ -8,7 +8,7 @@ JSON Schema dedicado y hash canónico; no ampliar por excepción `service-defini
 | Campo | Regla |
 |---|---|
 | schema_version | Literal `nap-deployment/1` |
-| origen | `imagen_docker` o `community_scripts` |
+| origen | `imagen_docker` para nuevas configuraciones |
 | modelo_servicio | `paas` o `saas`; etiqueta funcional, no otro mecanismo de ejecución |
 | perfil | id, revisión y sha256 de perfil institucional habilitado |
 | base | OS, versión, arquitectura, volumen LXC y sha256 comprobados |
@@ -20,7 +20,7 @@ JSON Schema dedicado y hash canónico; no ampliar por excepción `service-defini
 
 Sólo datos declarados. Prohibir shell/command, Docker flags libres, dispositivos, privileged,
 host PID/network, Docker socket, rutas del nodo y volúmenes anónimos no identificados. No permitir
-variables reservadas que cambien fuentes, trazas, directorios o política de Core/runtime. Limitar
+variables reservadas que cambien fuentes, trazas, directorios o política del runtime. Limitar
 entradas (20 variables/secretos y 8 destinos por configuración) y tamaño total no sensible a 64 KiB.
 
 Los valores sensibles por pedido se cifran en `SecretoDespliegue`, se referencian por ID/revisión en
@@ -47,29 +47,18 @@ NAP es explícito. Driver de logs `none`; captura inicial por canal privado sin 
 Medium es el punto inicial conservador del perfil, no garantía de que cualquier imagen quepa.
 Small requiere medición adicional. Una app que necesita más de Medium no recibe mínimos ficticios.
 
-## Origen community_scripts
+## Procedencia de la imagen y compatibilidad histórica
 
-- Slug e identidad externa `ct/<slug>.sh` para descubrimiento; instalación efectiva es el archivo
-  `install/<slug>-install.sh` del paquete certificado, nunca el comando de la ficha ni un URL libre.
-- Revisiones/sha256 de instalador, Core, harness, manifiesto de archivos y paquete de política.
-- Base OS soportada, variables/respuestas permitidas, dependencias APT/release bloqueadas y hashes,
-  configuración posterior tipada, persistencia, acceso y perfil de depuración.
-- NAP crea el LXC y conserva marcador de propiedad. El instalador guest no recibe API token,
-  credenciales SSH ni acceso a archivos del nodo.
-- `FUNCTIONS_FILE_PATH` contiene `lxc/install.func` verificado; Core local con loader cerrado;
-  sin build.func/backend host, stdin para preguntas, PTY, telemetría, trazas o personalización que
-  borre root password. La política compartida de logs/errores se aplica antes de usar secretos.
+Docker Hub y la referencia propia son dos entradas al mismo `origen=imagen_docker`.
+La búsqueda no suministra hashes, perfil ni credenciales confiables: el resolver OCI
+vuelve a validar la referencia y fija manifiesto/plataforma. No añadir un segundo
+runtime ni campos de scripts/Core para resultados de Docker Hub.
 
-Pilotos fijados en la investigación:
-
-| Aplicación | Base | Tamaño inicial | Respuestas y configuración |
-|---|---|---|---|
-| MariaDB | Debian 13 | Medium | PhpMyAdmin=no; usuario/base por instancia, TLS, clientes y prueba autenticada |
-| Caddy | Debian 13 | Medium | xcaddy=no; release exacto/hash, HTTP local y acceso por gateway |
-
-Esos perfiles siguen deshabilitados hasta superar su spike y pruebas reales. No se declara
-compatible cualquier `.sh` ni se exige un instalador completo nuevo para otro perfil que satisface
-el mismo contrato. Una adaptación de datos/política revisada puede ser necesaria.
+No crear nuevas configuraciones `community_scripts`. Su discriminador ya existe en
+esquemas/fixtures de desarrollo: retirarlo del alta y despacho en la implementación,
+sin borrar registros, migraciones ni evidencia histórica. Mantener lectura de legado
+cuando corresponda y rechazar su ejecución explícitamente. No cambiar el wire protocol
+ni aplicar un downgrade destructivo por esta reducción de alcance.
 
 ## Acceso y comprobación
 

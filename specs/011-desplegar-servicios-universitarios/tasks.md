@@ -14,7 +14,7 @@
 - Rutas relativas a la raíz del repositorio. Las rutas nuevas son destinos de implementación, no archivos que ya existen.
 - Alta habitual: **elegir → agregar → disponible para solicitar**. Sin crear CT/reservas por oferta, Guardadas, preparación/publicación manual, ensayo de 24 horas ni formularios de evidencia.
 - Small: 1 vCPU/512 MB/4 GB; Medium: 2 vCPU/1024 MB/8 GB. Medium inicial conservador, Small sólo tras medir el perfil y aplicación completos. Sin cuotas por cátedra ni mínimos inventados.
-- Mantener IaaS Ubuntu/Debian, Draw.io, `nap-guest-runner/1`, manifiestos históricos y datos existentes. No ejecutar el wrapper host Community ni ampliar el token a root.
+- Mantener IaaS Ubuntu/Debian, Draw.io, `nap-guest-runner/1`, manifiestos históricos y datos existentes. No ejecutar scripts del proveedor en el nodo ni ampliar el token a root.
 - Los reportes técnicos siguientes son evidencia de desarrollo; no aparecen como trámites en el portal. Nunca contienen secretos, dumps privados o contraseñas de prueba.
 - Compuerta real pendiente/bloqueada no se marca completada por simulación. Puede avanzarse en trabajo independiente con fakes, manteniendo deshabilitado el perfil afectado. No completar una historia ni anunciar compatibilidad mientras falte su aceptación real.
 
@@ -25,12 +25,12 @@
 - [X] T001 Crear fixtures compartidas de PVE, registry, runner durable, reloj y dos cátedras en `backend/tests/fixtures/despliegue_011.py`; integrarlas en `backend/tests/conftest.py` y reutilizar el aislamiento de `backend/tests/postgres/conftest.py`, sin conectarse a la base operativa.
 - [X] T002 [P] Crear la imagen de ensayo propia con salud y lectura/escritura persistente en `infra/applications/fixtures/campus-demo/Dockerfile`, `infra/applications/fixtures/campus-demo/app.py` y `infra/applications/fixtures/campus-demo/README.md`; documentar publicación en registry de ensayo sin incorporar un build al portal.
 - [X] T003 [P] Preparar el manifiesto de candidatos y el preflight de sólo lectura en `infra/laboratorio/011/candidatos.json` e `infra/laboratorio/011/preflight.py`: versiones/base/hashes, recursos, systemd, red, registry/CA y permisos; parámetros privados fuera del repositorio y perfiles inicialmente pendientes.
-- [X] T004 Tras T003, crear y ejecutar el bootstrap técnico en `infra/laboratorio/011/preparar_entorno.py`: preparar registry de ensayo TLS/acceso privado, CA/DNS/slots disjuntos/firewall, bases candidatas y permisos de ensayo con respaldo e idempotencia; verificar con `infra/laboratorio/011/preflight.py` antes de los spikes, sin habilitar perfiles ni modificar servicios existentes. No depender de paquetes definitivos aún no construidos; instalarlos después en T028/T050/T061 y conservar parámetros privados fuera del repositorio.
+- [X] T004 Tras T003, crear y ejecutar el bootstrap técnico en `infra/laboratorio/011/preparar_entorno.py`: preparar registry de ensayo TLS/acceso privado, CA/DNS/slots disjuntos/firewall, bases candidatas y permisos de ensayo con respaldo e idempotencia; verificar con `infra/laboratorio/011/preflight.py` antes de los spikes, sin habilitar perfiles ni modificar servicios existentes. No depender de paquetes definitivos aún no construidos; instalarlos después en T028/T050 y conservar parámetros privados fuera del repositorio.
 - [X] T005 Tras T004, construir y ejecutar el spike controlado Docker en `infra/laboratorio/011/spike_docker.py`; verificar LXC no privilegiado, nesting/keyctl cerrados, AppArmor/seccomp activos, filesystem, pull público/privado, retirada del login y encaje en Medium; registrar resultado seguro en `docs/evidencia/011/factibilidad-docker.md`, sin fallback privilegiado o unconfined.
-- [X] T006 Tras T004, construir y ejecutar el spike del instalador guest/Core fijado en `infra/laboratorio/011/spike_community.py`; comprobar carga local, dependencias cerradas, ausencia de prompts/logs crudos/telemetría/autologin y de efectos en el nodo para MariaDB/Caddy; registrar límites y recursos en `docs/evidencia/011/factibilidad-community.md`.
-- [X] T007 Consolidar los resultados de T005/T006 y las condiciones de parada en `docs/evidencia/011/compuertas.md`: perfil/plataforma pendiente, habilitable o bloqueado y motivo; distinguir laboratorio de universidad y no habilitar perfiles de producción por estos prototipos.
+- **T006 — retirada del alcance**: spike Community completado históricamente; conservar evidencia, no repetir ni contarlo como trabajo activo.
+- [X] T007 Consolidar el resultado Docker de T005 (T006 queda como antecedente histórico, no dependencia activa) y las condiciones de parada en `docs/evidencia/011/compuertas.md`: perfil/plataforma pendiente, habilitable o bloqueado y motivo; distinguir laboratorio de universidad y no habilitar perfiles de producción por estos prototipos.
 
-**Checkpoint**: fixtures disponibles y factibilidad conocida. Las verificaciones de producción se repiten con el paquete definitivo antes de habilitar perfiles en T050/T061. Si no hay infraestructura, conservar explícitamente pendientes T004–T007 y las aceptaciones dependientes.
+**Checkpoint**: fixtures disponibles y factibilidad conocida. Las verificaciones de producción se repiten con el paquete definitivo antes de habilitar perfiles en T050. Si no hay infraestructura, conservar pendientes sólo las tareas activas y aceptaciones realmente bloqueadas; T006 está retirada.
 
 ## Phase 2: Foundational — contratos, identidad y ejecución común
 
@@ -39,7 +39,7 @@ completa entre fases. Los checks críticos y las aceptaciones reales se conserva
 generales se reservan para un hito importante o la entrega. No repetir una comprobación verde
 si el cambio siguiente no la afecta. No eliminar pruebas existentes por este ajuste.
 
-**Objetivo**: construir la base compartida de los dos orígenes. Este bloque es prerrequisito de todas las historias; no crear otra máquina de estados, ledger de capacidad o cola académica.
+**Objetivo**: construir la base del motor Docker común. Este bloque es prerrequisito de todas las historias; no crear otra máquina de estados, ledger de capacidad o cola académica.
 
 ### Pruebas previas de la base
 
@@ -104,48 +104,41 @@ si el cambio siguiente no la afecta. No eliminar pruebas existentes por este aju
 - [X] T049 [US1] Integrar las dos entradas en `frontend/src/components/AgregarServicioModal.jsx` y `frontend/src/pages/Definiciones.jsx`: una ventana amplia/simple, catálogo administrativo sólo admin, filtros IaaS/PaaS/SaaS, ofertas IaaS/Draw.io intactas y mensaje de disponibilidad para pedir, sin Guardadas ni preparación/publicación.
 - [ ] T050 [US1] Tras T044–T047, instalar el paquete Docker definitivo con `infra/laboratorio/011/preparar_entorno.py`, revalidar T005 y habilitar el perfil sólo si pasa; después ejecutar aceptación de campus-demo, whoami y registry privado según `quickstart.md`. Registrar en `docs/evidencia/011/us1-imagenes.md` alta <=3 min, cero reserva/CT por oferta, digest congelado, dato persistente y acceso sin cookies NAP filtradas, distinguiendo prueba real de simulación.
 
-**Checkpoint**: US1 demostrable sin Community. Un perfil bloqueado explica el impedimento; no se anuncia instalación por validar sólo una referencia OCI.
+**Checkpoint**: US1 demuestra el motor OCI común. Un perfil bloqueado explica el impedimento; no se anuncia instalación por validar sólo una referencia OCI.
 
-## Phase 4: US2 — Convertir la biblioteca en ofertas desplegables (P1)
+## Phase 4: US2 — Docker Hub como biblioteca del motor OCI (P1)
 
-**Objetivo**: ejecutar instaladores guest compatibles con un harness común, nunca el wrapper host. MariaDB y Caddy son los dos perfiles iniciales, no una promesa de soportar todo el proveedor.
+**Objetivo**: reemplazar Community Scripts por búsqueda en Docker Hub y reutilizar el alta/ejecución de US1. No construir otro runtime ni crear adaptadores por aplicación.
 
-**Prueba independiente**: con base común, servicio/endpoint de alta reutilizable T042–T043 y perfiles comprobados, buscar MariaDB por nombre/categoría, agregar sin crear CT y entregar un pedido con SELECT 1 autenticado/TLS; repetir con Caddy por gateway usando el mismo motor. No necesita el runtime Docker para instalar Community ni depende de la agenda de US3; admite pedidos aprobados de fixture.
+**Prueba independiente**: buscar whoami, seleccionar referencia, completar lo faltante en el formulario común y agregar sin CT/reserva. Entregar desde un pedido con el mismo motor ya validado en T050. Ingresar una referencia propia sigue disponible si falla la búsqueda.
 
 ### Pruebas primero
 
-- [ ] T051 [P] [US2] Crear `backend/tests/test_biblioteca_despliegue_011.py`: categorías/búsqueda, disponibilidad real por perfil, incompatibilidad con motivo, fallo/fallback identificado distinto de cero resultados, revisión fuente y alta sin ejecutar wrappers ni reservar.
-- [ ] T052 [P] [US2] Crear `infra/applications/tests/test_community_harness.py` con loader local, manifiesto/hashes, rechazo de build.func/backend/URL libre, fuentes APT/releases mutables, preguntas, telemetría y caminos Core INSTALL_LOG/.log/.errinfo con secretos.
-- [ ] T053 [P] [US2] Crear `infra/applications/tests/test_community_profiles.py`: respuestas cerradas MariaDB/Caddy, mínimos/OS, bloqueo Small, prueba TLS/credenciales únicas y denegación de instalaciones que necesitan privilegios o más de Medium.
-- [ ] T054 [P] [US2] Crear `frontend/tests/biblioteca-despliegue.test.jsx` para categoría desplegable, resultado compatible/incompatible, motivo claro, fallback/reintento y botón de agregar con progreso/éxito/error, sin Guardadas o texto de preparación manual.
+- [ ] T051 [P] [US2] Crear o adaptar `backend/tests/test_biblioteca_despliegue_011.py` para búsqueda Docker Hub por nombre/paginación, referencia seleccionada validada por OCI, timeout/rate limit frente a cero resultados, categorías ausentes no bloqueantes y alta idempotente sin CT/reserva. Probar rechazo de altas/despacho nuevos `community_scripts` sin borrar datos legacy.
+- [ ] T054 [P] [US2] Crear o adaptar `frontend/tests/biblioteca-despliegue.test.jsx`: Docker Hub como biblioteca, datos/procedencia disponibles, categoría opcional, selección al formulario OCI común, referencia manual ante fallo, progreso/éxito/error conservando datos; sin Community, Guardadas o preparar/publicar.
 
 ### Implementación
 
-- [ ] T055 [US2] Empaquetar fuentes/licencias y locks en `infra/applications/community/sources.lock.json` e `infra/applications/community/package.py`: commits ProxmoxVE/Core de `research.md`, instaladores guest, manifiesto de helpers permitidos, snapshot Debian Release verificado y releases con versión/hash; ninguna descarga ejecutable no declarada.
-- [ ] T056 [US2] Implementar `infra/applications/community/harness.py` e `infra/applications/community/policy.sh`: FUNCTIONS_FILE_PATH/local Core/loader cerrado, stdin sin preguntas, PASSWORD no vacío y SSH_ROOT=no, respuestas permitidas, sin tracing/telemetría/autologin, y reemplazo de logs/errores Core antes de usar secretos mediante el colector seguro común.
-- [ ] T057 [US2] Definir perfiles declarativos pendientes en `infra/applications/profiles/community/mariadb.json` e `infra/applications/profiles/community/caddy.json`: Debian 13, Medium, fuentes/respuestas/persistencia/probes y política de secretos; ampliar otro perfil compatible por datos, sin duplicar el instalador completo.
-- [ ] T058 [US2] Implementar configuración posterior tipada MariaDB en `infra/applications/community/access_mariadb.py`: PhpMyAdmin=no, base/usuario/contraseña por instancia, TLS obligatorio, clientes autorizados y SELECT 1 autenticado; no entregar root o cuentas compartidas.
-- [ ] T059 [US2] Implementar configuración posterior tipada Caddy en `infra/applications/community/access_caddy.py`: xcaddy=no, var_appversion exacta/hash, servicio HTTP interno fijo, borde/gateway y probe esperado; no forzar mínimos de 6 GB a Small.
-- [ ] T060 [US2] Conectar estrategia Community al supervisor común en `infra/applications/community/deploy.py` y `backend/app/services/orquestacion_service.py`: un único LXC NAP, identidad conservada, etapas/resultado seguro y confirmación automática de acceso; rechazo de script interactivo sin abrir shell ni crear otro CT.
-- [ ] T061 [US2] Tras T055–T060, instalar el paquete definitivo Community con `infra/laboratorio/011/preparar_entorno.py` y ejecutar el gate de harness/perfiles mediante `infra/laboratorio/011/spike_community.py`; habilitar/bloquear cada revisión sólo con instalación real, secretos/red/recursos comprobados y registrar `docs/evidencia/011/perfiles-community.md`, sin marcar compatible un perfil que falle.
-- [ ] T062 [US2] Enriquecer `backend/app/services/biblioteca_service.py`, `backend/app/routers/biblioteca.py` y `backend/app/schemas/biblioteca.py` con disponibilidad/motivo/perfil y categorías reales; conectar selección compatible a `backend/app/services/configuracion_despliegue_service.py`, conservando fallback y oferta Draw.io histórica.
-- [ ] T063 [US2] Simplificar `frontend/src/components/BibliotecaAplicaciones.jsx` e integrar `frontend/src/components/AgregarServicioModal.jsx`: búsqueda/categoría, procedencia discreta, estado compatible y alta al catálogo por el endpoint común; incompatibilidad explica alternativa de imagen propia y un fallo no cierra ni vacía el formulario.
-- [ ] T064 [US2] Ejecutar búsqueda→alta→pedido→acceso para MariaDB y Caddy, más error de fuente e instalador no admitido, y registrar `docs/evidencia/011/us2-biblioteca.md`: una sola creación por pedido, alta <=3 min, sin comando manual o publicación, cuatro fuentes/paquetes efectivos identificados según `quickstart.md`.
+- [ ] T062 [US2] Reemplazar el proveedor en `backend/app/services/biblioteca_service.py`, `backend/app/routers/biblioteca.py` y `backend/app/schemas/biblioteca.py` por descubrimiento Docker Hub con endpoints fijos, límites, paginación y errores explícitos. Reusar `oci_registry_service.py` y `configuracion_despliegue_service.py` para validar/agregar: mismo `imagen_docker`, sin crear otra estrategia ni confiar en metadata como prueba. Retirar Community del alta/despacho y configuración por defecto, incluidos discriminadores/StrategyLoader expuestos para nuevas ejecuciones; preservar lectura/esquema/recibos legacy cuando sea necesario, sin reset DB. Categorías sólo si la API las ofrece; no construir caché/espejo nuevo.
+- [ ] T063 [US2] Adaptar `frontend/src/components/BibliotecaAplicaciones.jsx` y `AgregarServicioModal.jsx`: entradas «Docker Hub» e «Imagen propia», búsqueda por nombre, selección que precarga `AplicacionPropiaForm.jsx` y alta común. Puerto y demás campos sólo si faltan; omitir categorías inexistentes, mensajes breves y alternativa manual ante fallo. Retirar controles/consultas del proveedor Community, conservando oferta Draw.io histórica.
+- [ ] T064 [US2] Ejecutar búsqueda Hub→alta→pedido→acceso con whoami, fallo de búsqueda y referencia manual; registrar `docs/evidencia/011/us2-biblioteca.md`: <=3 min de alta, cero CT/reserva al agregar y un solo despliegue por pedido. Reutilizar evidencia del motor T050 cuando coincida paquete/perfil; no repetir sus pruebas de persistencia/registry privado sólo por cambiar la entrada de búsqueda.
 
-**Checkpoint**: biblioteca útil para desplegar los perfiles comprobados, con motivos honestos para los demás. No confundir ficha de metadata con oferta instalable.
+**Retiradas, no pendientes ni completadas por este cambio**: T052, T053 y T055–T061 (tests/harness/Core/locks/perfiles/pilotos Community). Sus IDs quedan reservados; no reasignarlos. T006 conserva únicamente su antecedente histórico.
+
+**Checkpoint**: Docker Hub e imagen propia convergen en una configuración y ejecución OCI. Una búsqueda exitosa no habilita un perfil bloqueado ni acredita instalación.
 
 ## Phase 5: US3 — Solicitar y recibir una instancia por cátedra (P1)
 
-**Objetivo**: completar ambos orígenes en el flujo docente y la aprobación, incluyendo Otro y programación por vigencia sin hardware para la cátedra.
+**Objetivo**: completar el motor Docker común en el flujo docente y la aprobación, incluyendo Otro y programación por vigencia sin hardware para la cátedra.
 
-**Prueba independiente**: dos cátedras reciben instancias y credenciales distintas de una oferta; repetir para ambos orígenes. Un pedido futuro reserva al aprobar pero no crea nada hasta su fecha; dos aprobaciones concurrentes no sobreasignan. La UI sólo requiere aplicación/propósito/fechas.
+**Prueba independiente**: dos cátedras reciben instancias y credenciales distintas de una oferta del motor Docker común. Un pedido futuro reserva al aprobar pero no crea nada hasta su fecha; dos aprobaciones concurrentes no sobreasignan. La UI sólo requiere aplicación/propósito/fechas.
 
 ### Pruebas primero
 
 - [ ] T065 [P] [US3] Crear `backend/tests/test_pedidos_aplicaciones_011.py` con Otro/imagen opcional, pertenencia, aprobación/aclaración/rechazo/reenvío, revisión congelada, valores sensibles write-only y avisos sin reservas o instalaciones prematuras.
 - [ ] T066 [P] [US3] Crear `backend/tests/postgres/test_despliegue_011.py`: dos aprobaciones sobre capacidad compartida, oferta cambiada durante evaluación, dos admisiones/slots concurrentes y renovación que conserva snapshot; una única reserva efectiva por decisión.
 - [ ] T067 [P] [US3] Crear `backend/tests/test_despliegue_programado_011.py` con reloj controlado: inicio inclusivo local, tick duplicado, revisión reemplazada, baja/revocación, perfil bloqueado, gracia desde max(aprobación,inicio), caída PVE y autor sistema sin CT anticipado.
-- [ ] T068 [P] [US3] Ampliar `frontend/tests/pedidos-formularios.test.jsx` para ambas fuentes, Otro con imagen opcional, sin hardware docente y aprobación con tamaños admitidos/una decisión de despliegue; conservar aclaración y justificación pedagógica.
+- [ ] T068 [P] [US3] Ampliar `frontend/tests/pedidos-formularios.test.jsx` para las dos entradas de imágenes, Otro con imagen opcional, sin hardware docente y aprobación con tamaños admitidos/una decisión de despliegue; conservar aclaración y justificación pedagógica.
 
 ### Implementación
 
@@ -156,15 +149,15 @@ si el cambio siguiente no la afecta. No eliminar pruebas existentes por este aju
 - [ ] T073 [US3] Registrar agenda en `backend/app/worker.py` y adaptar `backend/app/services/capacidad_service.py` y `backend/app/services/admision_service.py` para gracia de reserva futura; conservar semántica de desplegar_inmediatamente y rechazar decisiones contradictorias con 422, sin operación/CT antes de inicio.
 - [ ] T074 [US3] Simplificar `frontend/src/components/AprobarPedidoModal.jsx` y `frontend/src/services/api.js`: tamaño permitido, vigencia/destino entendibles y una sola decisión de iniciar/programar; campos privados sólo cuando se requieren, evaluación obsoleta recuperable y feedback de reserva/programación/error sin UUID ni pasos extra.
 - [ ] T075 [US3] Integrar entrega y avisos con `backend/app/services/pedido_service.py`, `backend/app/services/notificacion_service.py`, `backend/app/routers/servicios.py` y `frontend/src/components/AccesoServicio.jsx`: texto según producto, acceso sólo a responsable vigente/admin y notificación posterior a disponibilidad probada; conservar avisos de aclaración/rechazo/reenvío y no prometer SSO arbitrario.
-- [ ] T076 [US3] Ejecutar aislamiento por dos cátedras para ambos orígenes y programación futura; documentar `docs/evidencia/011/us3-pedidos.md` con petición <=2 min, acceso ajeno denegado, datos/credenciales independientes y reserva/CT observados antes/después de inicio, sin exponer secretos.
+- [ ] T076 [US3] Ejecutar aislamiento por dos cátedras para el motor Docker común y programación futura; documentar `docs/evidencia/011/us3-pedidos.md` con petición <=2 min, acceso ajeno denegado, datos/credenciales independientes y reserva/CT observados antes/después de inicio, sin exponer secretos.
 
 **Checkpoint**: reserva al aprobar, instalación al inicio elegido, entrega sólo comprobada. El cambio de titular afecta acceso vigente y conserva la atribución histórica a la cátedra.
 
 ## Phase 6: US4 — Progreso y consola administrativa de lectura (P1)
 
-**Objetivo**: hacer visible el trabajo de ambos orígenes sin terminal de escritura ni dependencia de una pestaña abierta.
+**Objetivo**: hacer visible el trabajo de el motor Docker común sin terminal de escritura ni dependencia de una pestaña abierta.
 
-**Prueba independiente**: con trabajos reales o eventos de fixture, abrir/cerrar/reabrir durante una operación de cada origen, recuperar mismo intento y mensajes sin duplicados; probar scroll, exportación, silencio, corte de consulta, recorte/vencimiento y revocación. La cátedra sólo ve progreso comprensible de lo propio.
+**Prueba independiente**: con trabajos reales o eventos de fixture, abrir/cerrar/reabrir durante operaciones del motor común, recuperar mismo intento y mensajes sin duplicados; probar scroll, exportación, silencio, corte de consulta, recorte/vencimiento y revocación. La cátedra sólo ve progreso comprensible de lo propio.
 
 ### Pruebas primero
 
@@ -180,7 +173,7 @@ si el cambio siguiente no la afecta. No eliminar pruebas existentes por este aju
 - [ ] T083 [US4] Añadir copia/descarga deliberada a `frontend/src/components/ConsolaOperacion.jsx` y `frontend/src/hooks/useConsolaOperacion.js`: congelar through_seq, paginar texto depurado con autorización por página, abortar ante revocación e informar recorte/purga sin exportar parcialmente como si fuera completo.
 - [ ] T084 [US4] Actualizar `frontend/src/components/ProgresoDespliegue.jsx` y `frontend/tests/progreso-despliegue.test.jsx` para etapas reales/último avance, espera/incertidumbre/fallo/entrega, silencio y consulta interrumpida, sin porcentajes temporales o éxito inventados; cátedra sólo resumen.
 - [ ] T085 [US4] Integrar «Ver consola» en `frontend/src/pages/Pedidos.jsx` y `frontend/src/pages/Servicios.jsx`, exclusivo admin; conservar la consola interactiva IaaS como acción distinta y comprobar que cerrar/reabrir no crea ni cancela operaciones.
-- [ ] T086 [US4] Crear `frontend/tests/e2e/despliegue-aplicaciones.spec.js` con ambos orígenes, reabrir/reconectar/reiniciar worker, contenido malicioso literal, volumen de salida, scroll/exportación y pérdida de autorización; indicar qué casos usan backend simulado.
+- [ ] T086 [US4] Crear `frontend/tests/e2e/despliegue-aplicaciones.spec.js` con el motor Docker común, reabrir/reconectar/reiniciar worker, contenido malicioso literal, volumen de salida, scroll/exportación y pérdida de autorización; indicar qué casos usan backend simulado.
 - [ ] T087 [US4] Instrumentar medición de captura→pantalla y apertura en `infra/laboratorio/011/medir_consola.py` y `frontend/tests/e2e/consola-rendimiento.spec.js`; ejecutar con dos trabajos reales y registro lleno y guardar p95 <=5 s/apertura <=3 s, más revisión de spool/journal/DB/export sin secretos, en `docs/evidencia/011/us4-consola.md`.
 
 **Checkpoint**: lectura recuperable y autorizada, proceso independiente de la UI, estado final conservado aunque el texto expire. La consola no habilita respuestas a instaladores ni comandos en el nodo.
@@ -189,7 +182,7 @@ si el cambio siguiente no la afecta. No eliminar pruebas existentes por este aju
 
 **Objetivo**: reconciliar antes de repetir, operar sin reinstalar y eliminar únicamente lo propio, liberando capacidad/red después de ausencia confirmada.
 
-**Prueba independiente**: para cada origen perder respuesta tras crear/iniciar, cortar SSH/worker, recuperar y verificar una sola identidad/ejecución/reserva; después fallar y reintentar explícitamente, operar con datos persistentes y eliminar con identidad comprobada. Fallo de limpieza mantiene contabilidad y estado visible.
+**Prueba independiente**: para las dos entradas OCI perder respuesta tras crear/iniciar, cortar SSH/worker, recuperar y verificar una sola identidad/ejecución/reserva; después fallar y reintentar explícitamente, operar con datos persistentes y eliminar con identidad comprobada. Fallo de limpieza mantiene contabilidad y estado visible.
 
 ### Pruebas primero
 
@@ -202,11 +195,11 @@ si el cambio siguiente no la afecta. No eliminar pruebas existentes por este aju
 
 - [ ] T092 [US5] Extender `backend/app/services/reconciliacion_service.py` y `backend/app/services/orquestacion_service.py`: inspección de marcador/configuración/job/boot, mismo execution_id tras takeover y resultado incierto hasta prueba; observación sin repetir instalador y estados por `pedido_service.transicionar` con actor correcto.
 - [ ] T093 [US5] Implementar POST `/operaciones/{id}/reintentar` en `backend/app/routers/operaciones.py` y `backend/app/services/operacion_service.py`: admin/CSRF/body vacío/idempotencia, fallo confirmado crea operación reparar e intento siguiente con raíz común; incertidumbre/ejecución/vigencia inválida devuelve 409, sin reabrir terminales ni sustituir configuración.
-- [ ] T094 [US5] Integrar iniciar/detener/reiniciar en `backend/app/services/orquestacion_service.py`, `infra/applications/docker/lifecycle.py` e `infra/applications/community/lifecycle.py`: verificar identidad/snapshot/container/volúmenes y conservar credenciales/datos; no convertir una discrepancia en reinstalación automática.
+- [ ] T094 [US5] Integrar iniciar/detener/reiniciar en `backend/app/services/orquestacion_service.py`, `infra/applications/docker/lifecycle.py`: verificar identidad/snapshot/container/volúmenes y conservar credenciales/datos; no convertir una discrepancia en reinstalación automática.
 - [ ] T095 [US5] Completar limpieza en `backend/app/services/orquestacion_service.py`, `backend/app/services/reserva_red_service.py` y `backend/app/services/capacidad_service.py`: destruir sólo recursos propios y confirmar ausencia CT/almacenamiento antes de liberar red/ledger, manteniendo limpieza pendiente ante fallo. Recrear el mismo pedido exige nueva identidad/nonce/claves TLS y capacidad revalidada, conserva secretos de aplicación y referencias aprobadas; sólo otro pedido de alta genera secretos de aplicación nuevos.
-- [ ] T096 [US5] Integrar ambos orígenes con retirada/renovación/pausas/avisos en `backend/app/services/configuracion_despliegue_service.py`, `backend/app/services/vigencia_service.py`, `backend/app/services/vencimiento_service.py` e `backend/app/services/inactividad_service.py`: revisión original conservada, retirada sólo bloquea pedidos nuevos y vigencia no agrega borrado silencioso ni ensayo de 24 horas.
+- [ ] T096 [US5] Integrar el motor Docker común con retirada/renovación/pausas/avisos en `backend/app/services/configuracion_despliegue_service.py`, `backend/app/services/vigencia_service.py`, `backend/app/services/vencimiento_service.py` e `backend/app/services/inactividad_service.py`: revisión original conservada, retirada sólo bloquea pedidos nuevos y vigencia no agrega borrado silencioso ni ensayo de 24 horas.
 - [ ] T097 [US5] Integrar acciones de recuperación y baja en `frontend/src/pages/Pedidos.jsx` y `frontend/src/pages/Servicios.jsx`: resumen breve, consola disponible admin, reintento sólo admisible, limpieza pendiente visible y confirmación explícita de pérdida de datos antes de eliminar.
-- [ ] T098 [US5] Ejecutar recuperación/lifecycle/limpieza reales para ambos orígenes con los scripts controlados de `infra/laboratorio/011/probar_recuperacion.py`; registrar identidades/compromisos observados, cortes, datos conservados, recursos ajenos intactos y ausencia confirmada o limpieza pendiente en `docs/evidencia/011/us5-recuperacion.md`.
+- [ ] T098 [US5] Ejecutar recuperación/lifecycle/limpieza reales para el motor Docker común con los scripts controlados de `infra/laboratorio/011/probar_recuperacion.py`; registrar identidades/compromisos observados, cortes, datos conservados, recursos ajenos intactos y ausencia confirmada o limpieza pendiente en `docs/evidencia/011/us5-recuperacion.md`.
 
 **Checkpoint**: fallo entendible y recuperable sin duplicar ni ocultar capacidad. El historial académico y los intentos anteriores permanecen aunque la oferta se retire o el registro operativo se purgue.
 
@@ -215,102 +208,57 @@ si el cambio siguiente no la afecta. No eliminar pruebas existentes por este aju
 **Objetivo**: comprobar la feature completa sin atribuir al entorno universitario los resultados del laboratorio.
 
 - [ ] T099 Crear y ejecutar regresión en `backend/tests/test_regresion_servicios_011.py` y `frontend/tests/e2e/regresion-servicios-011.spec.js`: usuarios/cátedras/pedidos/historial, IaaS Ubuntu/Debian, Draw.io/acceso con NAP, manifiestos/runner legacy, renovaciones y consola IaaS; registrar conservación real sin recrear instancias en `docs/evidencia/011/regresion.md`.
-- [ ] T100 Ejecutar revisión de aislamiento/secretos extremo a extremo y pruebas adversarias en `backend/tests/test_aislamiento_aplicaciones_011.py` e `infra/applications/tests/test_secret_retention.py`: SSRF/DNS/realm, cookies/headers, imagen/script malicioso, red nodo/portal/otra cátedra, revocación y secretos en spool/journal/DB/archivos operativos; conservar reporte seguro en `docs/evidencia/011/seguridad.md`.
-- [ ] T101 Revisar la preparación ya ejecutada y documentar operación/rollback en `docs/despliegue-aplicaciones.md` e `infra/laboratorio/011/preparar_entorno.py`: inventario/versiones instaladas, preflight repetible y separación de laboratorio/universidad. El bootstrap ocurre en T004 y la instalación definitiva en T028/T050/T061; esta tarea de cierre no es prerrequisito pendiente de esos ensayos ni agrega un gestor al portal.
+- [ ] T100 Ejecutar revisión de aislamiento/secretos extremo a extremo y pruebas adversarias en `backend/tests/test_aislamiento_aplicaciones_011.py` e `infra/applications/tests/test_secret_retention.py`: SSRF/DNS/realm, cookies/headers, imagen/metadata maliciosa, red nodo/portal/otra cátedra, revocación y secretos en spool/journal/DB/archivos operativos; conservar reporte seguro en `docs/evidencia/011/seguridad.md`.
+- [ ] T101 Revisar la preparación ya ejecutada y documentar operación/rollback en `docs/despliegue-aplicaciones.md` e `infra/laboratorio/011/preparar_entorno.py`: inventario/versiones instaladas, preflight repetible y separación de laboratorio/universidad. El bootstrap ocurre en T004 y la instalación definitiva en T028/T050; esta tarea de cierre no es prerrequisito pendiente de esos ensayos ni agrega un gestor al portal.
 - [ ] T102 Ejecutar las suites seleccionadas de `specs/011-desplegar-servicios-universitarios/quickstart.md`, `infra/applications/tests/`, regresiones afectadas, PostgreSQL aislado, Vitest, build y Playwright; registrar comandos/resultados/fallos pendientes en `docs/evidencia/011/pruebas-automatizadas.md` y no ampliar testing sin cambio/fallo que lo justifique.
-- [ ] T103 Ejecutar aceptación integrada con MariaDB, Caddy, campus-demo y whoami, dos instancias por origen y un admin del proyecto según `specs/011-desplegar-servicios-universitarios/quickstart.md`; consolidar SC-001–SC-009 con medidas/enlaces y resultados simulados/locales/pendientes institucionales en `docs/evidencia/011/aceptacion.md`, de forma secuencial si falta capacidad.
+- [ ] T103 Ejecutar aceptación integrada con whoami descubierto en Docker Hub y campus-demo propia, dos cátedras aisladas con el mismo motor y un admin del proyecto según `specs/011-desplegar-servicios-universitarios/quickstart.md`; consolidar SC-001–SC-009 con medidas/enlaces y resultados simulados/locales/pendientes institucionales en `docs/evidencia/011/aceptacion.md`, de forma secuencial si falta capacidad.
 - [ ] T104 Actualizar instrucciones de uso cotidiano existentes en `docs/manual-administrador.md`, `docs/manual-docente.md`, `docs/laboratorio-biblioteca.md` y `AGENTS.md`: dos caminos simples, agregar no instala, pedidos/fechas/progreso/acceso y límites reales; conservar detalles técnicos sólo en la guía de infraestructura y no añadir specs por rutina.
 - [ ] T105 Revisar trazabilidad FR/SC y checklist de cierre en `specs/011-desplegar-servicios-universitarios/tasks.md` y `docs/evidencia/011/aceptacion.md`: marcar sólo tareas verificadas, dejar bloqueos reales con motivo y siguiente acción, y confirmar que ningún perfil o entorno se anuncia certificado sin su evidencia.
 
-## Dependencias y orden de ejecución
+## Dependencias, entrega y trazabilidad vigentes
 
-### Grafo de fases e historias
+- Setup activo T001–T005/T007 → base T008–T036 → motor US1 T037–T050.
+- Biblioteca US2: T051/T054 → T062 → T063 → T064; reutiliza T041–T043 y runtime T050.
+- US3 T065–T076, US4 T077–T087 y US5 T088–T098 reutilizan la misma ejecución.
+  Sus pruebas con fixtures pueden avanzar tras la base; aceptación real requiere T050.
+- Cierre T099–T105: dos imágenes, dos entradas de catálogo, un solo motor.
+- T006 y T052/T053/T055–T061 están retiradas. No mantener dependencias hacia ellas.
+  T006 fue un spike histórico aprobado; las otras nueve no se hicieron ni se marcan hechas.
 
-```text
-Setup T001–T007 → Base común T008–T036
-Base común → US1 T037–T050
-Base común + alta común T042–T043 → US2 T051–T064
-Base común → US3 T065–T075 (contratos/fixtures)
-Base común → US4 T077–T085 (eventos/fixtures)
-Base común → US5 T088–T097 (fallos/fixtures)
-US1 + US2 → aceptación de ambos orígenes T076, T086–T087, T098
-US1 + US2 + US3 + US4 + US5 → Cierre T099–T105
-```
-
-La independencia significa que cada historia puede probarse con sus prerrequisitos explícitos y fixtures comunes; US2 reutiliza el alta introducida en US1, pero no su estrategia Docker. Las aceptaciones reales de ambos orígenes necesitan sus estrategias y perfiles comprobados. No simular esa dependencia para marcar completa una historia.
-
-| Bloque | Prerrequisitos concretos / orden interno |
-|---|---|
-| Setup | T001/T002/T003 pueden avanzar por separado; T004 ejecuta bootstrap tras T003; T005/T006 dependen de T004 y se ejecutan secuencialmente si comparten nodo/capacidad; T007 reúne resultados |
-| Pruebas comunes | T008–T012 tras fixtures; no necesitan un PVE real |
-| Esquema | T013 antes de T015–T019; T020 reúne modelos; T021 registra/migra todo antes de servicios con persistencia |
-| Perfil/secretos/red | T014 + T021 antes de T022/T023; no tomar slots o credenciales legacy de otra instancia |
-| Runner durable | T024 → T025 → T026 → T027 → T028 → T029; pruebas T009/T010 primero; fingerprint/persistencia preceden efectos |
-| Integración común | T030 después de esquema/perfiles/secretos/red; T031 después de modelos/colector/cliente; T032 después de T024–T030 y T031; T033 después de T032/T031; T034 → T035; T036 cierra el bloque |
-| US1 | T037–T040 primero; T041 → T042 → T043; T044 → T045 → T046 → T047; T048 → T049 tras endpoint; T050 instala la estrategia final, valida/habilita perfil y acepta ambas ramas |
-| US2 | T051–T054 primero; T055 → T056 → T057 → T058 → T059 → T060 → T061; T061 instala y valida el paquete final antes de habilitar; T062 requiere T042–T043 y perfiles; T063 tras API; T064 requiere perfil real y UI |
-| US3 | T065–T068 primero; T069 → T070 → T071 → T072 → T073 → T074 → T075; T076 requiere US1/US2 y red real |
-| US4 | T077–T079 primero; T080 → T081 → T082 → T083 → T084 → T085; T086/T087 requieren integración de ambos orígenes para aceptación completa |
-| US5 | T088–T091 primero; T092 → T093 → T094 → T095 → T096 → T097; T098 requiere ambos orígenes y recuperación observable |
-| Cierre | T099–T101 antes de T102/T103; T104 documenta comportamiento final y T105 verifica cierre |
-
-El orden predeterminado para una sola persona es el numérico. Las excepciones de paralelismo siguientes son para repartir trabajo con contratos claros, no instrucciones para crear agentes automáticamente. Los servicios/routers/componentes compartidos se integran de forma secuencial, especialmente `orquestacion_service.py`, `worker.py`, `AgregarServicioModal.jsx`, `api.js`, `Pedidos.jsx` y `Servicios.jsx`.
-
-## Ejemplos de ejecución paralela
-
-Cada fila permite trabajar en archivos distintos dentro del bloque indicado; resolver sus dependencias antes. Correr pruebas reales simultáneas sólo con recursos/capacidad de ensayo independientes.
-
-| Historia/bloque | Trabajos paralelos seguros | Integración posterior |
-|---|---|---|
-| Setup | T001 fixtures backend / T002 imagen demo / T003 preflight | Spikes tras preflight, sin colisión sobre el nodo |
-| Base | T008 contratos / T009 runner / T010 redacción / T011 migración / T012 carreras | Modelos T015–T019 tras T013; registro/migración unificados después |
-| US1 | T037 contrato REST / T038 resolver OCI / T039 runtime / T040 formulario | T041–T049 y aceptación conjunta T050 |
-| US2 | T051 búsqueda/API / T052 harness / T053 perfiles / T054 biblioteca UI | Ensamblaje/pilotos T055–T064 |
-| US3 | T065 pedidos / T066 carreras PostgreSQL / T067 reloj/agenda / T068 formularios | Reserva/agenda/UI T069–T076 |
-| US4 | T077 contrato consola / T078 carreras de ingesta / T079 componente | API/hook/componente T080–T087 |
-| US5 | T088 recuperación / T089 persistencia / T090 carreras de retry / T091 acciones UI | Reconciliación/lifecycle T092–T098 |
-
-No se marcan como paralelas tareas que dependen de una implementación todavía incompleta. Entre historias pueden adelantarse pruebas con fixtures; las modificaciones de archivos comunes esperan su integración precedente.
-
-## Estrategia de implementación y puntos de pausa
-
-1. **Factibilidad y base**: ejecutar Setup y base común; validar contratos/fallos/migración y registrar las compuertas reales. Si un perfil está bloqueado, mantenerlo fuera del catálogo sin cambiar alcance, tamaños o permisos para forzar éxito.
-2. **MVP técnico, US1**: completar imagen propia de punta a punta con dos imágenes diferentes y un pedido inmediato. Permite demostrar el motor común y pausar con una prueba concreta. No requiere terminar la búsqueda Community ni la consola visual; por ello no satisface todavía todas las historias P1.
-3. **Biblioteca, US2**: agregar los dos perfiles Community con el mismo ciclo de creación, trabajo y entrega. No modificar los artefactos Draw.io existentes ni prometer ejecución universal de scripts.
-4. **Flujo académico, US3**: completar Otro, programación futura, avisos y dos cátedras aisladas para ambos orígenes.
-5. **Feedback, US4**: exponer el registro seguro ya capturado en la base común, con progreso real y consola administrativa de lectura. Puede adelantarse su desarrollo con eventos de fixture después de la base.
-6. **Recuperación, US5**: completar reintento explícito, reconciliación, operaciones/persistencia y baja con ausencia confirmada; probar ambos orígenes.
-7. **Entrega completa**: cerrar regresión, seguridad, métricas y aceptación de las cuatro aplicaciones. Publicar estado real de cada compuerta; infraestructura universitaria pendiente no se convierte en PASS del laboratorio.
-
-Pausas cómodas: después de T007, T036 y cada checkpoint de historia. Registrar progreso verificado y operaciones de ensayo pendientes antes de pausar; no dejar instalaciones sin identidad o liberar recursos inciertos para obtener un árbol limpio.
-
-## Trazabilidad de cobertura
+Prioridad inmediata: cerrar integración parcial y gate Docker definitivo; luego conectar
+la biblioteca Hub sin rehacer el motor. Pedidos/agenda, consola y recuperación conservan
+sus garantías. Pruebas afectadas una vez por bloque; regresión completa sólo en un hito.
+No repetir una instalación por seleccionar la misma imagen desde otra entrada de UI.
 
 | Requisitos | Tareas principales | Aceptación |
 |---|---|---|
-| FR-001–003 | T030, T037, T042–T043, T049, T062–T063 | T050/T064/T099 |
-| FR-004–005 | T013–T016, T022, T038–T048 | T050/T103 |
-| FR-006–008 | T006, T014, T051–T063 | T061/T064 |
-| FR-009 | T015, T020–T021, T030, T041–T043, T055, T066, T070 | T050/T064/T102 |
+| FR-001–005 | T030, T037–T050, T063 | T050/T064/T099 |
+| FR-006–009 | T014, T041–T043, T051/T054/T062–T064 | T064/T102 |
 | FR-010–012 | T030, T065–T074 | T076/T102 |
-| FR-013 | T022–T023, T032, T034–T036, T045–T046, T058–T059 | T076/T100 |
-| FR-014–016 | T009, T012, T017, T024–T033, T047, T060, T092–T093 | T036/T098 |
-| FR-017 | T034–T036, T046, T058–T059, T075 | T076/T099–T100 |
-| FR-018–021 | T010, T018, T026–T027, T031–T033, T077–T086 | T087 |
-| FR-022–024 | T010, T018, T022, T026–T028, T031, T056, T077–T083 | T087/T100 |
-| FR-025–027 | T088–T095, T097 | T098/T102 |
-| FR-028 | T072–T073, T089, T096 | T098–T099 |
-| FR-029–030 | T003–T007, T011, T021, T036, T044, T061, T099–T101 | T103–T105 |
-| SC-001/008 | T050, T064, T076 | T103: un admin, <=3 min alta; <=2 min pedido |
-| SC-002/003 | T050, T064, T076 | T103: cuatro apps, dos cátedras por origen, acceso ajeno denegado |
-| SC-004 | T027, T033, T081–T082, T087 | T087/T103: dos trabajos, p95 <=5 s, apertura <=3 s |
-| SC-005/006 | T009, T012, T088–T098 | T098/T103: interrupción, retry y limpieza por ambos orígenes |
-| SC-007 | T010, T026–T028, T052, T077–T087, T100 | T100/T103: sin secretos ni nuevas lecturas sin permiso |
-| SC-009 | T011, T021, T036, T099, T101–T105 | T103/T105: legado intacto y evidencia separada por entorno |
+| FR-013–017 | T022–T036, T045–T047, T075 | T050/T076/T100 |
+| FR-018–024 | T010, T018, T026–T028, T031, T077–T087 | T087/T100 |
+| FR-025–028 | T088–T098, T072–T073 | T098/T099 |
+| FR-029–030 | T003–T005/T007, T011/T021, T036/T044, T099–T105 | T103–T105 |
+| SC-001–003/008 | T050/T064/T076 | T103: dos imágenes, dos cátedras, dos entradas <=3 min; pedido <=2 min |
+| SC-004 | T027/T033/T081–T082/T087 | T087/T103: dos trabajos, p95 <=5 s, apertura <=3 s |
+| SC-005–007 | T009–T010/T026–T028/T088–T100 | Recuperación, secreto protegido y limpieza confirmada |
+| SC-009 | T011/T021/T036/T099/T101–T105 | Legado intacto, evidencia diferenciada por entorno |
 
-## Criterio de finalización
+## Criterio de finalización y recuento
 
-Todas las tareas comienzan pendientes. Marcar una tarea sólo después de implementar y verificar su resultado; un impedimento real se documenta y conserva pendiente. Una aceptación parcial o simulada no cierra SC que exigen infraestructura real. No incluir secretos en commits de evidencia. El autocommit de Spec Kit registra avances del comando; no reemplaza ninguna comprobación anterior.
+**37/95 tareas activas verificadas; 58 pendientes.** Los IDs originales se conservan:
+10 tareas retiradas, de las cuales T006 ya estaba completada históricamente. Este
+recorte no representa nuevas implementaciones. Los recuentos 38/105 y anteriores
+que siguen abajo son snapshots históricos previos a la decisión del 27/10.
+
+Marcar una tarea activa sólo después de implementar/verificar su resultado. No
+acreditar instalación por documentación o fixtures ni quitar seguridad/recuperación
+para acelerar. Estado y tareas retiradas: [cambio de alcance](cambio-alcance-oci.md).
+
+## Historial previo al recorte — no usar como alcance vigente
+
+Los checkpoints siguientes conservan resultados y decisiones de sus fechas; las
+obligaciones Community y cuatro aplicaciones quedaron retiradas el 27/10.
 
 ## Avance de implementación — 2026-10-26
 

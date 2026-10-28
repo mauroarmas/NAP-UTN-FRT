@@ -1,6 +1,9 @@
 # Research: despliegue universitario común
 
-Fecha: 2026-10-26. Alcance: lectura del repositorio y fuentes primarias, sin ejecutar instaladores,
+Investigación inicial: 2026-10-26. Alcance vigente actualizado el 27/10/2026 por R15.
+R05/R06 y sus pilotos quedaron retirados; no son dependencias de entrega.
+
+Alcance: lectura del repositorio y fuentes primarias, sin ejecutar instaladores,
 crear invitados, cambiar permisos del nodo ni acreditar compatibilidad operativa. Las decisiones
 resuelven el diseño; las compuertas reales indicadas más abajo deben verificarse durante implementación.
 
@@ -8,7 +11,7 @@ resuelven el diseño; las compuertas reales indicadas más abajo deben verificar
 
 **Decision**: reutilizar `RecursoTemplate`, `Pedido`, `Servicio`, identidad, compromiso de capacidad,
 admisión, leases y máquina central de estados. Incorporar una configuración declarativa inmutable
-para los dos orígenes nuevos, separada de las definiciones históricas de artefactos.
+para el origen Docker/OCI común a las dos entradas de catálogo, separada de las definiciones históricas de artefactos.
 
 **Rationale**: `perfiles_service` y `admision_service` suponen un manifiesto 1.1, una imagen preparada,
 un bundle y evidencia previa. Extender ese contrato como si una referencia Docker fuera un tar LXC
@@ -91,70 +94,12 @@ se descartan. Se usa el keyring existente y preparación técnica una vez.
 Fuentes: [Docker login](https://docs.docker.com/reference/cli/docker/login/),
 [CA de registry](https://docs.docker.com/engine/security/certificates/).
 
-## R05 — Community Scripts: instalador dentro del invitado, nunca wrapper del nodo
+## R05 / R06 — Retiradas del alcance
 
-**Decision**: NAP crea el LXC por su orquestación y ejecuta únicamente el instalador de aplicación
-`install/<slug>-install.sh`, fijado y empaquetado con Core y un harness institucional común. No
-se ejecuta `ct/<slug>.sh` en el nodo ni se usa como alternativa ante un fallo.
-
-**Rationale**: el wrapper host crea sus propios contenedores, arma opciones y redes, puede ofrecer
-reintentos o cambios del host y reemplaza la descripción del CT con HTML. Destruiría el marcador
-JSON de propiedad de NAP. No se encontró una interfaz documentada para adoptar un CT existente
-manteniendo esas garantías. La separación del instalador guest sí está documentada por upstream.
-
-**Alternatives considered**: pasar sólo CTID al wrapper, copiar `bash | curl` en el nodo o envolver
-funciones internas del host. Ninguna garantiza identidad, ausencia de doble creación y recuperación.
-
-Revisiones inspeccionadas el 26/10/2026:
-
-- ProxmoxVE: `5d477b0b6efb4141da0b90cadcec32f8641a815c`.
-- Core: `81a2e2ae7d42dea39fd5dd7903b266b5e607c811`.
-
-El harness carga el contenido de `lxc/install.func` en `FUNCTIONS_FILE_PATH`, prepara Core local,
-fija ambas URLs de fuente a revisiones inmutables y define `_cs_source_func` para archivos del
-manifiesto permitido: `lib/tools.func` puede ir a red aunque exista `CORE_DIR`. No carga
-`core/build.func` ni `pve/backend.func`. Entorno controlado, sin PTY, stdin cerrado para preguntas,
-telemetría/trazas desactivadas, `PASSWORD` no vacío y `SSH_ROOT=no`; se impide personalización
-que quite la contraseña o habilite autologin. La capa común de política está versionada y revisada;
-no reescribe la instalación de cada aplicación.
-
-Fuentes: [contrato guest de Core](https://github.com/community-scripts/core/blob/81a2e2ae7d42dea39fd5dd7903b266b5e607c811/docs/lxc.md),
-[backend host rechazado](https://github.com/community-scripts/core/blob/81a2e2ae7d42dea39fd5dd7903b266b5e607c811/pve/backend.func),
-[loader de helpers](https://github.com/community-scripts/core/blob/81a2e2ae7d42dea39fd5dd7903b266b5e607c811/lib/tools.func).
-
-## R06 — Compatibilidad como perfiles comprobables, sin prometer todo el buscador
-
-**Decision**: perfil declarativo con hashes de script/Core/harness, base y OS exactos, recursos,
-respuestas permitidas, dependencias bloqueadas por versión/hash, persistencia, acceso, secretos y
-pruebas. Los pilotos Community son **MariaDB** y **Caddy**, ambos inicialmente Medium sobre Debian
-13. La preferencia Ubuntu se conserva para Docker; no se afirma soporte de Ubuntu de instaladores
-que todavía no se comprobó. Ampliar perfiles no necesita escribir otro instalador completo en NAP.
-
-- MariaDB: 1 CPU, 1024 MB, 4 GB upstream; fijar `var_mariadb_phpmyadmin=no`. Agregar configuración
-  institucional de base/usuario independiente, TLS y clientes permitidos; el instalador upstream
-  no proporciona por sí mismo una cuenta remota segura para la cátedra. Probe autenticado de
-  conexión y `SELECT 1`, además de comprobar el acceso de red previsto.
-- Caddy: 1 CPU, 512 MB y **6 GB**; no cabe en Small. Fijar `var_caddy_xcaddy=no`, versión exacta
-  mediante `var_appversion` y hash del archivo de release. Configuración HTTP interna fija y acceso
-  web mediante gateway NAP. El helper Core da prioridad a `var_appversion` incluso si el script
-  solicita `latest`.
-
-Fijar commits no congela paquetes APT. El perfil debe identificar un snapshot Debian con Release
-verificado y fuentes de paquetes cerradas; ningún `apt upgrade` consulta el repositorio mutable
-normal. Descargas de releases pasan por el resolver común que verifica versión y hash del plan de
-artefactos aprobado. Dependencia no declarada o pregunta no resuelta bloquea compatibilidad.
-
-**Rationale**: evita repetir el error de etiquetar una ficha como instalable. El alta comercial sólo
-se habilita si el perfil técnico está certificado en esa plataforma; no se instala un CT por alta.
-
-**Alternatives considered**: declarar compatibles todos los CT por extensión `.sh`; forzar Ubuntu;
-elegir Redis como segundo piloto. Redis fija `trixie` y agrega otro protocolo de autenticación;
-Caddy aporta cobertura web con menos adaptación de producto.
-
-Fuentes: [MariaDB](https://github.com/community-scripts/ProxmoxVE/blob/5d477b0b6efb4141da0b90cadcec32f8641a815c/install/mariadb-install.sh),
-[Caddy](https://github.com/community-scripts/ProxmoxVE/blob/5d477b0b6efb4141da0b90cadcec32f8641a815c/install/caddy-install.sh),
-[helper releases](https://github.com/community-scripts/core/blob/81a2e2ae7d42dea39fd5dd7903b266b5e607c811/lib/forge.func),
-[Debian Snapshot](https://snapshot.debian.org/).
+La integración de instaladores y perfiles Community se descartó el 27/10/2026 para
+reducir alcance. Sus análisis se conservan en [archivo histórico](archive/community-scripts-research.md),
+sin obligaciones de implementación. R15 sustituye estas decisiones por descubrimiento
+Docker Hub y reutilización del motor OCI.
 
 ## R07 — Trabajos duraderos e intento efectivo separado del lease
 
@@ -190,9 +135,8 @@ sustituirla por un aviso de supresión. Los secretos conocidos se registran ante
 la depuración incremental cubre cortes de chunks y representaciones declaradas. Nunca ejecutar
 ANSI/OSC/HTML/Markdown en la interfaz.
 
-Core `silent()` escribe `INSTALL_LOG` y el error handler guarda comandos/tails en archivos `.log`
-y `.errinfo`: el harness debe reemplazar esos caminos comunes antes de manejar secretos. No
-alcanza con `VERBOSE=yes` ni limpiar sólo el navegador. La unidad no copia salida cruda al journal.
+La unidad no copia salida cruda al journal; la depuración ocurre antes de cualquier
+persistencia. Los riesgos de logs de Core pertenecen a la investigación retirada de R05/R06.
 Docker usa driver de logging `none`; los mensajes iniciales admitidos se capturan por canal en
 memoria y se depuran. No se exportan arbitrariamente archivos de log de las aplicaciones ni salidas
 de HEALTHCHECK de una imagen: se usan probes de plataforma. La política conservadora se comunica
@@ -204,9 +148,7 @@ usuario obtiene progreso y diagnóstico real sin crear otro canal de exposición
 
 **Alternatives considered**: `tee` hacia disco + depuración posterior, xterm o stdout ilimitado.
 
-Fuentes: [Core logging](https://github.com/community-scripts/core/blob/81a2e2ae7d42dea39fd5dd7903b266b5e607c811/core/core.func),
-[Core errores](https://github.com/community-scripts/core/blob/81a2e2ae7d42dea39fd5dd7903b266b5e607c811/core/error_handler.func),
-[OWASP registros](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html).
+Fuentes: [OWASP registros](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html).
 
 ## R09 — Consulta por cursor y almacenamiento canónico
 
@@ -278,9 +220,7 @@ spike de infraestructura y ensayos reales. No se activan perfiles por inferencia
 - PVE/kernel/LXC/AppArmor/runtime: nested Docker no privilegiado, features exactas, filesystem,
   pull público/privado, storage y arranque con el tamaño completo. Medium inicial conservador;
   Small sólo se habilita con medición explícita para ese perfil y aplicación.
-- Harness Core: carga local, dependencias bloqueadas, ausencia de prompts/telemetría/autologin,
-  ausencia de logs crudos o secretos, instalador guest sin efectos en el host.
-- Dos perfiles Community candidatos (MariaDB/Caddy) y dos imágenes distintas (demo universitaria
+- Dos imágenes distintas (demo universitaria
   con persistencia y una imagen pública pequeña), usando los mismos mecanismos por configuración.
 - Identidad, reservas, firewall, acceso, persistencia, caída de worker/respuesta perdida,
   revocación de consola, limpieza y regresión de Ubuntu/Debian/Draw.io.
@@ -340,3 +280,37 @@ y manifest linux/amd64
 `sha256:4f90b33ddca9c4d4f06527070d6e503b16d71016edea036842be2a84e60c91cb`.
 Es una referencia concreta para la prueba del resolver; no demuestra consumo, compatibilidad
 anidada ni acceso. Ver [proyecto oficial](https://github.com/traefik/whoami).
+
+## R15 — Docker Hub como biblioteca; un solo motor OCI
+
+**Decision (Mauro, 27/10/2026)**: retirar Community Scripts. Las dos entradas son
+búsqueda en Docker Hub y referencia de imagen propia (incluido registry privado
+institucional). Ambas producen `imagen_docker` y reutilizan resolución OCI, alta,
+aprobación, ejecución, consola y lifecycle. No crear otro origen por proveedor.
+
+**Rationale**: el motor Docker ya tiene implementación parcial y elimina el segundo
+harness, locks de paquetes por aplicación, perfiles MariaDB/Caddy y su mantenimiento.
+La biblioteca pasa a descubrir imágenes empaquetadas. Se prueban whoami desde Hub
+y campus-demo propia, con persistencia y descarga privada; no cuatro aplicaciones.
+Los tamaños y el gate real de aislamiento no se reducen para ahorrar tiempo.
+
+**API de búsqueda**: elegir un endpoint soportado de Docker Hub durante T062 y fijar
+su destino, timeout, paginación y manejo de rate limits. La API OCI Distribution no
+estandariza búsqueda por nombre/categoría. No deducir puertos/persistencia de una
+ficha: el resolver verifica el manifiesto y sólo propone datos de la imagen cuando
+son inequívocos. Categorías o distintivos sólo si el proveedor los expone; no son
+prerrequisito de entrega. Ante fallo, ingresar una referencia conserva US1.
+
+**Compatibilidad**: no ofrecer toda imagen encontrada sin validar plataforma,
+recursos, acceso y configuración. No builds, Compose, comandos libres o privilegios.
+Si una app requiere varios servicios o un perfil no disponible, explicar impedimento.
+La procedencia oficial ayuda a elegir, no certifica seguridad ni que quepa en Medium.
+
+**Migración mínima**: cambiar adaptador/UI de búsqueda y rechazar nuevos `community_scripts`
+en alta/despacho; preservar migraciones, recibos y lectura histórica necesaria.
+No tocar DB operativa ni reinstalar IaaS/Draw.io por editar el alcance.
+
+Fuentes oficiales: [Docker Hub y búsqueda](https://docs.docker.com/docker-hub/image-library/search/),
+[Hub API](https://docs.docker.com/reference/api/hub/latest/),
+[Registry API / compatibilidad OCI](https://docs.docker.com/reference/api/registry/latest/),
+[selección por digest](https://docs.docker.com/reference/cli/docker/image/pull/).

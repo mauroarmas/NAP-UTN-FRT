@@ -3,12 +3,13 @@
 ## Catálogo y formularios
 
 - Una sola pantalla Catálogo para administración y ofertas solicitables para cátedra.
-- «Agregar servicio» ofrece «Desde la biblioteca» y «Aplicación propia». Los entornos Linux
+- «Agregar servicio» ofrece «Docker Hub» e «Imagen propia». Los entornos Linux
   existentes se conservan, sin obligar a agregarlos otra vez por estos caminos.
 - Imagen propia: nombre, imagen y puerto. Descripción, modelo funcional, variables, declaraciones
   de secretos y persistencia sólo cuando sean necesarios; no pedir infraestructura, scripts,
   manifests, hashes o certificados. Secretos efectivos se completan por pedido cuando hagan falta.
-- Biblioteca: búsqueda, categorías del proveedor, datos disponibles y razón de incompatibilidad.
+- Biblioteca Docker Hub: búsqueda por nombre, datos disponibles y razón de incompatibilidad.
+  Categorías sólo si el proveedor las expone; ocultar el filtro cuando no estén disponibles.
   Una elección compatible abre el mismo formulario breve. No hay «Guardadas», pantalla de versiones,
   entorno de ensayo, confirmar funcionamiento o publicar manualmente.
 - Alta correcta significa «Disponible para solicitar». No usar «Aplicación instalada» hasta la
@@ -62,8 +63,9 @@ la comprobación realizada, no como prueba de toda la función pedagógica.
 ## Acceso nativo TCP
 
 Dirección, puerto, TLS y credenciales sólo para administración y responsable vigente; la conexión
-usa la autenticación de la aplicación y las redes permitidas. Para MariaDB se configuran usuario y
-base independientes y transporte TLS obligatorio. No mostrar contraseña de root del nodo ni usar
+usa la autenticación de la aplicación y las redes permitidas. Cuando una imagen TCP esté admitida por un perfil comprobado, su configuración
+de autenticación/TLS debe ser específica y sus credenciales independientes; no se agrega un
+adaptador MariaDB ni un piloto TCP por retirar Community. No mostrar contraseña de root del nodo ni usar
 cuentas compartidas entre cátedras.
 
 No prometer que cerrar NAP finaliza conexiones TCP previamente establecidas, ni inferir usuarios
@@ -76,4 +78,4 @@ Validar con Vitest y navegador: ambos formularios sin campos internos; imágenes
 con datos conservados; sólo admin ve consola; reabrir no crea otra operación; scroll pausado;
 cursor repetido sin duplicación; logs enormes/recortados/vencidos; contenido malicioso literal;
 revocación durante lectura/exportación; acceso web por origen propio y flujo IaaS/Draw.io intactos.
-Las pruebas visuales con backend simulado no acreditan Docker ni Community Scripts reales.
+Las pruebas visuales con backend simulado no acreditan el despliegue Docker real.

@@ -2,7 +2,11 @@
 
 Leer primero `AGENTS.md` y `docs/traspaso-011.md`. Las decisiones de producto están
 en `.specify/memory/constitution.md`. La implementación activa es
-`specs/011-desplegar-servicios-universitarios/`; su `tasks.md` conserva el avance.
+`specs/011-desplegar-servicios-universitarios/`; su `tasks.md` conserva el avance. El cambio de alcance del 27/10 retira Community Scripts:
+Docker Hub es la biblioteca y las referencias propias usan el mismo motor OCI. Leer
+`specs/011-desplegar-servicios-universitarios/cambio-alcance-oci.md`; no implementar
+Core/harness ni las tareas retiradas. Son 37/95 tareas activas, sin progreso nuevo
+por este recorte.
 
 Las habilidades están en `.claude/skills/`: usar rutas relativas del clon,
 nunca `/home/mauro/...` como ruta local del compañero. No reconstruir specs ni

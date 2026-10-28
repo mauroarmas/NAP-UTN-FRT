@@ -1,285 +1,138 @@
-# Implementation Plan: Desplegar servicios universitarios
+# Implementation Plan: aplicaciones desde Docker Hub e imágenes propias
 
-**Branch**: `011-desplegar-servicios-universitarios` | **Date**: 2026-10-26 | **Spec**: [spec.md](spec.md)
+**Branch**: `011-desplegar-servicios-universitarios` | **Updated**: 2026-10-27 | **Spec**: [spec.md](spec.md)
 
-**Input**: `specs/011-desplegar-servicios-universitarios/spec.md`
+## Summary y reducción de alcance
 
-## Summary
+Una única estrategia Docker/OCI con dos entradas al catálogo: buscar en **Docker Hub**
+o ingresar una **imagen propia** en registry público/institucional autorizado. Ambas
+convergen en la configuración `imagen_docker` ya construida; no duplicar resolución,
+aprobación, reserva, instalación, consola ni lifecycle por procedencia de la imagen.
 
-Agregar dos caminos declarativos al catálogo existente: imagen Docker propia e instalación
-compatible de Community Scripts. El alta registra una oferta reutilizable sin crear invitados ni
-reservar capacidad. La aprobación congela configuración y recursos; el despliegue usa un LXC propio
-por servicio, conserva la máquina de estados/reservas y confirma disponibilidad antes de entregar.
+Community Scripts se retira por decisión de Mauro. No construir Core/harness, locks
+APT, perfiles específicos MariaDB/Caddy ni otro runtime. Los spikes, recibos y esquemas
+históricos se conservan; no convierten tareas retiradas en tareas completadas.
+Ver [cambio de alcance y tareas retiradas](cambio-alcance-oci.md).
 
-NAP crea el LXC en ambos casos. Docker se ejecuta en un LXC Ubuntu 24.04 no privilegiado mediante
-un perfil institucional cerrado; Community usa el instalador guest y Core fijados, nunca el wrapper
-host que crea otro CT y sustituye su marcador. Los pilotos Community son MariaDB y Caddy sobre
-Debian 13. Son candidatos de validación, no instalaciones ya probadas.
-
-Un nuevo protocolo cerrado del runner administra trabajos duraderos del nodo. La consola negra
-con texto blanco consulta registros depurados por cursor; no abre shell ni depende de la pestaña.
-Se conservan los caminos históricos de Ubuntu/Debian y Draw.io. Diseño e interfaces detallados en
-[research.md](research.md), [data-model.md](data-model.md) y [contracts/](contracts/).
+El alta sólo registra la oferta. La aprobación congela configuración/recursos; al
+inicio autorizado se crea un LXC propio Ubuntu 24.04 no privilegiado y se ejecuta Docker
+dentro. No instalar Docker en el nodo PVE. IaaS conserva Ubuntu 24.04 y Debian 13;
+Draw.io y artefactos 009/010 conservan sus accesos e historial.
 
 ## Technical Context
 
-**Language/Version**: Python 3.12 en contenedores del portal; JavaScript/React 19.2 y Vite 8.3;
-Python 3 estándar en el wrapper del nodo, con dependencias privadas sólo si las exige su paquete.
+- **Stack**: Python 3.12/FastAPI/SQLAlchemy async/PostgreSQL 16/Alembic; React/Vite;
+  HTTPX, cryptography, OpenSSH y systemd existentes. Mantener locks y arquitectura.
+- **Datos**: configuración inmutable, snapshots, secretos cifrados por pedido,
+  operación/intento, slots e ingesta de consola ya implementados parcialmente.
+- **Runtime**: Docker en Ubuntu 24.04/LXC, arquitectura inicial amd64, versiones y
+  manifiestos fijados; comando original de la imagen. Sin Compose, builds desde
+  código, flags libres, Docker socket, privilegios o montajes del nodo.
+- **Recursos**: Small 1 CPU/512 MB/4 GB; Medium 2 CPU/1024 MB/8 GB. Candidato Docker
+  Medium hasta medir Small. Rechazar mínimos superiores; no cambiar tamaños para aprobar.
+- **Consola**: systemd independiente de SSH/UI, spool depurado, ingesta/polling 1 s;
+  10 000 000 bytes por raíz/30 días, p95 <=5 s y apertura <=3 s. Sin shell o xterm.
+- **Validación**: pruebas afectadas por bloque y PostgreSQL aislado para carreras.
+  Gate PVE real del runtime definitivo antes de habilitar perfil; laboratorio no
+  acredita la red universitaria. No añadir broker, orquestador o servicios nuevos.
 
-**Primary Dependencies**: FastAPI 0.157, Starlette 1.9, SQLAlchemy 2.0 async, asyncpg 0.30,
-Alembic 1.16, proxmoxer 2.2, HTTPX 0.28, cryptography/keyring y OpenSSH existentes. systemd para
-trabajos independientes; Docker Engine/API dentro de cada guest, no el daemon del nodo. Core
-Community versionado y harness común. Mantener locks de dependencias; no añadir Celery, broker,
-xterm ni un cluster de orquestación adicional.
+## Diseño de biblioteca Docker Hub
 
-**Storage**: PostgreSQL para configuración inmutable, snapshots, intentos, registros depurados y
-reservas de red. Rootfs LXC para aplicación/volúmenes; spool privado y acotado en el nodo. No raw logs,
-secretos ni estados de ejecución en almacenamiento del navegador. Artefactos privados verificados
-para perfiles; secretos en keyring y canales efímeros, no en repositorio o imagen base.
+Reutilizar pantalla/modal/componentes y ruta `/biblioteca/aplicaciones`. Cambiar el
+proveedor de descubrimiento; no mantener dos bibliotecas de aplicaciones en paralelo.
+Buscar por nombre y paginar de forma acotada; mostrar repositorio, descripción,
+procedencia y distintivos confiables disponibles. No atribuir datos ausentes a la API.
+Categorías sólo si la API elegida las ofrece; su ausencia no bloquea la entrega.
 
-**Testing**: pytest/pytest-asyncio, PostgreSQL 16 aislado para concurrencia/migración, fakes de PVE,
-runner, registry y reloj; Vitest/Testing Library y Playwright. Ensayos reales separados en la VM
-local para nested runtime, Core, red y persistencia. No ejecutados durante esta planificación.
+El API de distribución OCI resuelve manifiestos/blobs, no define el buscador Hub.
+El adaptador de búsqueda consulta endpoints fijos revisados de Docker Hub con timeout,
+límites y errores explícitos. La selección genera una referencia de imagen y reutiliza
+`oci_registry_service` y `configuracion_despliegue_service` de US1: verifica DNS/IP/TLS,
+realm, plataforma, digest, Config.Volumes y perfil. La ficha no habilita la oferta.
+No ejecutar el contenido de Dockerfile, README o comandos del proveedor.
 
-**Target Platform**: portal Linux + Proxmox/LXC; laboratorio inicial amd64. Runtime Docker sobre
-Ubuntu 24.04; perfiles Community iniciales Debian 13 según fuentes. TLS/red/permisos se preparan
-una vez por infraestructura. La red universitaria sigue siendo una instalación distinta.
+La UI abre el mismo formulario breve precargado, pide los datos faltantes y confirma
+«Disponible para solicitar». Fallo/rate limit: reintento o ingreso manual de referencia,
+sin confundirlo con cero resultados. No construir espejo, caché o gestión de cuentas.
+Un perfil pendiente/bloqueado informa su impedimento, también para imágenes oficiales.
 
-**Project Type**: aplicación web con API, worker existente y runner cerrado de infraestructura.
+## Ejecución y acceso comunes
 
-**Performance Goals**: alta <=3 min de interacción y pedido <=2 min; p95 captura→consola <=5 s con
-dos instalaciones activas, apertura de registro <=3 s. Productor flush <=250 ms, ingesta <=1 s,
-consulta visible <=1 s, páginas <=64 KiB; no prometer duración de descargas externas.
+1. Alta valida referencia/perfil y registra configuración/oferta atómicas e idempotentes,
+   sin CT/reserva. Edición crea revisión; no cambia decisiones aprobadas.
+2. Aprobar revalida permisos, snapshot, mínimos y capacidad bajo lock. Genera/reutiliza
+   secretos por pedido, reserva y admite/programa desde fecha inicial. Otro y aclaración
+   conservan su flujo y avisos; no pedir hardware a cátedra.
+3. Crear identidad/nonce e intento antes del efecto; reservar slot y crear CT detenido
+   con marcador exacto. Imponer aislamiento externo y TLS por identidad antes de start.
+4. Unidad root fija conduce las acciones Docker: paquetes fijados, pull por digest,
+   credencial privada efímera, volúmenes propios, borde HTTPS y comprobación de acceso.
+   No registrar valores privados ni permitir que el origen de búsqueda modifique permisos.
+5. Ingerir cursor final/ACK, reobservar propiedad/configuración y probar acceso antes de
+   transicionar a ACTIVO y avisar. La consola no convierte `exit 0` en entrega.
+6. Stop/start/restart conservan datos/secretos. Reintento incierto exige reconciliación;
+   eliminación sólo de recursos propios, capacidad/red libres después de ausencia confirmada.
 
-**Constraints**: Small 1 vCPU/512 MB/4 GB y Medium 2 vCPU/1024 MB/8 GB incluyendo plataforma y datos.
-Conservadoramente habilitar Medium para perfiles iniciales hasta medir Small. Un perfil que exige
-más recursos o permisos prohibidos queda bloqueado, sin reducir mínimos. Logs <=10 000 000 bytes
-por raíz/30 días. Sin escritura de consola, Compose, builds desde código o SSO universal.
+Gateway genérico separado del portal y Draw.io intacto: IP/Host/SNI/CA fijos, cookies
+nativas aisladas, streaming acotado, WS sólo declarado y revocación. TCP conserva su
+contrato nativo y requiere perfil/autenticación comprobados; no se agrega un piloto ni
+adaptador MariaDB por esta entrega ni se promete compatibilidad universal de puertos.
 
-**Scale/Scope**: instalación universitaria pequeña, decenas de cátedras, un laboratorio inicial y
-dos instalaciones activas por nodo. Resto queda en cola con capacidad reservada. Dos perfiles
-Community y dos imágenes distintas prueban reutilización; ninguna app queda compatible sólo por
-aparecer en la búsqueda. El diseño admite nuevos perfiles por datos dentro del mismo contrato.
+## Compatibilidad del esquema y retirada del proveedor anterior
 
-## Constitution Check
+No editar revisiones Alembic aplicadas ni resetear DB para quitar Community. El valor
+`community_scripts` existe en modelos/fixtures; la implementación T062 deberá rechazar
+altas y despacho nuevos por ese origen, manteniendo lectura histórica donde sea necesaria.
+Retirar navegación/consultas/configuración por defecto del proveedor anterior, sin borrar
+las rutas legacy necesarias para Draw.io, IaaS o auditoría. No migrar registros a OCI
+inventando imágenes equivalentes. Las pruebas antiguas útiles se adaptan o conservan
+como regresión, nunca se eliminan sólo para que el recorte parezca implementado.
 
-*GATE: antes de Phase 0 y reevaluación tras Phase 1.*
+## Mapa de implementación
 
-La decisión de usuario sobre oferta/instancia se incorporó a la constitución **4.2.0** y a sus
-plantillas. Se aplicó el hook de comprobación Git, que no modificó un repositorio ya existente.
-No queda conflicto pendiente entre FR-003 y el Principio VII.
+- Backend: `services/oci_registry_service.py`, `configuracion_despliegue_service.py`,
+  `biblioteca_service.py`, routers `templates`/`biblioteca`; servicios de admisión,
+  orquestación, ingesta, acceso/gateway y agenda existentes.
+- Infra: `infra/applications/docker/`, `profiles/docker/`, `job/` y
+  `infra/runner/node_executor.py`; instalación y validación en `infra/laboratorio/011/`.
+- Frontend: `AgregarServicioModal`, `BibliotecaAplicaciones`, `AplicacionPropiaForm`,
+  aprobación/pedidos/servicios y consola de lectura, sin pantalla nueva de perfiles.
+- Contratos: [configuración](contracts/configuracion.md), [API](contracts/api.md),
+  [runner](contracts/runner.md), [acceso/UI](contracts/acceso-ui.md) y [modelo](data-model.md).
 
-| Principio / gate | Comprobación de diseño | Pre / Post |
-|---|---|---|
-| I: gestión sólo en NAP | Routers→servicios→PVE/runner; ningún comando libre o wrapper host; consola de lectura no usa la excepción interactiva | PASS / PASS |
-| II: estados centralizados | Transiciones por `pedido_service.transicionar`; autor sistema en agenda/reconciliación, historial y motivo | PASS / PASS |
-| III: recuperación | Identidad y ejecución persistidas antes de efectos, fencing, inspección, deduplicación y ausencia antes de liberar | PASS / PASS |
-| IV: aislamiento/capacidad | Reserva atómica existente, snapshot, red externa al guest, secretos/datos propios y sin cuotas anticipadas | PASS / PASS |
-| V: historia | Revisiones inmutables, operaciones terminales conservadas, purga sólo de texto operativo | PASS / PASS |
-| VI: roles | Cátedra aplicación/propósito/fechas y Otro; administración resuelve; consola/descarga sólo admin actual | PASS / PASS |
-| VII: simplicidad | Dos orígenes, formulario breve; alta sin instancia, instalación por pedido; sin ensayos, publicación o evidencia manual | PASS / PASS |
-| Stack y esquema | Stack constitucional conservado; nuevas tablas/FK por Alembic, compatibilidad aditiva | PASS / PASS |
-| Fallo y concurrencia | Casos obligatorios de PVE/SSH/DB/registro y carreras reales en PostgreSQL incluidos en validación | PASS diseño / ejecución pendiente |
-| Pruebas no simulables | Gates de runtime/Core/firewall/instalación/red identificados y perfiles no habilitados hasta comprobarlos | PASS declaración / ejecución pendiente |
+## Secuencia y aceptación proporcional
 
-Los PASS anteriores evalúan el diseño; no acreditan código ni infraestructura desplegados. Si el
-spike sólo funciona con LXC privilegiado o protecciones desactivadas, el gate real falla y no se
-habilita ese perfil. No se cambia a QEMU u otro alcance silenciosamente.
+1. Revisar integración parcial T008/T023/T032/T034/T037/T039/T044–T047. Reconciliar el
+   gate incierto y distribuir la corrección `net0.type=veth` antes de otro ensayo propio.
+2. Completar T050: runtime Docker definitivo con whoami y campus-demo; persistencia,
+   registry privado, red, secretos y acceso comprobados. No repetir los spikes Community.
+3. US2 reducida: T051/T054 tests; T062 adaptador Hub + retirada del proveedor;
+   T063 UI con formulario común; T064 recorrido de búsqueda. Reusar T050 para las
+   verificaciones del motor, no ejecutar toda la batería dos veces por las dos entradas.
+4. Completar agenda/pedidos, consola y recuperación con el mismo motor según tareas.
+5. Aceptación integrada de **dos imágenes**: whoami descubierto en Hub y campus-demo
+   propia con dato persistente y pull privado; dos cátedras aisladas. Ensayos secuenciales
+   si falta capacidad y dos operaciones simultáneas sólo para medir la consola.
 
-## Project Structure
+Siguen vigentes los controles críticos de seguridad, datos y recuperación, así como
+regresión de IaaS/Draw.io. No se requieren cuatro aplicaciones, perfiles Core o pilotos
+MariaDB/Caddy. La búsqueda no exige API de categorías, caché local o una nueva spec.
 
-### Documentation (this feature)
+## Constitution Check y trazabilidad
 
-```text
-specs/011-desplegar-servicios-universitarios/
-├── spec.md
-├── plan.md
-├── research.md
-├── data-model.md
-├── quickstart.md
-├── contracts/
-│   ├── configuracion.md
-│   ├── api.md
-│   ├── runner.md
-│   └── acceso-ui.md
-└── checklists/requirements.md
-```
+La constitución 4.2.0 conserva oferta/instancia, simplicidad, autorización, aislamiento,
+capacidad atómica e historia. No prescribe Community Scripts; no necesita una enmienda
+para retirar ese proveedor. Diseño conforme; PASS de diseño no acredita instalación.
 
-`tasks.md` se generará con `/speckit-tasks`; este comando termina en diseño.
-
-### Source Code (repository root)
-
-Rutas existentes y propuestas para generar tareas, no archivos de implementación ya creados:
-
-```text
-backend/
-├── alembic/versions/                         # migración aditiva desde 010_06
-├── app/
-│   ├── models/                              # configuración, secretos, intentos, consola, reserva de red
-│   ├── schemas/                             # deployment discriminado y protocolo de trabajo
-│   ├── routers/{templates,pedidos,operaciones,servicios}.py
-│   ├── services/
-│   │   ├── {perfiles,evaluacion,admision,orquestacion}_service.py
-│   │   ├── {identidad_infra,reserva_red,service_access}_service.py
-│   │   ├── configuracion_despliegue_service.py
-│   │   ├── oci_registry_service.py
-│   │   ├── application_job_client.py
-│   │   ├── consola_operacion_service.py
-│   │   └── despliegue_programado_service.py
-│   ├── application_gateway.py                # adaptador web nuevo + Draw.io intacto
-│   └── worker.py                            # agenda e ingesta corta, además de tick existente
-└── tests/                                   # contratos/fakes; postgres/ para carreras y migración
-infra/
-├── runner/                                  # dispatcher nuevo protocolo, sin romper /1 histórico
-├── applications/
-│   ├── profiles/{docker,community}/          # perfiles institucionales y candidatos
-│   ├── job/                                 # supervisor, spool y redactor comunes
-│   ├── community/                           # harness/política común, fuentes fijadas
-│   ├── docker/                              # runtime/probes/borde de acceso
-│   └── fixtures/                            # demo universitaria para pruebas, no build del producto
-└── laboratorio/                             # preparación una vez y verificaciones sin secretos
-frontend/
-├── src/
-│   ├── components/{AgregarServicioModal,BibliotecaAplicaciones,ProgresoDespliegue}.jsx
-│   ├── components/{AplicacionPropiaForm,ConsolaOperacion}.jsx
-│   ├── hooks/useConsolaOperacion.js
-│   ├── pages/{Definiciones,Pedidos,Servicios}.jsx
-│   └── services/api.js
-└── tests/                                   # Vitest y e2e de ambos caminos/consola
-```
-
-**Structure Decision**: extender monolito/worker/runner existentes con dos estrategias de ejecución
-discriminadas por configuración. No dividir el producto en servicios de catálogo/pedidos nuevos;
-el gateway sigue en origen distinto por seguridad, como en el laboratorio actual.
-
-## Phase 0 — Research y decisiones cerradas
-
-[research.md](research.md) documenta R01–R14 con fuentes y alternativas. Se investigaron Docker,
-Community/Core y consola en paralelo mediante agentes de lectura. Hallazgos decisivos:
-
-1. El wrapper host Community no preserva el marcador de NAP; usar instalador guest/harness.
-2. Docker anidado requiere features/perfil probados y puede necesitar acción root cerrada del
-   runner para `keyctl`, no otro token con privilegios globales.
-3. Registro duradero necesita trabajo independiente de SSH; el runner actual es síncrono y acotado.
-4. El contador actual de intentos no representa instalaciones; crear intento estable y raíz lógica.
-5. La depuración ocurre antes de spool/journal/DB; Core tiene caminos de logs crudos que se adaptan.
-6. No existe programación futura automática en el checkbox actual; implementarla explícitamente.
-7. El pool histórico consume UUIDs de slots; asignaciones nuevas separan slot reutilizable e identidad.
-
-No quedan decisiones de diseño sin resolver. Las pruebas de factibilidad física no se sustituyen
-por documentación: son el primer gate de implementación.
-
-## Phase 1 — Diseño de integración
-
-### Alta y aprobación
-
-- Nuevo POST de aplicaciones crea configuración inmutable + template tras validar datos, fuente,
-  perfil, plataforma y acceso. No usa ensayo/preparación 010 ni afirma funcionamiento ya probado.
-- `perfiles_service` distingue base IaaS, artefacto legacy y configuración declarativa; conserva las
-  verificaciones históricas en sus ramas. Nuevo esquema no exige una evidencia legacy inexistente.
-- Evaluación incluye hash de configuración/perfil y mínimos. Aprobación revalida bajo lock de
-  capacidad, congela snapshot, crea secretos por pedido y reserva. No guardar secretos en la
-  idempotencia de request/response; usar cifrado y fingerprint contextual.
-- Solicitud de despliegue inmediata o programada es una decisión única en la UI. La agenda se
-  vincula a la revisión aprobada y respeta inicio, gracia de reserva, revocación y actor sistema.
-
-### Creación y ejecución
-
-- Admitir operación e intento antes del efecto; reservar red y reclamar identidad bajo las
-  garantías existentes. Crear CT detenido con marcador exacto; verificar recursos/base/red.
-- Wrapper del nodo verifica y habilita sólo las features del perfil; firewall antes del arranque.
-  Empezar trabajo duradero con execution_id, sin mantener transacción SQL durante SSH/descargas.
-- Docker inspecciona/pull digest, configura volúmenes/secretos/borde y arranca sin privilegios libres.
-  Community usa script guest/Core/harness/dependencias revisados y respuestas predefinidas.
-- Tras terminar, comprobar pertenencia/configuración, salud y acceso. Sólo entonces marcar
-  utilizable/transicionar a ACTIVO y avisar. No instalar otra vez por volver a consultar.
-- Stop/start/restart mantienen el contenedor y persistencia; delete confirma ausencia y libera
-  capacidad/red. Si falla la identidad o limpieza, estado explícito y contabilidad retenida.
-- Un reintento del mismo pedido conserva secretos de aplicación y sus referencias, también tras
-  ausencia confirmada y recreación. La nueva identidad/nonce y claves TLS son de infraestructura;
-  sólo un nuevo pedido de alta genera otro conjunto; una renovación conserva los del alta original.
-
-### Consola y continuidad
-
-- SQL almacena texto depurado ordenado por raíz; intentos y trabajos se correlacionan sin cambiar
-  operaciones terminales. Supervisor de nodo sobrevive a SSH/worker; reboot exige reconciliar.
-- Crear intento/cabecera antes del CT y registrar hitos seguros del portal con la fase, incluso si
-  nunca arranca el job. Unificar portal/runner por (execution_id, source, source_key) y secuencia
-  global; source_seq/ACK siguen siendo exclusivos del runner. Si hubo job, ingerir su cursor final antes del
-  hito final del portal. No reordenar por relojes de máquinas distintas.
-- Ingesta corta cada 1 s, commit y después ACK; navegador cada 1 s con cursor, sin sockets de shell.
-  Textos desconocidos no se retienen; registro técnico permite diagnóstico sin exponer credenciales.
-- UI con fases claras, consola negra/blanca, texto literal, scroll pausable, exportación deliberada,
-  errores de consulta distintos del proceso y metadatos de recorte/vencimiento visibles.
-- Sesión/rol se revalidan en cada lectura/exportación. Se aborta y borra el buffer de consulta al
-  perder acceso; no se promete borrar copias ya descargadas.
-
-### Compatibilidad y migración
-
-- Cambios aditivos y discriminados; no reset de base, usuarios, cátedras ni IDs existentes.
-- FKs nuevas nullable y tipos nuevos separados; conservar `nap-guest-runner/1`, manifiestos 1.1,
-  artefactos/credenciales/red Draw.io y datos de IaaS.
-- Validación de perfiles es técnica y una vez por revisión/plataforma, no un trámite por alta.
-  Medium inicial en pilotos; Small sólo cuando se demuestre que cabe la plataforma completa.
-- El perfil de acceso web debe ser genérico: no basta permitir otro producto en el gateway Draw.io.
-  TCP mantiene su autenticación propia; un logout NAP no revoca retroactivamente una conexión nativa.
-
-## Secuencia para la generación posterior de tareas
-
-1. **Preparación inicial**: ejecutar bootstrap técnico de registry TLS, red/DNS/CA/slots, bases
-   candidatas y acceso de ensayo antes de los spikes, sin habilitar perfiles ni tocar servicios
-   existentes. El preflight sólo diagnostica; no sustituye esta preparación. Instalar los paquetes
-   definitivos cuando estén construidos y antes de su gate real; al cierre sólo revisar guía/rollback.
-2. **Gate de factibilidad**: harness Core, Docker anidado, permisos cerrados y red en un recurso
-   controlado; validar fuentes/secretos sin activar perfiles ni crear ofertas engañosas.
-3. **Base común**: migración/configuración, resolver/profile registry, snapshots/reserva, trabajos
-   duraderos, intento/fencing, productor seguro e ingesta de consola con fakes y carreras SQL.
-4. **Recorrido Docker**: alta, aprobación, instancia, persistencia, acceso y primer flujo de consola.
-5. **Recorrido Community**: mismo contrato y control, perfiles MariaDB/Caddy y probes específicos
-   de acceso; ninguna duplicación de máquina de estados o implementación completa de instaladores.
-6. **Integración**: agenda/reintentos/bajas, permisos, GUI simple, regresión, ensayos reales y guía
-   de conexión institucional. Declarar cada gate real aprobado o bloqueado con su motivo.
-
-Estos son incrementos de diseño, no tareas ejecutadas ni autorización para saltar sus compuertas.
-
-## Validation Strategy
-
-[quickstart.md](quickstart.md) contiene los comandos y ensayos posteriores a implementación.
-
-| Superficie | Evidencia requerida |
+| Requisitos | Diseño y aceptación |
 |---|---|
-| Configuración/registry | Fuente inválida, cambio de tag, plataforma incorrecta, auth/CA y SSRF; sin secretos |
-| Capacidad/agenda | Aprobaciones concurrentes, reserva futura, inicio/revocación y autor sistema |
-| Runner | Respuesta perdida, takeover, misma ejecución, boot cambiado, entrada maliciosa y log seguro |
-| Consola | Secretos entre chunks, raw logs deshabilitados, orden/cursor/ACK, límites, revocación/exportación |
-| Persistencia/acceso | Reinicio sin reinstalar, datos por cátedra, TLS/autenticación y restricción de red |
-| Limpieza | Propiedad ajena, ausencia incierta, disco ocupado y red retenidos hasta confirmación |
-| Regresión | Ubuntu/Debian/Draw.io, renovaciones, avisos y permisos existentes |
-| Física | MariaDB + Caddy + dos imágenes, dos instancias aisladas y fallos reales controlados |
+| FR-001–005 | Un modal, dos entradas, un alta OCI sin recursos; US1 y T050 |
+| FR-006–009 | Hub por nombre, categorías opcionales, digest/configuración común; US2 reducida |
+| FR-010–017 | Pedido/Otro, aprobación/agenda, identidad, acceso y entrega comprobados |
+| FR-018–024 | Consola durable, depuración/cursor/ACK, autorización y límites |
+| FR-025–030 | Reconciliación, persistencia, limpieza, vigencias y legado intacto |
+| SC-001–003/008 | Dos entradas <=3 min, pedido <=2 min; dos imágenes y dos cátedras |
+| SC-004–007/009 | Medidas de consola, fallos, secretos y regresión del motor común |
 
-No hay nuevos tests de implementación creados o ejecutados en esta fase. Se valida coherencia de
-artefactos y fuentes; pasar a tareas no equivale a certificar un perfil real.
-
-## Complexity Tracking
-
-No se mantienen violaciones constitucionales aceptadas. La enmienda 4.2.0 ya resuelve la única
-ambigüedad del momento de instalación. Nuevas tablas y protocolo tienen motivos concretos:
-configuración sin reinterpretar legado, ejecución durable, consola limitada y red reutilizable.
-Polling, un worker y acciones cerradas son la alternativa mínima; no broker/terminal interactiva.
-
-## Trazabilidad de requisitos
-
-| Requisitos | Diseño y comprobación |
-|---|---|
-| FR-001–003 | Alta administrativa unificada y oferta sin recursos; contratos UI/API; US1/US2 |
-| FR-004–005 | Configuración OCI/registry, plataforma/digest, dos imágenes y datos; R02–R04 |
-| FR-006–009 | Perfil/harness Community, fuentes fijas, mínimos y cambios inmutables; R05/R06 |
-| FR-010–012 | Pedido/Otro, evaluación/reserva/agenda, dos aprobaciones; R01/R13 |
-| FR-013–017 | Identidad, red, secretos, trabajos duraderos y comprobación de acceso; R07/R11/R14 |
-| FR-018–024 | UI/consola, depuración previa, cursores/ACK, cuotas y permisos; R08–R10 |
-| FR-025–028 | Reintento enlazado, persistencia, limpieza confirmada y políticas académicas; R07/R11/R13 |
-| FR-029–030 | Configuración inicial, perfiles bloqueados hasta prueba real y regresión sin recreación; R12 |
-
-SC-001/008: recorridos cronometrados; SC-002/003: cuatro aplicaciones y dos cátedras; SC-004:
-medición del registro; SC-005/006: fallos/reconciliación/limpieza; SC-007: permisos y secretos;
-SC-009: regresión y separación de evidencia simulada/local/institucional.
+El historial de investigación y factibilidad Community se conserva como descartado;
+las instrucciones vigentes están aquí y en [quickstart.md](quickstart.md).

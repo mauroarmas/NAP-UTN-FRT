@@ -7,14 +7,17 @@ El runtime Docker definitivo sigue pendiente de gate real; la corrección de
 `net0.type=veth` está en Git pero aún no distribuida. Se limpió el ensayo temporal
 y se conservó su resultado incierto. El Compose de traspaso no inicia workers ni
 conecta infraestructura; la copia privada de DB/keyring se entrega fuera de Git.
-Usar rutas relativas del clon para las habilidades, no las rutas de Mauro.
+Usar rutas relativas del clon para las habilidades, no las rutas de Mauro. El alcance vigente
+es [Docker Hub e imágenes propias](specs/011-desplegar-servicios-universitarios/cambio-alcance-oci.md),
+con 37/95 tareas activas verificadas; las cifras 38/105 pertenecen al alcance anterior.
 
 ## Preferencias acordadas con Mauro
 
-- **Propósito del producto: un pequeño AWS simple para la universidad.** Community Scripts es una
-  fuente opcional, no el alcance de NAP. Debe admitir entornos Linux y aplicaciones propias de las
-  cátedras basadas en imágenes, con instancias independientes y catálogo reutilizable. La vía de
-  imágenes propias está acordada como objetivo; su despliegue genérico todavía no está implementado.
+- **Propósito del producto: un pequeño AWS simple para la universidad.** Docker Hub es la
+  biblioteca de aplicaciones; también se admiten referencias de imágenes propias en registries
+  autorizados. Ambas entradas reutilizan un único motor Docker/OCI. **Community Scripts se retiró
+  del alcance el 27/10/2026**; no implementar Core/harness o pilotos por esa vía. IaaS conserva
+  Ubuntu/Debian. El runtime genérico está parcialmente construido y pendiente del gate real.
 
 - **Simplicidad ante todo**. Las cátedras no son técnicas y el administrador sólo un poco más.
   Formularios cortos, lenguaje cotidiano, botones claros y progreso/éxito/error visibles.
@@ -38,8 +41,8 @@ Usar rutas relativas del clon para las habilidades, no las rutas de Mauro.
   Sin ensayo de 24 horas ni vencimiento de la preparación/oferta; conservar fechas académicas
   de los pedidos. Al publicar se reutiliza la aplicación para futuras instancias por cátedra. No se ofrecen aplicaciones sin adaptador compatible.
 - Small: 1 vCPU, 512 MB RAM, 4 GB disco. Medium: 2 vCPU, 1024 MB RAM, 8 GB disco.
-  Docker conserva la base Ubuntu 24.04/LXC. Community Scripts usa sólo la base comprobada por su
-  perfil compatible (pilotos previstos Debian 13); IaaS ofrece Ubuntu 24.04 y Debian 13. Respetar mínimos reales.
+  Docker conserva la base Ubuntu 24.04/LXC; IaaS ofrece Ubuntu 24.04 y Debian 13.
+  Respetar mínimos reales. El candidato Docker inicial es Medium hasta validar Small.
 - La cátedra pide aplicación/propósito/fechas y puede elegir **Otro**. Administración aprueba,
   rechaza o pide aclaración; reserva al aprobar, despliega desde la fecha inicial. Sin cuotas
   anticipadas por cátedra. Catálogo administrativo sólo visible para administración.

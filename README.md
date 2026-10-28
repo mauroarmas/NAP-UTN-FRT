@@ -4,7 +4,8 @@ Portal para que las cátedras soliciten entornos Linux y aplicaciones, y adminis
 apruebe y gestione sus instancias en Proxmox. React/Vite, FastAPI, PostgreSQL 16 y LXC.
 
 **Implementación en curso:** [spec 011](specs/011-desplegar-servicios-universitarios/spec.md),
-motor de imágenes Docker y aplicaciones de Community Scripts. El motor definitivo
+motor OCI común para imágenes de Docker Hub y propias. Community Scripts queda
+fuera del alcance. El motor definitivo
 todavía no está habilitado. Draw.io e IaaS conservan el recorrido anterior.
 
 Para continuar desde otra computadora, empezar por

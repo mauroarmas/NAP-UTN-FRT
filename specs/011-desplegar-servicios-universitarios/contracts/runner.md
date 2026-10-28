@@ -60,8 +60,8 @@ sí mismo. Es un watchdog de operación, no vencimiento de oferta ni ensayo de s
 
 ## Creación y etapas
 
-La orquestación de NAP crea exactamente un CT con `start=0` y su marcador. El wrapper no ejecuta
-el wrapper host de Community Scripts. Antes de iniciar se verifica firewall/red y, para Docker,
+La orquestación de NAP crea exactamente un CT con `start=0` y su marcador. No ejecuta
+scripts de terceros en el nodo. Antes de iniciar se verifica firewall/red y
 una acción interna fija establece sólo `nesting=1,keyctl=1` del perfil aprobado sobre el CT detenido.
 No se amplía el token API a root ni se aceptan features provenientes de campos de usuario.
 
@@ -72,8 +72,6 @@ normalizada y etapas confirmadas, no un porcentaje temporal inventado.
 - Docker: verificar daemon/perfil; pull por digest con credencial efímera; crear volúmenes propios y
   container etiquetado con identidad/configuración; quitar credenciales de registry; arrancar y
   comprobar. Mantener ENTRYPOINT/CMD, sin comandos libres o HEALTHCHECK que retenga salida insegura.
-- Community: ejecutar instalador guest/paquete Core/harness comprobados; respuestas cerradas,
-  dependencias fijadas y configuración final de acceso tipada. No cargar código del backend host.
 - Reinicio del mismo servicio: inspeccionar LXC, container/volúmenes cuando corresponda y snapshot;
   no volver a instalar, resolver tags o regenerar secretos.
 
@@ -96,7 +94,7 @@ de ejecutar; redactor incremental con ventana suficiente cubre tokens partidos e
 representaciones declaradas. Descartar salida desconocida, secuencias de terminal y contenido que
 podría contener secretos no registrados antes de persistir/transmitir. Mensaje fijo de supresión.
 
-El harness reemplaza logging/error artifacts de Core y desactiva tracing/telemetría; Docker no
+El runtime deshabilita los logs crudos y desactiva tracing/telemetría; Docker no
 usa su retención cruda de stdout. Es obligatorio probar DB, spool, journal y archivos operativos
 del guest/nodo. Los archivos privados que necesita la propia aplicación no son la consola NAP
 ni se exportan como registro técnico.

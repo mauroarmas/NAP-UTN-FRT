@@ -5,11 +5,15 @@
 Continuar la rama **`011-desplegar-servicios-universitarios`**, no crear otra spec
 ni volver a implementar 009/010. El checkpoint de código previo a este traspaso
 es `597713e`; el traspaso agrega configuración, documentación y limpieza básica.
-`tasks.md` tiene **38 de 105 tareas verificadas**. Varias tareas pendientes tienen
+`tasks.md` tiene **37 de 95 tareas activas verificadas (58 pendientes)**. Varias tareas pendientes tienen
 código parcial: leer sus pruebas y evidencias antes de decidir qué falta.
 
 Objetivo: un pequeño AWS sencillo para la universidad. Dos entradas al catálogo:
-imagen Docker propia y aplicación compatible de Community Scripts. Agregar una
+buscar en Docker Hub o ingresar una referencia de imagen propia; ambas usan el
+mismo motor OCI. Community Scripts se retiró el 27/10; ver el
+[cambio de alcance](../specs/011-desplegar-servicios-universitarios/cambio-alcance-oci.md).
+Diez tareas quedaron retiradas, incluida una completada históricamente; el recorte
+no representa nuevas implementaciones. Agregar una
 oferta no crea LXC ni reserva capacidad; aprobar un pedido reserva y su despliegue
 instala/verifica una instancia independiente por cátedra.
 
@@ -23,7 +27,7 @@ instala/verifica una instancia independiente por cátedra.
   oferta de 24 h. Las vigencias académicas sí se conservan.
 - Small: 1 vCPU/512 MB/4 GB; Medium: 2 vCPU/1024 MB/8 GB. Respetar mínimos reales:
   el runtime Docker candidato sólo admite Medium, no forzar Small para mostrarlo.
-- LXC únicamente. Docker usa Ubuntu 24.04; Community pilotos Debian 13. IaaS
+- LXC únicamente. Docker usa Ubuntu 24.04; no construir perfiles Community. IaaS
   conserva Ubuntu 24.04 y Debian 13. No fallback privilegiado, unconfined o QEMU.
 - Consola de instalación **de lectura**, negra con texto blanco, sólo admin;
   cátedra ve resumen. No es una shell ni reemplaza la consola IaaS.
@@ -76,7 +80,7 @@ una carrera PostgreSQL y pruebas UI con API simulada; detalles y límites en
 
 ## Orden recomendado para continuar
 
-1. Leer `AGENTS.md`, constitución y spec/plan/tasks/contracts/quickstart de 011.
+1. Leer `AGENTS.md`, constitución, cambio de alcance y spec/plan/tasks/contracts/quickstart de 011.
    Confirmar qué cambios locales recibió el clon y revisar T008/T023/T032/T034/T037
    y T039/T044–T047: contienen trabajo parcial, no empezar de cero.
 2. Revisar el cierre seguro del ensayo incierto. Si se usa otro nodo, crear
@@ -85,10 +89,11 @@ una carrera PostgreSQL y pruebas UI con API simulada; detalles y límites en
 3. Distribuir la corrección de `net0.type` y completar T050 con runtime definitivo:
    whoami, campus-demo con persistencia y registry privado, aislamiento y secretos.
    Habilitar el perfil únicamente tras ese gate. Hoy el candidato es Medium.
-4. Completar Community T051–T064 usando los locks y la factibilidad existentes:
-   MariaDB y Caddy. No ejecutar el wrapper de Community Scripts en el nodo ni
-   admitir cualquier resultado de búsqueda como instalable. Categorías y motivos
-   claros para aplicaciones aún incompatibles.
+4. Reemplazar el proveedor de biblioteca por Docker Hub: T051/T054 prueban búsqueda
+   y UI; T062 integra búsqueda y retira Community de altas/despacho; T063 reutiliza
+   el formulario OCI de imagen propia; T064 prueba el recorrido. No implementar
+   Core/harness, instaladores guest ni pilotos MariaDB/Caddy. Se retiran
+   T006/T052/T053/T055–T061; preservar sus IDs e historia, no marcarlas hechas.
 5. Completar pedidos/agenda/secretos/avisos T065–T076, consola T077–T087,
    recuperación/operaciones T088–T098 y cierre T099–T105 siguiendo dependencias.
    Hay piezas comunes ya hechas; verificar antes de duplicarlas.

@@ -16,7 +16,7 @@ Ayudame a iniciar el portal con docker-compose.handoff.yml y, si recibí la copi
 privada, restaurarla mediante scripts/traspaso.py siguiendo el traspaso. No muestres
 ni subas secretos. Sin copia, migrá una DB vacía y usá el bootstrap interactivo.
 
-El avance registrado es 38/105; hay código parcial en tareas aún sin marcar.
+El avance vigente es 37/95 tareas activas (58 pendientes); hay código parcial en tareas aún sin marcar.
 El último ensayo del runtime definitivo Docker falló antes de arrancar porque
 Proxmox agregó net0.type=veth. Ya está corregido y probado en el repositorio,
 pero falta distribuirlo y completar el gate real. El ensayo quedó incierto;
@@ -26,8 +26,13 @@ Los perfiles definitivos siguen deshabilitados. Draw.io e IaaS usan el legado:
 no los elimines ni los reescribas innecesariamente.
 
 Empezá identificando el siguiente bloque pendiente y sus dependencias, aprovechando
-lo ya implementado. Priorizá cerrar Docker real y luego Community MariaDB/Caddy,
-pedidos/programación, consola de lectura y recuperación según tasks.md. No habilites
+lo ya implementado. El alcance cambió: Docker Hub reemplaza Community Scripts como
+biblioteca; también hay imágenes propias, con un solo motor OCI. Leé
+specs/011-desplegar-servicios-universitarios/cambio-alcance-oci.md. No implementes
+Core/harness ni pilotos Community: T006/T052/T053/T055–T061 están retiradas,
+no completadas por este cambio. Priorizá cerrar Docker real, adaptar la biblioteca
+Hub reutilizando el alta OCI y seguir con pedidos/programación, consola y recuperación.
+No habilites
 perfiles por fixtures ni debilites controles para aprobar el ensayo.
 
 Simplicidad ante todo: agregar una oferta no instala ni reserva; instalar/verificar

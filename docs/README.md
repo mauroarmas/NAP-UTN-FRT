@@ -4,6 +4,7 @@
 
 - [Traspaso de la implementación 011](traspaso-011.md): estado, entorno, datos y siguiente paso.
 - [Prompt de continuación para Claude](prompt-continuacion-011.md).
+- [Alcance reducido: Docker Hub e imágenes propias](../specs/011-desplegar-servicios-universitarios/cambio-alcance-oci.md).
 - [Spec 011 y tareas](../specs/011-desplegar-servicios-universitarios/tasks.md).
 - [Rumbo del producto](rumbo-mini-cloud.md) y [constitución](../.specify/memory/constitution.md).
 

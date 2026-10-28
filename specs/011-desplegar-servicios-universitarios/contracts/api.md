@@ -14,9 +14,9 @@ Campos visibles básicos: `nombre`, `descripcion?`, `origen` y datos de origen.
 - `imagen_docker`: `imagen`, `puerto`, modelo opcional (SaaS por defecto), configuración/persistencia
   únicamente si la aplicación las requiere. No recibir credenciales de registry, hashes ni perfiles
   internos desde el formulario; el servidor los deriva y verifica.
-- `community_scripts`: `identidad_externa`, `revision_fuente` de la búsqueda y respuestas tipadas
-  admitidas por su perfil. La revisión del instalador efectivo es la comprobada en NAP, no una
-  sustitución por `main`; la UI lo indica sin pedir gestionar versiones.
+Ambas entradas de UI envían `origen=imagen_docker`; Docker Hub precarga la referencia
+seleccionada. Nuevas solicitudes `community_scripts` se rechazan sin crear oferta.
+No aceptar comandos de instalación ni reinterpretar registros históricos como imágenes.
 
 Validación externa acotada antes de la transacción; revalidar permisos y perfil al confirmar.
 Respuesta 201 con el template normal más `origen_despliegue`, `configuracion_id` interno,
@@ -32,13 +32,22 @@ instancias ni secretos existentes. Nombre/descripción y retiro siguen usando ac
 
 ### GET `/biblioteca/aplicaciones` y GET `/biblioteca/categorias`
 
-Conservar búsqueda/filtros/cursor y fallback de metadata existentes. Enriquecer resultados con
-instalación efectiva admitida, mínimos/tamaños y `motivo_no_disponible` cuando corresponda. El slug
-por sí solo no habilita un script. Un resultado Draw.io histórico puede retomar su oferta/artefacto;
-no se reconvierte forzosamente a la nueva integración.
+Reemplazar el proveedor de búsqueda Community por Docker Hub, conservando la ruta de
+búsqueda y el componente actual cuando resulte útil. Nombre y paginación acotados;
+repositorio/referencia, descripción/procedencia y distintivos disponibles. No usar
+el contenido de la ficha como autorización ni asumir que el Registry API v2 ofrece
+búsqueda: descubrimiento Hub y resolución OCI son responsabilidades distintas.
 
-Mantener rutas antiguas de incorporación/preparación 010 para compatibilidad, sin usarlas para
-crear las nuevas ofertas ni reintroducir «Guardadas» o el ensayo en el recorrido normal.
+La selección pasa por POST `/templates/aplicaciones` con `imagen_docker`, exactamente
+como la referencia propia. Mostrar incompatibilidad comprobada por el resolver/perfil,
+no exigir adaptadores por aplicación. Errores/rate limits del proveedor son explícitos,
+no listas vacías; permitir ingresar una referencia manual y mantener catálogo interno.
+No desarrollar un espejo ni cache nueva para este alcance.
+
+GET `/biblioteca/categorias` puede devolver una lista vacía si la API elegida no las
+expone. La UI omite ese filtro; no inventa categorías ni bloquea la búsqueda por nombre.
+Rutas históricas 010 de incorporación/preparación permanecen sólo donde su compatibilidad
+lo exija, fuera de la navegación habitual. Draw.io histórico no se reconvierte ni recrea.
 
 ## Pedidos, aprobación, programación y acceso
 

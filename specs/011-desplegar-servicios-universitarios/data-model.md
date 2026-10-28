@@ -1,7 +1,9 @@
 # Data model: configuraciones, instancias e historial de consola
 
-Diseño propuesto; las tablas y migraciones aún no existen. Mantener PostgreSQL/SQLAlchemy/Alembic.
-Nombres físicos sugeridos para generar tareas; no hay DDL ni cuerpos de implementación en este documento.
+Diseño de referencia: la revisión `011_01_despliegue_aplicaciones` y sus modelos ya
+existen; parte de la integración sigue pendiente. Mantener PostgreSQL/SQLAlchemy/Alembic.
+La reducción del 27/10 limita nuevas configuraciones a imágenes Docker/OCI; no
+modificar revisiones aplicadas ni borrar discriminadores/datos históricos por esta edición.
 
 ## 1. ConfiguracionDespliegue — nueva, inmutable
 
@@ -11,7 +13,7 @@ Nombres físicos sugeridos para generar tareas; no hay DDL ni cuerpos de impleme
 |---|---|
 | id | UUID, PK |
 | codigo, revision | Identidad de familia y entero positivo; UNIQUE(codigo, revision) |
-| origen | `imagen_docker` o `community_scripts` |
+| origen | `imagen_docker` para nuevas configuraciones |
 | modelo_servicio | `paas` o `saas`; las bases IaaS siguen su camino actual |
 | documento | JSON validado por `nap-deployment/1`; contrato discriminado en `contracts/configuracion.md` |
 | sha256 | Hash canónico del documento no sensible |
@@ -145,8 +147,6 @@ acotado y elimina fragmentos confirmados; no es una segunda retención permanent
 
 - Runtime Docker: base Ubuntu 24.04, arquitectura, versiones verificadas de runtime, features LXC
   exactas, filesystem, mínimos medidos y capacidades permitidas.
-- Community: script y Core fijados, manifest de archivos/hashes, harness/política, base Debian 13,
-  snapshot APT y descargas verificadas, respuestas cerradas, acceso/probe y secretos esperados.
 - Red: reserva de IP/MAC/DNS, ingreso por gateway o cliente permitido, egress controlado y bloqueo
   de administración/otras cátedras. No adoptar el perfil histórico de un producto por coincidencia.
 - Registry: host/CA/repository scope/credencial de lectura, fuera de los documentos públicos.

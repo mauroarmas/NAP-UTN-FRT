@@ -1,44 +1,39 @@
 # NAP: una nube pequeña y simple para la universidad
 
-Acordado con Mauro el 26/10/2026: el propósito es **«un pequeño AWS simple para la universidad»**.
-Community Scripts debe ser una fuente opcional de aplicaciones, sin limitar el software que una
-cátedra pueda necesitar o desarrollar.
+Propósito acordado: **«un pequeño AWS simple para la universidad»**.
+Decisión del 27/10/2026: Docker Hub reemplaza a Community Scripts como biblioteca,
+y se conservan imágenes propias de las cátedras. Ambas usan el mismo motor OCI.
+La implementación sigue en [spec 011](../specs/011-desplegar-servicios-universitarios/cambio-alcance-oci.md).
 
-## Tres formas de ofrecer un servicio
+## Servicios que ofrece
 
-- **Entorno Linux**: seleccionar una plantilla del nodo (Ubuntu o Debian). Es el camino IaaS existente.
-- **Desde la biblioteca**: buscar una aplicación y agregarla cuando NAP tenga una instalación compatible.
-- **Aplicación propia**: registrar una imagen preparada por la cátedra o el equipo técnico, independiente
-  de Community Scripts. Debe poder reutilizarse para crear instancias separadas de futuros pedidos.
+- **Entorno Linux**: plantilla LXC Ubuntu o Debian del nodo; camino IaaS existente.
+- **Docker Hub**: buscar una imagen, elegirla y completar datos necesarios.
+- **Imagen propia**: ingresar referencia pública o de registry institucional ya
+  autorizado. Puede ser software desarrollado por una cátedra.
 
-Para aplicaciones propias se propone Docker/OCI como formato habitual. El alta debería pedir nombre,
-imagen, puerto y, sólo cuando hagan falta, configuración y almacenamiento persistente. No pedir
-manifiestos JSON, hashes, UUID ni recetas al administrador habitual. Los datos técnicos de la imagen
-puede aportarlos quien desarrolló el software. Las plantillas LXC de sistemas completos son un
-formato distinto y siguen el camino de infraestructura.
+Las dos entradas de aplicaciones convergen en el mismo formulario y ejecución.
+Nombre, imagen y puerto; configuración/persistencia sólo cuando hagan falta.
+Sin recetas, UUID, hashes, comandos o trámites de preparar/publicar. Un resultado
+del buscador no garantiza encaje en Medium ni funcionamiento de la aplicación.
 
-Se mantiene el flujo académico: la cátedra solicita aplicación o **Otro**, propósito y fechas;
-administración aprueba, rechaza o pide aclaración. Al aprobar se elige Small o Medium, se reserva
-capacidad y se despliega desde la fecha inicial. No se reservan recursos por publicar una oferta ni
-se asignan cuotas anticipadas a todas las cátedras.
+Se conserva el flujo académico: cátedra solicita aplicación u **Otro**, propósito
+y fechas; admin aprueba, rechaza o pide aclaración. Al aprobar reserva capacidad
+y despliega desde fecha inicial. Agregar una oferta no instala ni reserva.
 
-## Motor común, pendiente de implementar
+## Alcance mínimo y estado real
 
-La solución propuesta es un motor de despliegue reutilizable para imágenes de aplicaciones. Debe
-resolver instalación, configuración por instancia, acceso, almacenamiento y comprobaciones. Así
-agregar otra imagen compatible no requiere programar todo el proceso de nuevo para cada producto.
+Un contenedor de aplicación por LXC Ubuntu 24.04 no privilegiado, con recursos,
+datos/acceso propios y comprobación antes de entrega. Sin builds desde código,
+Docker Compose o software que requiera privilegios/más recursos que los admitidos.
+Imágenes privadas usan acceso institucional preparado una vez.
 
-La biblioteca necesita indicar qué aplicaciones puede desplegar ese motor. Encontrar un script no
-lo vuelve compatible: algunos requieren otros sistemas, más recursos o una configuración particular.
-La incorporación de imágenes propias ofrece una alternativa para estos casos. Una instancia ya
-configurada con contraseñas compartidas no debe convertirse en una plantilla para todas las cátedras.
+IaaS y Draw.io histórico se conservan. El alta OCI, resolución de imágenes y
+runtime genérico están parcialmente construidos; falta el gate Docker definitivo.
+El cambio de biblioteca a Docker Hub está especificado y pendiente de T062/T063.
+No construir Core/harness ni pilotos Community. Su evidencia previa se conserva
+como histórica, sin obligar a repetirla ni habilitar perfiles.
 
-## Estado real
-
-- Ubuntu/Debian del nodo y el recorrido automático de Draw.io están implementados.
-- La biblioteca descubre otras aplicaciones y consulta sus categorías/descripciones públicas.
-- Instalar cualquier resultado de Community Scripts **no está implementado**.
-- Registrar y desplegar imágenes propias de forma genérica **no está implementado**.
-
-Este documento conserva el objetivo y la propuesta; no acredita esas capacidades pendientes ni crea
-una nueva especificación por rutina.
+Dos imágenes prueban reutilización: whoami encontrado en Docker Hub y campus-demo
+universitaria con persistencia/pull privado. Seguridad, recuperación y consola
+siguen siendo parte de la entrega; el laboratorio no acredita el clúster universitario.
