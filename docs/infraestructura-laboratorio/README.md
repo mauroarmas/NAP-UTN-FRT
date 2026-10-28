@@ -208,10 +208,12 @@ esté inactivo). No borrar cuentas para forzarlo.
 ### `runner.json` mínimo por nodo (sin perfiles habilitados)
 ```json
 {"schema_version": "nap-application-node/1", "cluster_uuid": "<UUID-PROPIO-DEL-CLUSTER>",
- "node": "frt", "profiles": {}, "networks": {}}
+ "node": "frt", "profiles": {}}
 ```
-En los otros nodos cambia `node` (`pve91`, `pve92`, `pve93`); el UUID es el mismo. Redes y perfiles se completan con
-configuración propia comprobada.
+El documento de **entrada** de `--config` lleva exactamente esos cuatro campos, **sin `networks`** (Mauro lo corrigió el
+28/10); propietario root, modo 0600. El instalador escribe el destino `/etc/nap/applications-011/runner.json`.
+En los otros nodos cambia `node` (`pve91`, `pve92`, `pve93`); el UUID es el mismo. Redes y perfiles se agregan después
+en el `runner.json` instalado (ver "Avance del 28/10"), con configuración propia comprobada.
 
 ### Dependencias del nodo
 `python3-jsonschema`, `python3-cryptography`, `sudo`, `openssl`, `nftables`, SSH y systemd, más `pct` y `pvesh`
@@ -228,19 +230,36 @@ motor OCI. Ya no hacen falta los pilotos Community (MariaDB/Caddy) ni reproducir
 Actualizar la rama hasta el commit **`26e52a3`** cuando esté publicado (a las 22:5x del 27/10 aún no lo estaba:
 `origin/011-...` seguía en `0167202`).
 
-### Estado actual de los nodos (limpiar antes de continuar)
-- `frt`: el asistente creó una cuenta `naprunner` y revirtió sus archivos; puede quedar la cuenta/grupo bloqueados.
-- `pve91`, `pve92`, `pve93`: siguen con un `naprunner` **manual con `sudo NOPASSWD:ALL`** y shell. Es un atajo de
-  laboratorio, no el diseño. No replicar en servidores reales.
+### Avance del 28/10/2026
+Mauro corrigió el bootstrap en `4bc7a51` (`registry_entries.py` en `configure_access.py`). Con la rama 011 al día:
+1. **Limpieza** de los 4 nodos (con respaldo en `/root/nap-limpieza-<nodo>`): se retiró la cuenta/grupo `naprunner`
+   y los directorios vacíos que dejó el asistente en `frt`; en `pve91..93` se retiró además el `sudoers` con
+   `NOPASSWD:ALL` y el home con su `authorized_keys`. Imágenes, recetas y `/home/tom` no se tocaron.
+2. **Asistente corregido** con `--apply` en los 4 nodos, desde una copia de `git archive` de root sin escritura de
+   grupo/otros (`chmod -R go-w`), con `--worker-ip 192.168.100.89` (la IP que ven los nodos). Prueba SSH con la clave
+   del worker: `INVALID_REQUEST` del wrapper en los 4 (también desde el contenedor de la API).
+3. **Paquete 011** con `infra/runner/install.sh --config` (JSON inicial de 4 campos): `installed`, sin perfiles
+   habilitados ni invitados; mismo `code_sha256` en los 4 nodos.
+4. **Plantilla base en TrueNAS** (decisión de laboratorio): `pveam download truenas ubuntu-24.04-standard_24.04-2_amd64.tar.zst`
+   (sha256 `75a827c4…`), visible desde los 4 nodos. Cambia `volumen_lxc` a `truenas:vztmpl/…` en
+   `infra/applications/profiles/docker/ubuntu24.json` (la 011 de Mauro usa `local:`; **cambio local, no commiteado**)
+   y obliga a reinstalar el paquete (cambia `policy_bundle_sha256`).
+5. **Perfil y red** registrados en el `runner.json` de cada nodo (respaldo `/root/runner-<nodo>.antes.json`): perfil
+   `docker-ubuntu24:1` en `pendiente_validacion` y red `lab-applications-011` (slots `.100–.119`, DNS `192.168.100.1`,
+   `peer_cidrs` `192.168.100.0/24`). La red del nodo tiene otro esquema que la del portal (`nodes`, `bridge`,
+   `client_cidrs`, `management_addresses`, `peer_cidrs`, `endpoints`, `slots`).
+6. **Portal** (`backend/.env` privado, cluster_id `0d69119f-…`): la pila `nap-handoff` fija esos valores en `{}`, por lo
+   que se usa un override privado adicional (`compose-api-011.yml`) con `INFRASTRUCTURE_PROFILE`, `RUNNER_NODES`,
+   `NETWORK_PROFILES`, `APPLICATION_PROFILES` y `APPLICATION_NETWORK_PROFILES`, el montaje de la clave SSH y un
+   `/etc/passwd` con el UID 1000 (sin esa entrada `ssh` falla dentro del contenedor).
 
-### Orden propuesto para continuar
-1. Esperar/traer `26e52a3` (`git fetch` y actualizar la rama 011).
-2. Corregir `configure_access.py` para copiar también `registry_entries.py` (decidir si se hace aquí o lo publica Mauro).
-3. ~~Instalar dependencias en los nodos~~ **Hecho** con `scripts/instalar-dependencias-nodos.sh`: solo faltaba `python3-jsonschema` (4.19.2); `python3-cryptography` 43.0.0, `openssl` y `nftables` ya estaban (servicio `nftables` deshabilitado, sin reglas).
-4. Limpiar `naprunner` en los 4 nodos y correr el asistente corregido.
-5. Escribir `runner.json` por nodo con el UUID propio e instalar el paquete común 011 con `install.sh`.
-6. Cargar `cluster_id` propio en `infrastructure_profile` y registrar/validar perfiles propios.
-7. Conseguir acceso admin con Mauro y crear el administrador personal.
+### Pendiente
+- Terminar T044–T047 (motor Docker de la 011: `deploy.py`, `access.py`/`probes.py`, orquestación) y T050: el perfil
+  no se habilita antes. Las compuertas de `infra/laboratorio/011/` están fijas al laboratorio de Mauro (nodo `proxmox`,
+  VMID 900011, `local-lvm`, registry privado `172.16.36.1:5443`) y no sirven tal cual aquí.
+- Decidir con Mauro dónde vive la plantilla base (`local:` por nodo o `truenas:` compartido).
+- Capacidad: `truenas` tiene ~28,6 GiB y el perfil reserva 2 GiB de margen; entran ~3 servicios de 8 GB.
+- Acceso admin: ya resuelto con Mauro (cuenta personal creada).
 
 ## 10. Lecciones operativas
 
