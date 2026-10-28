@@ -11,7 +11,7 @@ if (os.environ.get('NAP_SETUP_SANDBOX') != '1' or not pathlib.Path('/.dockerenv'
 # solamente los bits solicitados a mkdir.
 os.umask(0o077)
 root = pathlib.Path('/root/nap009-prep')
-for rel in ['infra/runner/configure_access.py', 'infra/runner/nap_guest_runner.py', 'infra/runner/node_executor.py', 'infra/runner/nap-guest-runner', 'backend/app/schemas/guest_runner.py']:
+for rel in ['infra/runner/configure_access.py', 'infra/runner/nap_guest_runner.py', 'infra/runner/node_executor.py', 'infra/runner/nap-guest-runner', 'backend/app/schemas/guest_runner.py', 'backend/app/utils/artifact_registry.py']:
  target=root/rel
  target.parent.mkdir(parents=True, exist_ok=True)
  shutil.copyfile('/source/'+rel, target)
@@ -46,7 +46,7 @@ receipt=setup.apply(root,files,'172.16.36.1','172.16.36.100')
 for directory in ['/etc/nap', '/etc/nap/runner', '/var/lib/nap-runner-login']:
  assert pathlib.Path(directory).stat().st_mode & 0o777 == 0o755, directory
 assert pathlib.Path('/tmp/reloaded').read_text() == 'reload'
-assert len(receipt) == 8
+assert len(receipt) == 9
 assert pathlib.Path('/etc/nap/runner/registry.json').read_text().strip() == '{}'
 assert (pathlib.Path('/var/lib/nap-runner/hmac.key').stat().st_mode & 0o777) == 0o600
 # El usuario no puede ejecutar un shell, pct ni argumentos en el wrapper.

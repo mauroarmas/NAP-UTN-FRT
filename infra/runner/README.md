@@ -18,6 +18,19 @@ luego con `--apply`. Esta acción no configura registry, red, cuentas ni perfile
 El archivo inicial es `nap-application-node/1`, con cluster_uuid, node y profiles
 vacío; la configuración existente se conserva. Los perfiles se validan por separado.
 
+Para una instalación desde cero, ejecutar **primero** el asistente de acceso
+corregido que se describe abajo y **después** `install.sh`, desde la misma revisión.
+El bootstrap incluye `registry_entries.py`; no requiere instalar antes el paquete 011.
+Si sólo se copiaron imágenes/recetas a `/var/lib/vz/template/cache` y `/opt/nap/recipes`,
+el instalador no las modifica. Sí verifica código previo y rechaza versiones
+desconocidas o trabajos activos/inciertos; no eludir esas guardas borrando estado.
+
+El JSON de entrada de `--config` lleva exactamente `schema_version`, `cluster_uuid`,
+`node` y `profiles: {}`. Prepararlo fuera del destino, con root propietario y modo
+0600; el instalador escribe `/etc/nap/applications-011/runner.json`. El campo opcional
+`networks` se admite posteriormente en runtime, no en el documento de bootstrap.
+La instalación conserva perfiles/redes existentes coherentes y no habilita perfiles.
+
 Estados/tombstones/spool quedan en `/var/lib/nap-application-jobs` (0700). Las
 credenciales se entregan por un archivo 0600 en `/run/nap-application-jobs`, que
 systemd copia a su espacio privado mediante LoadCredential. El worker confirma
@@ -45,6 +58,13 @@ python3 infra/runner/configure_access.py --worker-ip IP_DEL_WORKER \
 
 Para aplicar, copiar el código revisado y el protocolo a un directorio root seguro del nodo y ejecutar allí el mismo comando con `--apply`. Requiere `sudo`, `sshd`, `visudo` y las herramientas PVE existentes; no instala paquetes automáticamente. Rechaza cuentas/grupos, archivos o estado anteriores y enlaces en las rutas. No lo utilice para actualizar o reparar una instalación existente.
 
+Ante una preparación manual o fallida, revisar primero cuenta/grupo, concesiones
+sudo y grupos administrativos, claves/fragmentos SSH, archivos y directorios de
+estado creados. Quitar una cuenta no limpia el resto. Retirar únicamente restos
+identificados de ese intento, con respaldo y consola root disponible; nunca borrar
+en bloque `/opt/nap`, `/etc/nap` o estado de recursos existentes. Las imágenes y
+recetas son independientes del acceso SSH y deben conservarse.
+
 Crea `naprunner` con contraseña bloqueada, home root y claves públicas en `/etc/nap/runner/authorized_keys`. Restringe la clave al origen y el comando, desactiva otras fuentes de claves/CA para esa cuenta y solo autoriza sudo sobre el wrapper sin argumentos. El registro comienza vacío: la conexión no habilita recetas ni productos. Antes de recargar SSH contrasta `visudo`, sintaxis y configuración efectiva de sshd, comprueba que root conserva su configuración anterior y ejecuta un JSON inválido como naprunner para verificar el wrapper sin tocar invitados. Si falla, retira únicamente los archivos nuevos. Puede quedar la cuenta bloqueada y directorios privados; conservar la consola root y revisar antes de reintentar, sin borrar estado de otra instalación.
 
 Ensayo adicional explícito de instalación con OpenSSH/sudo reales dentro de un contenedor Debian descartable, **sin PVE ni red durante la ejecución**:
@@ -54,6 +74,7 @@ docker build -f infra/runner/tests/setup-sandbox.Dockerfile -t nap009-runner-set
 docker run --rm --network none -e NAP_SETUP_SANDBOX=1 \
   --mount type=bind,source="$PWD/infra",target=/source/infra,readonly \
   --mount type=bind,source="$PWD/backend/app/schemas",target=/source/backend/app/schemas,readonly \
+  --mount type=bind,source="$PWD/backend/app/utils",target=/source/backend/app/utils,readonly \
   nap009-runner-setup-test python3 /source/infra/runner/tests/setup_sandbox.py
 ```
 

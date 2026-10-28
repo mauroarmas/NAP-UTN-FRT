@@ -143,6 +143,7 @@ def apply(source_root, files, worker_ip, node_ip):
         '/opt/nap/runner/nap_guest_runner.py': 'infra/runner/nap_guest_runner.py',
         '/opt/nap/runner/node_executor.py': 'infra/runner/node_executor.py',
         '/opt/nap/runner/protocol.py': 'backend/app/schemas/guest_runner.py',
+        '/opt/nap/runner/registry_entries.py': 'backend/app/utils/artifact_registry.py',
         '/usr/local/sbin/nap-guest-runner': 'infra/runner/nap-guest-runner',
     }
     for parent in (source_root, *source_root.parents):
