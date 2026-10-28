@@ -2,13 +2,15 @@
 
 ## Estado de implementación 011 (28/10/2026)
 
-Feature 011 (desplegar servicios universitarios vía OCI) implementada y verificada
-íntegramente. El alcance consolidado comprende Docker Hub como biblioteca de aplicaciones
-y referencias de imágenes propias en registries autorizados, convergiendo en un único motor
-Docker sobre LXC Ubuntu 24.04 no privilegiado. Se completaron y verificaron todas las fases
-(US1 a US5 y validación transversal), con 10 tareas históricas de Community Scripts retiradas
-el 27/10/2026. Documentación operativa y evidencias consolidadas en `docs/evidencia/011/` y
-`docs/despliegue-aplicaciones.md`.
+Feature 011 (desplegar servicios universitarios vía OCI) está implementada y validada de extremo a extremo
+en el laboratorio local (95/95 tareas activas completadas más las 9 tareas de convergencia `T106`–`T114`;
+10 tareas históricas de Community Scripts retiradas el 27/10/2026). El alcance consolidado comprende
+Docker Hub como biblioteca de aplicaciones y referencias de imágenes propias en registries autorizados
+sobre un único motor Docker en LXC Ubuntu 24.04 no privilegiado. El perfil `docker-ubuntu24:1`
+(`sha256: 2ed42514102e2f2ed7702bf4f1162f4ba2b6c175f2012f929c0895e743f67a24`, `policy_digest: 73e804b60ce027506da11c9b8ad549c0b361de8df397b8214d5f0bd4a8eab2c2`,
+plataforma PVE `9.2.2` / kernel `7.0.2-6-pve`) fue validado con la compuerta real en Proxmox (`172.16.36.100`)
+para `traefik/whoami` y `campus-demo` y quedó habilitado de forma idéntica en `/etc/nap/applications-011/runner.json`
+y en `settings.json` del portal. Documentación operativa y evidencias en `docs/evidencia/011/` y `docs/despliegue-aplicaciones.md`.
 
 ## Preferencias acordadas con Mauro
 

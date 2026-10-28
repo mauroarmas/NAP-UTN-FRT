@@ -49,10 +49,12 @@ def operation_response(operation):
         'mensaje': 'Orden admitida. Su resultado todavía no está confirmado.'}
 
 
-async def _queue_deploy(db, pedido, *, actor, clave, payload):
+async def _queue_deploy(db, pedido, *, actor, clave, payload, runner=None):
     if pedido.configuracion_despliegue_id:
         from app.services.perfiles_service import validar_asignacion_aplicacion
-        await validar_asignacion_aplicacion(db, pedido)
+        from app.services.application_profiles_service import verify_node_profile
+        _, document, _ = await validar_asignacion_aplicacion(db, pedido)
+        await verify_node_profile(document['perfil'], node=(pedido.destino_snapshot or {}).get('nodo'), runner=runner)
     previous = await _open_operation(db, pedido)
     if previous:
         raise error(409, 'operacion_en_curso', 'Ya existe una operación abierta', operation_id=str(previous.id))

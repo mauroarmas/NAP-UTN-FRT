@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Layers, Package, Pencil, Plus, Search } from 'lucide-react';
-import { getTemplates, reactivarTemplate, retirarTemplate, sincronizarIaas } from '../services/api';
+import { Layers, Package, Pencil, Plus, RefreshCw, Search } from 'lucide-react';
+import { cambiarConfiguracionAplicacion, getTemplates, reactivarTemplate, retirarTemplate, sincronizarIaas } from '../services/api';
 import { Dialog, Empty, PageHead, StatusPill } from '../components/ui';
 import AgregarServicioModal from '../components/AgregarServicioModal';
 import TemplatesAdmin from '../components/TemplatesAdmin';
@@ -62,6 +62,16 @@ export default function Definiciones({ user }) {
     } catch (err) { setError(mensajeError(err, 'No se pudo cambiar la disponibilidad del servicio.')); }
     finally { running.current = false; setBusy(false); }
   };
+  const updateProfileConfiguration = async (row) => {
+    if (running.current || !row.configuracion_actualizacion) return;
+    running.current = true; setBusy(true); setError('');
+    try {
+      await cambiarConfiguracionAplicacion(row.id, { ...row.configuracion_actualizacion, revision_esperada: row.revision });
+      setNotice(`${row.nombre} se actualizó al perfil actual de infraestructura y ya está disponible para solicitar.`);
+      await refresh();
+    } catch (err) { setError(mensajeError(err, 'No se pudo actualizar la configuración de la aplicación.')); }
+    finally { running.current = false; setBusy(false); }
+  };
   const visible = rows.filter((row) => (showRetired || row.activo) && (model === 'todos' || row.modelo_servicio === model) &&
     `${row.nombre} ${row.descripcion || ''}`.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
   return <div className="fade-in service-admin">
@@ -93,7 +103,7 @@ export default function Definiciones({ user }) {
       {loading ? <p role="status">Cargando servicios…</p> : !visible.length ? <Empty icon={<Package size={24} />} hint={search || showRetired ? 'Probá otra búsqueda o revisá los filtros.' : 'Agregá una aplicación preparada o buscá una nueva en la biblioteca.'}>No hay servicios para mostrar.</Empty> :
         <div className="service-card-grid">{visible.map((row) => <article className="card service-card" key={row.id}>
           <div className="row between gap-2"><span className="service-card__category">{MODELS[row.modelo_servicio] || 'Servicio'}</span>
-            <StatusPill kind={!row.activo ? 'off' : row.oferta_disponible ? 'ok' : 'warn'}>{!row.activo ? 'Retirado' : row.oferta_disponible ? 'Disponible' : 'Revisar conexión'}</StatusPill></div>
+            <StatusPill kind={!row.activo ? 'off' : row.oferta_disponible ? 'ok' : 'warn'}>{!row.activo ? 'Retirado' : row.oferta_disponible ? 'Disponible' : row.requiere_actualizar_perfil ? 'Requiere actualizar' : 'Revisar conexión'}</StatusPill></div>
           <h2>{row.nombre}</h2><p className="service-card__description">{row.descripcion || 'Agregá una descripción para ayudar a las cátedras a elegir.'}</p>
           {row.version_ofrecida && <span className="card-meta">Versión {row.version_ofrecida}</span>}
           <div className="service-card__sizes"><span className="card-meta">Tamaños compatibles</span><div className="row wrap gap-2">
@@ -102,6 +112,7 @@ export default function Definiciones({ user }) {
           </div></div>
           <div className="service-card__actions">
             {row.activo && row.oferta_disponible && row.tipo === 'lxc' && <button className="btn btn-primary" onClick={() => setRequested(row)}>Solicitar {row.nombre}</button>}
+            {row.activo && row.requiere_actualizar_perfil && row.configuracion_actualizacion && <button className="btn btn-primary" disabled={busy} onClick={() => updateProfileConfiguration(row)}><RefreshCw size={15} /> Actualizar aplicación</button>}
             <button className="btn btn-secondary" onClick={() => setEditor(row)}><Pencil size={15} /> Editar servicio</button>
             <button className="btn btn-ghost" disabled={busy} onClick={() => row.activo ? setRetiring(row) : changeAvailability(row)}>{row.activo ? 'Retirar' : 'Volver a ofrecer'}</button></div>
         </article>)}</div>}

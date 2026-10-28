@@ -39,7 +39,7 @@ export default function AplicacionPropiaForm({ onAdded, onBusyChange, initialVal
     if (decision.current?.fingerprint !== fingerprint) decision.current = { fingerprint, key: crypto.randomUUID() };
     pending.current = true; setBusy(true); onBusyChange?.(true); setError('');
     try { const { data } = await agregarAplicacionPropia(payload, decision.current.key); onAdded?.(data); }
-    catch (err) { setError(mensajeError(err, 'No se pudo agregar la aplicación. Tus datos se conservan.')); requestAnimationFrame(() => errorRef.current?.focus()); }
+    catch (err) { setError(mensajeError(err, 'No se pudo agregar la aplicación. Tus datos se conservan.')); queueMicrotask(() => errorRef.current?.focus()); }
     finally { pending.current = false; setBusy(false); onBusyChange?.(false); }
   };
   return <form className="own-application-form" onSubmit={submit} aria-busy={busy}>

@@ -94,3 +94,32 @@ async def test_profile_rechecked_after_external_validation_before_commit(db,admi
     with pytest.raises(HTTPException):await catalog.change(db,actor=admin,body=request_body(),clave='profile-changed',resolver=blocked)
     await db.rollback()
     assert await db.scalar(select(func.count()).select_from(ConfiguracionDespliegue))==before
+
+
+async def test_outdated_profile_hash_marks_offer_as_requiring_update_with_one_click_payload(client,db,auth_admin,app_order,catalog_image):
+    from hashlib import sha256
+    from app.schemas.application_profiles import canonical
+    app=app_order
+    # Simulate profile hash update (e.g. new policy_bundle_sha256 on same profile revision)
+    new_entry=deepcopy(app.entry)
+    new_entry['definition']['policy_bundle_sha256']='f'*64
+    new_entry['sha256']=sha256(canonical(new_entry['definition'])).hexdigest()
+    new_entry['validacion']['perfil_sha256']=new_entry['sha256']
+    get_settings().application_profiles['docker-ubuntu24:1']=new_entry
+
+    listing=(await client.get('/templates/',headers=auth_admin)).json()
+    item=next(row for row in listing if row['id']==app.template.id)
+    assert item['oferta_disponible'] is False
+    assert item['requiere_actualizar_perfil'] is True
+    assert item['configuracion_actualizacion'] is not None
+    assert item['configuracion_actualizacion']['revision_esperada']==app.template.revision
+
+    updated=await client.post(
+        f"/templates/{app.template.id}/configuracion",
+        headers=auth_admin|{'Idempotency-Key':'one-click-profile-refresh'},
+        json=item['configuracion_actualizacion'],
+    )
+    assert updated.status_code==200,updated.text
+    assert updated.json()['oferta_disponible'] is True
+    assert updated.json()['requiere_actualizar_perfil'] is False
+

@@ -126,3 +126,30 @@ async def test_supplied_values_are_write_only_and_bound_to_approval_idempotency(
     assert private not in repr(app.pedido.asignacion_snapshot)+repr(app.pedido.decision_snapshot)+repr(decision.resultado_referencia)+secret.valor_cifrado
     payload['valores_privados']={'APP_PASSWORD':'different-private-input'}
     with pytest.raises(HTTPException):await admision_service.aprobar(db,app.pedido.id,actor=admin,payload=payload,clave='approve-app')
+
+
+async def test_node_profile_preflight_blocks_evaluation_when_node_reports_platform_changed(db,admin,app_order):
+    app=app_order
+    class FakeNodeRunner:
+        async def execute(self, request, *, node=None, expected_fingerprint=None):
+            return {
+                'protocol': 'nap-application-job/1',
+                'action': 'profiles',
+                'ok': True,
+                'data': {
+                    'profiles': [{
+                        'id': 'docker-ubuntu24',
+                        'revision': 1,
+                        'sha256': app.entry['sha256'],
+                        'estado': 'bloqueado',
+                        'motivo_codigo': 'PLATFORM_CHANGED',
+                    }]
+                },
+            }
+    with pytest.raises(HTTPException) as exc_info:
+        await evaluacion_service.evaluar(db, app.pedido.id, actor=admin, payload=app.body, runner=FakeNodeRunner())
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail['codigo'] == 'perfil_aplicacion_no_disponible'
+    assert 'cambió su versión de sistema' in exc_info.value.detail['mensaje']
+    assert await db.scalar(select(func.count()).select_from(CompromisoCapacidad)) == 0
+

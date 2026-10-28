@@ -88,6 +88,7 @@ def _presentar(template, user):
     if user.rol != RolUsuario.ADMIN:
         response.os_template = None
         response.config_extra = None
+        response.configuracion_actualizacion = None
     return response
 
 

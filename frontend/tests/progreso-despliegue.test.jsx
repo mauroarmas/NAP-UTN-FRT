@@ -53,3 +53,21 @@ test('avanza por las fases de despliegue OCI (creacion, instalacion, comprobacio
   expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '2');
 });
 
+test('explica en lenguaje cotidiano la causa cuando el perfil de aplicación no está disponible', () => {
+  render(
+    view({
+      pedido: {
+        ...pedido,
+        estado: 'error',
+        historial: [{ estado_nuevo: 'error', comentario: 'La operación requiere revisión: perfil_aplicacion_no_disponible' }],
+      },
+      operacion: { estado: 'fallida', fase: 'preparacion', error_codigo: 'perfil_aplicacion_no_disponible' },
+    })
+  );
+  expect(screen.getByText('El despliegue necesita revisión')).toBeVisible();
+  expect(
+    screen.getByText('La infraestructura todavía no tiene habilitado Docker para esta aplicación.')
+  ).toBeVisible();
+});
+
+

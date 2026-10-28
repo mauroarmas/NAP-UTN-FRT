@@ -3,6 +3,35 @@ import { Link } from 'react-router-dom';
 
 const STEPS = ['Preparar recursos', 'Crear instancia', 'Iniciar aplicación', 'Habilitar acceso'];
 
+const ERROR_MESSAGES = {
+  perfil_aplicacion_no_disponible: 'La infraestructura todavía no tiene habilitado Docker para esta aplicación.',
+  application_profile_unavailable: 'La infraestructura todavía no tiene habilitado Docker para esta aplicación.',
+  platform_changed: 'El nodo de infraestructura cambió su versión de sistema y requiere revalidar el perfil Docker.',
+  dependency_unavailable: 'El nodo de infraestructura no tiene disponibles las dependencias para ejecutar la aplicación.',
+  fuente_no_disponible: 'No se pudo descargar la imagen de la aplicación desde el registro.',
+  limpieza_pendiente: 'Quedaron recursos pendientes de limpieza del intento anterior.',
+};
+
+function resolverMotivoFallo(pedido, operacion) {
+  const rawCode = operacion?.error_codigo || pedido?.error_codigo || (() => {
+    const eventos = Array.isArray(pedido?.historial) ? pedido.historial : [];
+    for (let i = eventos.length - 1; i >= 0; i -= 1) {
+      const comentario = eventos[i]?.comentario || '';
+      const match = comentario.match(/revisi[oó]n:\s*([a-z0-9_]+)/i);
+      if (match) return match[1];
+    }
+    return null;
+  })();
+  if (rawCode) {
+    const normalized = String(rawCode).trim().toLowerCase();
+    if (ERROR_MESSAGES[normalized]) return ERROR_MESSAGES[normalized];
+  }
+  if (operacion?.error_detalle_seguro && !ERROR_MESSAGES[String(operacion.error_detalle_seguro).trim().toLowerCase()]) {
+    return operacion.error_detalle_seguro;
+  }
+  return 'Administración debe revisar lo ocurrido antes de reintentar.';
+}
+
 export default function ProgresoDespliegue({ pedido, operacion, isAdmin = false, compact = false }) {
   if (pedido.tipo === 'renovacion') return null;
   const active = pedido.estado === 'activo';
@@ -17,7 +46,7 @@ export default function ProgresoDespliegue({ pedido, operacion, isAdmin = false,
     : operacion?.error_consulta ? 'No se pudo actualizar el avance' : uncertain ? 'Comprobando el estado de la instancia'
       : waiting ? 'Servicio iniciado · acceso pendiente'
         : ['Preparando el despliegue…', 'Creando la instancia…', 'Iniciando la aplicación…'][delivered] || 'Consultando el avance…';
-  const description = active ? 'El servicio ya puede utilizarse.' : failed ? 'Administración debe revisar lo ocurrido antes de reintentar.'
+  const description = active ? 'El servicio ya puede utilizarse.' : failed ? resolverMotivoFallo(pedido, operacion)
     : operacion?.error_consulta ? 'Mostramos el último estado conocido. Volveremos a consultar automáticamente.'
       : uncertain ? 'NAP está verificando el resultado. No hace falta volver a pedir el despliegue.'
         : waiting ? isAdmin ? 'La instancia está creada. Comprobá su acceso desde Servicios para completar la entrega.'

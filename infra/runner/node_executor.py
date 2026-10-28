@@ -97,7 +97,7 @@ def parse_system_json(raw, *, limit=65536):
 def bounded_command(argv, *, input=None, timeout=30, limit=2097152, accepted_codes=(0,)):
     """Drenar stdout con límite, sin capturar stderr ni usar un shell."""
     process = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-        start_new_session=True, env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LANG': 'C.UTF-8'})
+        start_new_session=True, umask=0o022, env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LANG': 'C.UTF-8'})
     output, pending = bytearray(), memoryview(input or b'')
     deadline = time.monotonic() + timeout
     try:
@@ -498,7 +498,12 @@ class ApplicationNodeExecutor:
         # Constant guest shell only: no script/URL or interpolated user command.
         # Package versions are validated institutional profile data, separate argv.
         script='''set -eu
+umask 022
 export DEBIAN_FRONTEND=noninteractive LC_ALL=C
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+    ip route show default 2>/dev/null | grep -q default && break
+    sleep 1
+done
 mkdir -p /etc/docker /etc/systemd/system/docker.service.d
 printf '%s\\n' '{"log-driver":"none","debug":false}' > /etc/docker/daemon.json
 printf '[Service]\\nStandardOutput=null\\nStandardError=null\\n' > /etc/systemd/system/docker.service.d/nap.conf

@@ -60,7 +60,7 @@ describe('ConsolaOperacion (US4 - T079)', () => {
       expect(screen.getByText(/Creando recurso de aplicación/i)).toBeInTheDocument();
     });
 
-    const consoleBox = container.querySelector('.consola-terminal');
+    const consoleBox = document.querySelector('.consola-terminal');
     expect(consoleBox).not.toBeNull();
     expect(consoleBox.style.backgroundColor).toBe('rgb(0, 0, 0)');
     expect(consoleBox.style.color).toBe('rgb(255, 255, 255)');

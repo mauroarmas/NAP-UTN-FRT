@@ -1,14 +1,18 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, expect, test, vi } from 'vitest';
 import PreparacionAvanzada from '../src/components/PreparacionAvanzada';
 import { sizes } from './fixtures/tamanos';
 import TemplatesAdmin from '../src/components/TemplatesAdmin';
+import Definiciones from '../src/pages/Definiciones';
 import * as api from '../src/services/api';
 
 vi.mock('../src/services/api', () => ({ listarIncorporaciones: vi.fn().mockResolvedValue({data:{items:[]}}), getDefiniciones: vi.fn(), crearDefinicion: vi.fn(), guardarManifest: vi.fn(),
   validarDefinicion: vi.fn(), publicarDefinicion: vi.fn(), retirarDefinicion: vi.fn(), registrarEvidencia: vi.fn(),
-  getTamanos: vi.fn(), createTemplate: vi.fn(), updateTemplate: vi.fn() }));
+  getTamanos: vi.fn(), createTemplate: vi.fn(), updateTemplate: vi.fn(),
+  getTemplates: vi.fn(), sincronizarIaas: vi.fn().mockResolvedValue({}), cambiarConfiguracionAplicacion: vi.fn(),
+  retirarTemplate: vi.fn(), reactivarTemplate: vi.fn() }));
 
 beforeEach(() => { vi.clearAllMocks(); api.getTamanos.mockResolvedValue({ data: sizes }); });
 
@@ -74,3 +78,49 @@ test('una imagen propia permite editar su oferta sin elegir otra definición ni 
   await waitFor(() => expect(api.updateTemplate).toHaveBeenCalledWith(12, expect.objectContaining({ nombre: 'Campus', tamano: 'medium' })));
   expect(api.updateTemplate.mock.calls[0][1]).not.toHaveProperty('definicion_version_id');
 });
+
+test('muestra Requiere actualizar y actualiza en un clic cuando cambia el perfil habilitado', async () => {
+  const user = userEvent.setup();
+  const outdatedRow = {
+    id: 21,
+    nombre: 'nginx',
+    descripcion: 'Servidor web',
+    modelo_servicio: 'saas',
+    tipo: 'lxc',
+    activo: true,
+    revision: 1,
+    oferta_disponible: false,
+    requiere_actualizar_perfil: true,
+    tamanos_permitidos: ['medium'],
+    tamano_recomendado: 'medium',
+    configuracion_actualizacion: {
+      origen: 'imagen_docker',
+      imagen: 'library/nginx:latest',
+      puerto: 80,
+      modelo_servicio: 'saas',
+      variables: {},
+      secretos: [],
+      persistencia: [],
+      ruta_salud: '/',
+      websocket: false,
+      revision_esperada: 1,
+    },
+  };
+  api.getTemplates
+    .mockResolvedValueOnce({ data: [outdatedRow] })
+    .mockResolvedValueOnce({ data: [{ ...outdatedRow, oferta_disponible: true, requiere_actualizar_perfil: false, revision: 2 }] });
+  api.cambiarConfiguracionAplicacion.mockResolvedValue({ data: { id: 21, oferta_disponible: true } });
+
+  render(<MemoryRouter><Definiciones user={{ id: 1, rol: 'admin' }} /></MemoryRouter>);
+  expect(await screen.findByText('Requiere actualizar')).toBeVisible();
+  const updateBtn = screen.getByRole('button', { name: /Actualizar aplicación/i });
+  await user.click(updateBtn);
+  await waitFor(() =>
+    expect(api.cambiarConfiguracionAplicacion).toHaveBeenCalledWith(
+      21,
+      expect.objectContaining({ imagen: 'library/nginx:latest', revision_esperada: 1 })
+    )
+  );
+  expect(await screen.findByText(/se actualizó al perfil actual/i)).toBeVisible();
+});
+

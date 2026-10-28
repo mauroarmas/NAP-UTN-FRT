@@ -123,11 +123,11 @@ class DockerGuest:
             self.private_write(Path(private)/'config.json',json.dumps({'auths':auth}).encode())
             self.docker(['pull','--platform','linux/'+image['arquitectura'],image['repositorio']+'@'+image['manifest_digest']],config=private)
         info=self.inspect('image',image['repositorio']+'@'+image['manifest_digest'])
-        if (info['Id']!=image['config_digest'] or info['Os']!='linux' or info['Architecture']!=image['arquitectura']
+        if (info['Id'] not in {image['config_digest'],image['manifest_digest']} or info['Os']!='linux' or info['Architecture']!=image['arquitectura']
                 or not set((info.get('Config') or {}).get('Volumes') or {})<=set(self.configuration['persistencia'])):raise InstallError()
         edge=self.request['edge']
         self.docker(['pull','--platform','linux/'+edge['arquitectura'],edge['repositorio']+'@'+edge['manifest_digest']])
-        if self.inspect('image',edge['repositorio']+'@'+edge['manifest_digest'])['Id']!=edge['config_digest']:raise InstallError()
+        if self.inspect('image',edge['repositorio']+'@'+edge['manifest_digest'])['Id'] not in {edge['config_digest'],edge['manifest_digest']}:raise InstallError()
 
     def configure(self):
         material=self.request['tls'];edge_dir=self.directory/'edge'
@@ -161,7 +161,7 @@ https://:8443 {
         self.docker(args,environment=environment)
         edge=self.request['edge'];edge_dir=self.directory/'edge'
         self.docker(['run','-d','--name',self.edge_name,'--pull=never','--restart=unless-stopped',
-            '--network=host','--read-only','--cap-drop=ALL','--security-opt=no-new-privileges:true',
+            '--network=host','--read-only','--cap-drop=ALL','--cap-add=NET_BIND_SERVICE','--security-opt=no-new-privileges:true',
             '--log-driver=none','--no-healthcheck','--pids-limit=64','--memory=128m','--memory-swap=128m',
             '--label=nap.resource_uuid='+self.identity['resource_uuid'],
             '--tmpfs','/data:rw,noexec,nosuid,size=16m','--tmpfs','/config:rw,noexec,nosuid,size=8m',
@@ -171,7 +171,7 @@ https://:8443 {
             '--entrypoint=caddy',edge['repositorio']+'@'+edge['manifest_digest'],
             'run','--config','/etc/caddy/Caddyfile','--adapter','caddyfile'])
         app=self.inspect('container',self.name)
-        if (not app['State']['Running'] or app['Image']!=self.configuration['imagen']['config_digest']
+        if (not app['State']['Running'] or app['Image'] not in {self.configuration['imagen']['config_digest'],self.configuration['imagen']['manifest_digest']}
                 or app['Config']['Labels'].get('nap.resource_uuid')!=self.identity['resource_uuid']
                 or app['HostConfig']['LogConfig']['Type']!='none'
                 or app.get('AppArmorProfile') in (None,'','unconfined')

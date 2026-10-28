@@ -106,6 +106,8 @@ async def anexar_disponibilidad(db, templates):
         if row.configuracion_despliegue_id:
             from fastapi import HTTPException
             row.oferta_disponible=False
+            row.requiere_actualizar_perfil=False
+            row.configuracion_actualizacion=None
             row.minimum_resources=None;row.tamanos_permitidos=[];row.tamano_recomendado=None
             row.origen_biblioteca=False;row.version_ofrecida=None;row.codigo_definicion=None
             try:
@@ -114,7 +116,36 @@ async def anexar_disponibilidad(db, templates):
                 row.tamanos_permitidos=tamanos_compatibles(row.minimum_resources)
                 row.tamano_recomendado=next(iter(row.tamanos_permitidos),None)
                 row.oferta_disponible=True;row.origen_biblioteca=document['origen']=='community_scripts'
-            except HTTPException:pass
+            except HTTPException:
+                from app.models.configuracion_despliegue import ConfiguracionDespliegue
+                from app.schemas.configuracion_despliegue import validar_documento
+                from app.services.configuracion_despliegue_service import choose_profile
+                cfg=await db.get(ConfiguracionDespliegue,row.configuracion_despliegue_id)
+                if cfg and cfg.estado=='validada':
+                    try:
+                        doc=validar_documento(cfg.documento)
+                        row.minimum_resources=doc['minimum_resources']
+                        row.tamanos_permitidos=tamanos_compatibles(row.minimum_resources)
+                        row.tamano_recomendado=next(iter(row.tamanos_permitidos),None)
+                        active_ref,_=choose_profile()
+                        if doc['perfil']!=active_ref:
+                            img=doc['imagen']
+                            imagen_ref=f"{img['repositorio']}:{img['tag_original']}" if img.get('tag_original') else f"{img['repositorio']}@{img['manifest_digest']}"
+                            row.requiere_actualizar_perfil=True
+                            row.configuracion_actualizacion={
+                                'origen':doc['origen'],
+                                'imagen':imagen_ref,
+                                'puerto':doc['access']['puerto'],
+                                'modelo_servicio':doc['modelo_servicio'],
+                                'variables':doc.get('variables',{}),
+                                'secretos':doc.get('secretos',[]),
+                                'persistencia':doc.get('persistencia',[]),
+                                'ruta_salud':doc['access']['probe']['path'],
+                                'websocket':doc['access'].get('websocket',False),
+                                'revision_esperada':row.revision,
+                            }
+                    except Exception:
+                        pass
             continue
         from app.services.bases_iaas_service import es_base, disponible
         if es_base(row):

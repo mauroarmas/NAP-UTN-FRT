@@ -46,7 +46,7 @@ def load():
 
 def call(args,*,timeout=20):
     return subprocess.run(args,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,
-        check=True,timeout=timeout).stdout
+        check=True,timeout=timeout,umask=0o022).stdout
 
 
 def pve(path,**params):
@@ -203,10 +203,11 @@ def start(context):
 def status(context):
     with runtime(context) as engine:
         job=engine.supervisor.store.read_job(context['request']['execution_id'])
+        summary=engine.spool(context['request']['execution_id']).summary_locked(job) if job else {'last_source_seq':0}
         state={'gate_phase':context['phase'],'vmid':VMID,'profiles_enabled':False,
             'guest_exists':owned(context)is not None,'job_state':job['estado'] if job else None,
             'job_phase':job['fase'] if job else None,'error_code':job['error_codigo'] if job else None,
-            'result':job['resultado'] if job else None,'last_source_seq':job['last_source_seq'] if job else 0}
+            'result':job['resultado'] if job else None,'last_source_seq':max(job['last_source_seq'],summary['last_source_seq']) if job else 0}
         return state
 
 

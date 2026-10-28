@@ -67,7 +67,7 @@ def verificar_token(token, *, huella, actor_id, pedido_id):
         raise error(409, 'evaluacion_desactualizada', 'La selección o capacidad cambió: evaluá y confirmá nuevamente', reintentable=True) from None
 
 
-async def calcular(db, pedido_id, *, actor, payload, pve=None, bloquear=False):
+async def calcular(db, pedido_id, *, actor, payload, pve=None, bloquear=False, runner=None):
     actor = await requiere_admin_actual(db, actor)
     await requiere_acceso_pedido(db, actor, pedido_id)
     selection = _typed(payload)
@@ -135,9 +135,10 @@ async def calcular(db, pedido_id, *, actor, payload, pve=None, bloquear=False):
         raise error(422, 'destino_no_permitido', 'Elegí un destino LXC elegible del inventario autorizado')
     frozen=None
     if configuration:
-        from app.services.application_profiles_service import require_profile
+        from app.services.application_profiles_service import require_profile, verify_node_profile
         from app.services.reserva_red_service import validar_red_aplicacion
         profile=require_profile(document['perfil'],cluster_uuid=inventory['cluster_id'],node=destination['nodo'])
+        await verify_node_profile(document['perfil'],node=destination['nodo'],runner=runner)
         network,network_hash=validar_red_aplicacion(profile['network_profile_id'],
             cluster_uuid=inventory['cluster_id'],node=destination['nodo'])
         frozen={'id':str(configuration.id),'revision':configuration.revision,'sha256':configuration.sha256,
@@ -188,6 +189,6 @@ async def calcular(db, pedido_id, *, actor, payload, pve=None, bloquear=False):
     return result, fingerprint, pedido, template, definition, period, image
 
 
-async def evaluar(db, pedido_id, *, actor, payload, pve=None):
-    result, fingerprint, *_ = await calcular(db, pedido_id, actor=actor, payload=payload, pve=pve)
+async def evaluar(db, pedido_id, *, actor, payload, pve=None, runner=None):
+    result, fingerprint, *_ = await calcular(db, pedido_id, actor=actor, payload=payload, pve=pve, runner=runner)
     return {**result, 'capacidad_token': token_for(fingerprint, actor.id, pedido_id)}

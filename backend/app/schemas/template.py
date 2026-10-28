@@ -123,6 +123,8 @@ class TemplateResponse(TemplateBase):
     version_ofrecida: str | None = None
     definicion_version_id: UUID | None = None
     oferta_disponible: bool = False
+    requiere_actualizar_perfil: bool = False
+    configuracion_actualizacion: dict | None = None
     id: int
     activo: bool
     # Solo se completa en la respuesta de una corrección; en los listados va en
