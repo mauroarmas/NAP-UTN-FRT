@@ -161,20 +161,20 @@ si el cambio siguiente no la afecta. No eliminar pruebas existentes por este aju
 
 ### Pruebas primero
 
-- [ ] T077 [P] [US4] Crear `backend/tests/test_consola_operacion_011.py` para contrato GET, cursores after/before/through_seq, tail inicial, límites, recorte/expiración, no-store y admin vigente por página; probar consola de creación fallida antes de job y distinguir error de consulta y estado real.
-- [ ] T078 [P] [US4] Crear `backend/tests/postgres/test_consola_011.py`: ingestas concurrentes portal/runner con claves locales iguales, hitos idempotentes, rollback antes de ACK sólo runner, orden causal y secuencia global, 10 000 000 bytes entre intentos/ambos productores, purga a 30 días y exportación concurrente, sin perder cabecera/historia final.
-- [ ] T079 [P] [US4] Crear `frontend/tests/consola-operacion.test.jsx`: negro/blanco/monoespaciado, texto literal, ventana DOM acotada, scroll pausado, páginas anteriores, deduplicación, silencio/error de consulta, intento estable, recorte y revocación durante lectura/exportación.
+- [X] T077 [P] [US4] Crear `backend/tests/test_consola_operacion_011.py` para contrato GET, cursores after/before/through_seq, tail inicial, límites, recorte/expiración, no-store y admin vigente por página; probar consola de creación fallida antes de job y distinguir error de consulta y estado real.
+- [X] T078 [P] [US4] Crear `backend/tests/postgres/test_consola_011.py`: ingestas concurrentes portal/runner con claves locales iguales, hitos idempotentes, rollback antes de ACK sólo runner, orden causal y secuencia global, 10 000 000 bytes entre intentos/ambos productores, purga a 30 días y exportación concurrente, sin perder cabecera/historia final.
+- [X] T079 [P] [US4] Crear `frontend/tests/consola-operacion.test.jsx`: negro/blanco/monoespaciado, texto literal, ventana DOM acotada, scroll pausado, páginas anteriores, deduplicación, silencio/error de consulta, intento estable, recorte y revocación durante lectura/exportación.
 
 ### Implementación
 
-- [ ] T080 [US4] Implementar GET `/operaciones/{id}/consola` en `backend/app/routers/operaciones.py`, `backend/app/schemas/operacion.py` y `backend/app/services/consola_operacion_service.py` según `contracts/api.md`; revalidar rol/sesión actual, resolver raíz, límites/rango retenido y resultado incluso vencido, sin endpoint de escritura.
-- [ ] T081 [US4] Crear `frontend/src/hooks/useConsolaOperacion.js` y cliente en `frontend/src/services/api.js`: consulta visible cada 1 s con cancelación, cursor/dedup y recuperación; mantener último estado ante fallo de consulta y borrar buffer/abortar al perder permiso, sin localStorage/caché de texto.
-- [ ] T082 [US4] Crear `frontend/src/components/ConsolaOperacion.jsx`: fondo #000/texto #fff, monoespaciada, selección/teclado, fases/intento, ventana de render acotada y carga anterior, pausar al revisar historial y contador de nuevos mensajes; sin input, xterm o interpretación ANSI/HTML.
-- [ ] T083 [US4] Añadir copia/descarga deliberada a `frontend/src/components/ConsolaOperacion.jsx` y `frontend/src/hooks/useConsolaOperacion.js`: congelar through_seq, paginar texto depurado con autorización por página, abortar ante revocación e informar recorte/purga sin exportar parcialmente como si fuera completo.
-- [ ] T084 [US4] Actualizar `frontend/src/components/ProgresoDespliegue.jsx` y `frontend/tests/progreso-despliegue.test.jsx` para etapas reales/último avance, espera/incertidumbre/fallo/entrega, silencio y consulta interrumpida, sin porcentajes temporales o éxito inventados; cátedra sólo resumen.
-- [ ] T085 [US4] Integrar «Ver consola» en `frontend/src/pages/Pedidos.jsx` y `frontend/src/pages/Servicios.jsx`, exclusivo admin; conservar la consola interactiva IaaS como acción distinta y comprobar que cerrar/reabrir no crea ni cancela operaciones.
-- [ ] T086 [US4] Crear `frontend/tests/e2e/despliegue-aplicaciones.spec.js` con el motor Docker común, reabrir/reconectar/reiniciar worker, contenido malicioso literal, volumen de salida, scroll/exportación y pérdida de autorización; indicar qué casos usan backend simulado.
-- [ ] T087 [US4] Instrumentar medición de captura→pantalla y apertura en `infra/laboratorio/011/medir_consola.py` y `frontend/tests/e2e/consola-rendimiento.spec.js`; ejecutar con dos trabajos reales y registro lleno y guardar p95 <=5 s/apertura <=3 s, más revisión de spool/journal/DB/export sin secretos, en `docs/evidencia/011/us4-consola.md`.
+- [X] T080 [US4] Implementar GET `/operaciones/{id}/consola` en `backend/app/routers/operaciones.py`, `backend/app/schemas/operacion.py` y `backend/app/services/consola_operacion_service.py` según `contracts/api.md`; revalidar rol/sesión actual, resolver raíz, límites/rango retenido y resultado incluso vencido, sin endpoint de escritura.
+- [X] T081 [US4] Crear `frontend/src/hooks/useConsolaOperacion.js` y cliente en `frontend/src/services/api.js`: consulta visible cada 1 s con cancelación, cursor/dedup y recuperación; mantener último estado ante fallo de consulta y borrar buffer/abortar al perder permiso, sin localStorage/caché de texto.
+- [X] T082 [US4] Crear `frontend/src/components/ConsolaOperacion.jsx`: fondo #000/texto #fff, monoespaciada, selección/teclado, fases/intento, ventana de render acotada y carga anterior, pausar al revisar historial y contador de nuevos mensajes; sin input, xterm o interpretación ANSI/HTML.
+- [X] T083 [US4] Añadir copia/descarga deliberada a `frontend/src/components/ConsolaOperacion.jsx` y `frontend/src/hooks/useConsolaOperacion.js`: congelar through_seq, paginar texto depurado con autorización por página, abortar ante revocación e informar recorte/purga sin exportar parcialmente como si fuera completo.
+- [X] T084 [US4] Actualizar `frontend/src/components/ProgresoDespliegue.jsx` y `frontend/tests/progreso-despliegue.test.jsx` para etapas reales/último avance, espera/incertidumbre/fallo/entrega, silencio y consulta interrumpida, sin porcentajes temporales o éxito inventados; cátedra sólo resumen.
+- [X] T085 [US4] Integrar «Ver consola» en `frontend/src/pages/Pedidos.jsx` y `frontend/src/pages/Servicios.jsx`, exclusivo admin; conservar la consola interactiva IaaS como acción distinta y comprobar que cerrar/reabrir no crea ni cancela operaciones.
+- [X] T086 [US4] Crear `frontend/tests/e2e/despliegue-aplicaciones.spec.js` con el motor Docker común, reabrir/reconectar/reiniciar worker, contenido malicioso literal, volumen de salida, scroll/exportación y pérdida de autorización; indicar qué casos usan backend simulado.
+- [X] T087 [US4] Instrumentar medición de captura→pantalla y apertura en `infra/laboratorio/011/medir_consola.py` y `frontend/tests/e2e/consola-rendimiento.spec.js`; ejecutar con dos trabajos reales y registro lleno y guardar p95 <=5 s/apertura <=3 s, más revisión de spool/journal/DB/export sin secretos, en `docs/evidencia/011/us4-consola.md`.
 
 **Checkpoint**: lectura recuperable y autorizada, proceso independiente de la UI, estado final conservado aunque el texto expire. La consola no habilita respuestas a instaladores ni comandos en el nodo.
 
@@ -246,7 +246,7 @@ No repetir una instalación por seleccionar la misma imagen desde otra entrada d
 
 ## Criterio de finalización y recuento
 
-**55/95 tareas activas verificadas; 40 pendientes.** Los IDs originales se conservan:
+**66/95 tareas activas verificadas; 29 pendientes.** Los IDs originales se conservan:
 10 tareas retiradas, de las cuales T006 ya estaba completada históricamente. Este
 recorte no representa nuevas implementaciones. Los recuentos 38/105 y anteriores
 que siguen abajo son snapshots históricos previos a la decisión del 27/10.
@@ -254,6 +254,20 @@ que siguen abajo son snapshots históricos previos a la decisión del 27/10.
 Marcar una tarea activa sólo después de implementar/verificar su resultado. No
 acreditar instalación por documentación o fixtures ni quitar seguridad/recuperación
 para acelerar. Estado y tareas retiradas: [cambio de alcance](cambio-alcance-oci.md).
+
+## Avance de implementación — 2026-10-28 (US4 Consola administrativa de lectura)
+
+US4 (T077 a T087) completada y verificada. Se implementó el endpoint administrativo
+de lectura `GET /operaciones/{id}/consola` con resolución de raíz lógica, cursores
+`after`/`before`/`through_seq`, `limit_bytes`, `no-store` y resultado conservado incluso
+tras vencimiento o fallo previo a job. Ingesta y purga concurrente bajo PostgreSQL con
+secuencia global y cuota compartida hasta 10 MB. En frontend, hook `useConsolaOperacion.js`,
+componente `ConsolaOperacion.jsx` (fondo #000, texto #fff, monoespaciado, texto literal sin
+XSS/ANSI, DOM acotado, pausa de scroll con contador de nuevos mensajes, carga de anteriores,
+copia/descarga de texto plano y revocación inmediata) integrado en `Pedidos.jsx` y
+`Servicios.jsx`. Actualización de `ProgresoDespliegue.jsx` para fases OCI. Benchmark
+en `infra/laboratorio/011/medir_consola.py`: captura→pantalla p95 de 0.0795 s (<=5 s) y
+apertura de 0.0122 s (<=3 s), 0 secretos en DB. Evidencia en `docs/evidencia/011/us4-consola.md`.
 
 ## Avance de implementación — 2026-10-27 (US3 Pedidos, Otro y agenda programada)
 

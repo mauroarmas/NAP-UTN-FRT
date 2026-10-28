@@ -223,3 +223,169 @@ async def purgar(db,root_id):
     header=await db.scalar(select(ConsolaOperacion).where(ConsolaOperacion.operacion_raiz_id==root_id)
         .with_for_update().execution_options(populate_existing=True))
     if header is not None:await _trim(db,header);await db.flush()
+
+
+async def consultar(
+    db,
+    operation_id: UUID,
+    *,
+    usuario,
+    after: int | None = None,
+    before: int | None = None,
+    limit_bytes: int = 65536,
+    through_seq: int | None = None,
+):
+    if getattr(usuario, 'rol', None) != 'admin':
+        raise error(403, 'acceso_denegado', 'Acceso denegado')
+
+    if after is not None and before is not None:
+        raise error(422, 'parametros_consulta_invalidos', 'Los parámetros after y before son mutuamente excluyentes')
+    if after is not None and after < 0:
+        raise error(422, 'parametros_consulta_invalidos', 'El parámetro after debe ser mayor o igual a 0')
+    if before is not None and before <= 0:
+        raise error(422, 'parametros_consulta_invalidos', 'El parámetro before debe ser mayor a 0')
+    if limit_bytes < 1 or limit_bytes > 65536:
+        raise error(422, 'limite_invalido', 'El límite de bytes debe estar entre 1 y 65536')
+    if through_seq is not None and through_seq <= 0:
+        raise error(422, 'parametros_consulta_invalidos', 'El parámetro through_seq debe ser mayor a 0')
+
+    operation = await db.get(OperacionInfraestructura, operation_id)
+    if operation is None:
+        raise error(404, 'operacion_no_encontrada', 'Operación no encontrada')
+
+    root_id = operation.operacion_raiz_id or operation.id
+    header = await db.get(ConsolaOperacion, root_id)
+
+    latest_attempt = await db.scalar(
+        select(IntentoDespliegue)
+        .where(IntentoDespliegue.operacion_raiz_id == root_id)
+        .order_by(IntentoDespliegue.numero.desc())
+        .limit(1)
+    )
+    intento_efectivo = latest_attempt.numero if latest_attempt is not None else 1
+
+    if header is None:
+        return {
+            'operation_id': operation.id,
+            'operacion_raiz_id': root_id,
+            'estado': operation.estado,
+            'fase': operation.fase,
+            'intento_efectivo': intento_efectivo,
+            'items': [],
+            'next_cursor': None,
+            'previous_cursor': None,
+            'has_more': False,
+            'first_retained_seq': 1,
+            'last_seq': 0,
+            'truncated': False,
+            'expired': False,
+            'dropped_messages': 0,
+            'last_captured_at': None,
+            'last_ingested_at': None,
+            'resultado_final': None,
+        }
+
+    base_query = (
+        select(ConsolaFragmento, IntentoDespliegue.numero)
+        .outerjoin(IntentoDespliegue, ConsolaFragmento.intento_id == IntentoDespliegue.id)
+        .where(ConsolaFragmento.operacion_raiz_id == root_id)
+    )
+    if through_seq is not None:
+        base_query = base_query.where(ConsolaFragmento.seq <= through_seq)
+
+    items = []
+    has_more = False
+    truncated = header.truncated
+
+    if after is not None:
+        if after < header.first_retained_seq:
+            truncated = True
+            query = base_query.where(ConsolaFragmento.seq >= header.first_retained_seq).order_by(ConsolaFragmento.seq.asc())
+        else:
+            query = base_query.where(ConsolaFragmento.seq > after).order_by(ConsolaFragmento.seq.asc())
+
+        total_bytes = 0
+        rows = list((await db.execute(query)).all())
+        for frag, intento_num in rows:
+            if total_bytes + frag.utf8_bytes > limit_bytes and items:
+                has_more = True
+                break
+            items.append({
+                'seq': frag.seq,
+                'intento': intento_num or 1,
+                'captured_at': frag.captured_at,
+                'fase': frag.fase,
+                'stream': frag.stream,
+                'texto_depurado': frag.texto_depurado,
+            })
+            total_bytes += frag.utf8_bytes
+        if not has_more and len(rows) > len(items):
+            has_more = True
+
+    elif before is not None:
+        query = base_query.where(ConsolaFragmento.seq < before).order_by(ConsolaFragmento.seq.desc())
+        total_bytes = 0
+        rows = list((await db.execute(query)).all())
+        collected = []
+        for frag, intento_num in rows:
+            if total_bytes + frag.utf8_bytes > limit_bytes and collected:
+                has_more = True
+                break
+            collected.append({
+                'seq': frag.seq,
+                'intento': intento_num or 1,
+                'captured_at': frag.captured_at,
+                'fase': frag.fase,
+                'stream': frag.stream,
+                'texto_depurado': frag.texto_depurado,
+            })
+            total_bytes += frag.utf8_bytes
+        if not has_more and len(rows) > len(collected):
+            has_more = True
+        items = list(reversed(collected))
+
+    else:
+        query = base_query.order_by(ConsolaFragmento.seq.desc())
+        total_bytes = 0
+        rows = list((await db.execute(query)).all())
+        collected = []
+        for frag, intento_num in rows:
+            if total_bytes + frag.utf8_bytes > limit_bytes and collected:
+                has_more = True
+                break
+            collected.append({
+                'seq': frag.seq,
+                'intento': intento_num or 1,
+                'captured_at': frag.captured_at,
+                'fase': frag.fase,
+                'stream': frag.stream,
+                'texto_depurado': frag.texto_depurado,
+            })
+            total_bytes += frag.utf8_bytes
+        if not has_more and len(rows) > len(collected):
+            has_more = True
+        items = list(reversed(collected))
+
+    next_cursor = items[-1]['seq'] if items else (after if after is not None else None)
+    previous_cursor = items[0]['seq'] if items else None
+
+    return {
+        'operation_id': operation.id,
+        'operacion_raiz_id': root_id,
+        'estado': operation.estado,
+        'fase': operation.fase,
+        'intento_efectivo': intento_efectivo,
+        'items': items,
+        'next_cursor': next_cursor,
+        'previous_cursor': previous_cursor,
+        'has_more': has_more,
+        'first_retained_seq': header.first_retained_seq,
+        'last_seq': header.last_seq,
+        'truncated': truncated,
+        'expired': header.expired,
+        'dropped_messages': header.dropped_messages,
+        'last_captured_at': header.last_captured_at,
+        'last_ingested_at': header.last_ingested_at,
+        'resultado_final': header.ultimo_resultado_seguro,
+    }
+

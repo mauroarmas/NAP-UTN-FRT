@@ -153,6 +153,8 @@ export const eliminarServicio = (id, clave = crypto.randomUUID()) => api.delete(
 // necesitara aprobación, el pausado automático sería una denegación encubierta.
 export const reactivarServicio = (id, clave = crypto.randomUUID()) => api.post(`/servicios/${id}/reactivar`, {}, ordenHeaders(clave));
 export const obtenerOperacion = (id, signal) => api.get(`/operaciones/${id}`, { signal });
+export const obtenerConsolaOperacion = (id, params = {}, options = {}) =>
+  api.get(`/operaciones/${id}/consola`, { ...options, params });
 export const listarOperaciones = async (params = {}, options = {}) => {
   const items = [];
   let cursor;

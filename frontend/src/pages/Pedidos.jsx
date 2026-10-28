@@ -18,6 +18,7 @@ import NuevoPedidoModal from '../components/NuevoPedidoModal';
 import AprobarPedidoModal from '../components/AprobarPedidoModal';
 import AjustePedidoModal from '../components/AjustePedidoModal';
 import ReenviarPedidoModal from '../components/ReenviarPedidoModal';
+import ConsolaOperacion from '../components/ConsolaOperacion';
 import { PageHead, StatusPill, Dialog, Empty } from '../components/ui';
 import { ESTADO_PEDIDO_CONFIG as ESTADO_CONFIG, PASOS_PEDIDO } from '../constants/estados';
 
@@ -177,6 +178,7 @@ export default function Pedidos({ user }) {
   const [modalAprobarAbierto, setModalAprobarAbierto] = useState(false);
   const [modalAjusteAbierto, setModalAjusteAbierto] = useState(false);
   const [modalReenviarAbierto, setModalReenviarAbierto] = useState(false);
+  const [consolaOperationId, setConsolaOperationId] = useState(null);
 
   const [detalle, setDetalle] = useState(null);
   const [transicionando, setTransicionando] = useState(false);
@@ -505,7 +507,22 @@ export default function Pedidos({ user }) {
                 </div>
 
                 {p.tipo !== 'renovacion' && ['en_despliegue', 'error'].includes(p.estado)
-                  ? <ProgresoDespliegue pedido={p} operacion={operacionDelPedido(p)} isAdmin={isAdmin} compact/>
+                  ? (
+                    <div>
+                      <ProgresoDespliegue pedido={p} operacion={operacionDelPedido(p)} isAdmin={isAdmin} compact/>
+                      {isAdmin && (p.operation_id || operacionDelPedido(p)?.operation_id) && (
+                        <div style={{ marginTop: '4px' }}>
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-xs"
+                            onClick={() => setConsolaOperationId(p.operation_id || operacionDelPedido(p)?.operation_id)}
+                          >
+                            Ver consola
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )
                   : p.operation_id && <p role="status">{textoOperacion(operaciones[p.operation_id])}</p>}
                 <VigenciaPedido pedido={p} formatDate={formatDate} />
                 {p.tipo !== 'renovacion' && p.estado !== 'en_despliegue' && paso >= 0 && paso < 3 && (
@@ -555,6 +572,7 @@ export default function Pedidos({ user }) {
           transicionando={transicionando || Boolean(detalle.operation_id && (!operaciones[detalle.operation_id] || operacionAbierta(operaciones[detalle.operation_id])))}
           operacion={operacionDelPedido(detalle)}
           sinActualizar={detalleSinActualizar}
+          onVerConsola={(opId) => setConsolaOperationId(opId)}
           motivoRechazo={motivoRechazo}
           setMotivoRechazo={setMotivoRechazo}
           motivoReversion={motivoReversion}
@@ -612,13 +630,20 @@ export default function Pedidos({ user }) {
           actualizarDetalle(detalle.id);
         }}
       />
+
+      {consolaOperationId && (
+        <ConsolaOperacion
+          operationId={consolaOperationId}
+          onClose={() => setConsolaOperationId(null)}
+        />
+      )}
     </div>
   );
 }
 
 function DetalleDialog({
   detalle, isAdmin, templateDe, templateNombre, catedraNombre, formatDate, onClose, transicionando,
-  operacion, sinActualizar,
+  operacion, sinActualizar, onVerConsola,
   motivoRechazo, setMotivoRechazo, onAbrirAprobar, onAbrirAjuste, onAbrirReenviar, onCancelarPedido, onRechazar,
   onDesplegar, onReintentar, motivoReversion, setMotivoReversion, onRevertir,
 }) {
@@ -747,8 +772,38 @@ function DetalleDialog({
       <VigenciaPedido pedido={detalle} formatDate={formatDate} />
       {sinActualizar && <p role="alert" className="callout warn">No se pudo actualizar el pedido. Mostramos el último estado y volveremos a consultar.</p>}
       {detalle.tipo !== 'renovacion' && ['en_despliegue', 'error'].includes(detalle.estado)
-        ? <ProgresoDespliegue pedido={detalle} operacion={operacion} isAdmin={isAdmin}/>
-        : detalle.operation_id && <p role="status">{textoOperacion(operacion)}</p>}
+        ? (
+          <div>
+            <ProgresoDespliegue pedido={detalle} operacion={operacion} isAdmin={isAdmin}/>
+            {isAdmin && (detalle.operation_id || operacion?.operation_id) && (
+              <div style={{ marginTop: '8px' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => onVerConsola?.(detalle.operation_id || operacion?.operation_id)}
+                >
+                  Ver consola
+                </button>
+              </div>
+            )}
+          </div>
+        )
+        : detalle.operation_id && (
+          <div>
+            <p role="status">{textoOperacion(operacion)}</p>
+            {isAdmin && (
+              <div style={{ marginTop: '4px' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => onVerConsola?.(detalle.operation_id || operacion?.operation_id)}
+                >
+                  Ver consola
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       {detalle.tipo === 'renovacion' && detalle.estado === 'activo' && <p>Las nuevas condiciones quedaron registradas. Consultá el estado del servicio para saber si está encendido.</p>}
       {isAdmin && detalle.estado === 'solicitado' && (
         <div className="decision-container">

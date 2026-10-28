@@ -18,3 +18,33 @@ class OperacionResponse(Contrato):
     updated_at: datetime
     confirmada_at: datetime | None
     next_poll_at: datetime
+
+
+class ConsolaItemResponse(Contrato):
+    seq: int
+    intento: int
+    captured_at: datetime
+    fase: str
+    stream: str
+    texto_depurado: str
+
+
+class ConsolaOperacionResponse(Contrato):
+    operation_id: UUID
+    operacion_raiz_id: UUID
+    estado: str
+    fase: str
+    intento_efectivo: int
+    items: list[ConsolaItemResponse]
+    next_cursor: int | None
+    previous_cursor: int | None
+    has_more: bool
+    first_retained_seq: int
+    last_seq: int
+    truncated: bool
+    expired: bool
+    dropped_messages: int
+    last_captured_at: datetime | None
+    last_ingested_at: datetime | None
+    resultado_final: dict | None
+

@@ -79,3 +79,63 @@ async def test_identical_local_keys_are_distinct_between_producers_but_not_withi
                 captured_at=clock.now(),ingested_at=clock.now(),fase='creacion',stream='sistema',
                 texto_depurado='Hito repetido.',utf8_bytes=len('Hito repetido.'.encode())))
             await db.flush()
+
+
+async def test_purga_30_dias_preserva_cabecera_y_resultado_seguro(db, console_job):
+    from app.services.consola_operacion_service import purgar, emitir_hito, RETENTION_DAYS
+    job = console_job
+    await emitir_hito(db, job.lease, hito="creando_recurso")
+    await emitir_hito(db, job.lease, hito="fallo")
+    await db.commit()
+
+    # Simular fragmentos con fecha de captura de hace 35 días
+    cutoff_old = clock.now() - timedelta(days=RETENTION_DAYS + 5)
+    rows = list((await db.scalars(select(ConsolaFragmento).where(ConsolaFragmento.operacion_raiz_id == job.operation.id))).all())
+    for r in rows:
+        r.captured_at = cutoff_old
+    await db.commit()
+
+    # Ejecutar purga
+    await purgar(db, job.operation.id)
+    await db.commit()
+
+    header = await db.get(ConsolaOperacion, job.operation.id)
+    assert header.expired is True
+    assert header.dropped_messages == len(rows)
+    assert header.ultimo_resultado_seguro == {
+        "hito": "fallo",
+        "texto": "No se pudo completar el despliegue.",
+    }
+    remaining = list((await db.scalars(select(ConsolaFragmento).where(ConsolaFragmento.operacion_raiz_id == job.operation.id))).all())
+    assert len(remaining) == 0
+
+
+async def test_exportacion_concurrente_con_through_seq_fijado(db, pg_sessions, console_job):
+    from app.services.consola_operacion_service import consultar
+    admin_user = SimpleNamespace(rol="admin", id=1)
+    job = console_job
+    # Ingerir primeros 2 fragmentos (seq 1, 2)
+    await ingerir(db, job.lease, request=job.request, response=batch(job, sequences=(1, 2)))
+    await db.commit()
+
+    frozen_seq = 2
+    barrier = asyncio.Barrier(2)
+
+    async def reader():
+        async with pg_sessions() as session:
+            await barrier.wait()
+            res = await consultar(session, job.operation.id, usuario=admin_user, through_seq=frozen_seq)
+            return res
+
+    async def writer():
+        async with pg_sessions() as session, session.begin():
+            await barrier.wait()
+            # En paralelo, emitir nuevo hito en el portal
+            await emitir_hito(session, job.lease, hito="creando_recurso")
+
+    results = await asyncio.gather(reader(), writer())
+    export_result = results[0]
+    # La exportación con through_seq=2 debe congelarse en seq 2 sin incluir fragmentos posteriores
+    assert [it["seq"] for it in export_result["items"]] == [1, 2]
+    assert all(it["seq"] <= frozen_seq for it in export_result["items"])
+

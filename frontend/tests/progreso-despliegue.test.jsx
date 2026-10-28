@@ -39,3 +39,17 @@ test('un fallo se anuncia sin mantener una animación de trabajo', () => {
   expect(screen.getByText('El despliegue necesita revisión')).toBeVisible();
   expect(container.querySelector('.library-spinner')).toBeNull();
 });
+
+test('avanza por las fases de despliegue OCI (creacion, instalacion, comprobacion)', () => {
+  const { rerender } = render(view({ operacion: { estado: 'en_curso', fase: 'creacion' } }));
+  expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '1');
+  expect(screen.getByText('Creando la instancia…')).toBeVisible();
+
+  rerender(view({ operacion: { estado: 'en_curso', fase: 'instalacion' } }));
+  expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '2');
+  expect(screen.getByText('Iniciando la aplicación…')).toBeVisible();
+
+  rerender(view({ operacion: { estado: 'en_curso', fase: 'comprobacion' } }));
+  expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '2');
+});
+

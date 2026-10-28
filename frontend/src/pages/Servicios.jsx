@@ -17,6 +17,7 @@ import { PageHead, StatusPill, Empty, Dialog } from '../components/ui';
 import RenovarServicioModal from '../components/RenovarServicioModal';
 import AccesoServicio from '../components/AccesoServicio';
 import RegularizarServicioModal from '../components/RegularizarServicioModal';
+import ConsolaOperacion from '../components/ConsolaOperacion';
 
 const CFG = {
   running: { label: 'Corriendo', kind: 'ok' },
@@ -69,6 +70,7 @@ export default function Servicios({ user }) {
   const [regularizacion, setRegularizacion] = useState(null);
   const [revisionDetalle, setRevisionDetalle] = useState(null);
   const [resultadoPreferencia, setResultadoPreferencia] = useState(null);
+  const [consolaOperationId, setConsolaOperationId] = useState(null);
   const statusRequest = useRef(0);
   const intentKeys = useRef({});
   const claveIntencion = (tipo, id) => {
@@ -361,10 +363,21 @@ export default function Servicios({ user }) {
       {Object.keys(operaciones).length > 0 && (
         <section aria-label="Operaciones de infraestructura" aria-live="polite" className="card" style={{ padding: 16, marginBottom: 16 }}>
           {Object.values(operaciones).map((op) => (
-            <p key={op.operation_id} role="status">
-              {op.servicio_id ? `Servicio #${op.servicio_id}` : op.pedido_id ? `Pedido #${op.pedido_id}` : 'Operación'}: {textoOperacion(op)}
-              {op.error_detalle_seguro && <span> {op.error_detalle_seguro}</span>}
-            </p>
+            <div key={op.operation_id} role="status" className="row gap-2" style={{ alignItems: 'center', marginBottom: 4 }}>
+              <p style={{ margin: 0 }}>
+                {op.servicio_id ? `Servicio #${op.servicio_id}` : op.pedido_id ? `Pedido #${op.pedido_id}` : 'Operación'}: {textoOperacion(op)}
+                {op.error_detalle_seguro && <span> {op.error_detalle_seguro}</span>}
+              </p>
+              {isAdmin && (
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-xs"
+                  onClick={() => setConsolaOperationId(op.operation_id)}
+                >
+                  Ver consola
+                </button>
+              )}
+            </div>
           ))}
         </section>
       )}
@@ -596,6 +609,15 @@ export default function Servicios({ user }) {
                             <span className="card-meta"
                                   style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--st-warn)' }}>
                               <Spinner size={11} /> {operacion ? textoOperacion(operacion) : EN_CURSO[accionando?.tipo] || 'Operación pendiente…'}
+                              {operacion && isAdmin && (
+                                <button
+                                  type="button"
+                                  className="btn btn-ghost btn-xs"
+                                  onClick={() => setConsolaOperationId(operacion.operation_id)}
+                                >
+                                  Ver consola
+                                </button>
+                              )}
                             </span>
                           )}
                           {s.existe_en_proxmox === false ? (
@@ -832,6 +854,13 @@ export default function Servicios({ user }) {
           </pre></details>}
           </div>}
         </Dialog>
+      )}
+
+      {consolaOperationId && (
+        <ConsolaOperacion
+          operationId={consolaOperationId}
+          onClose={() => setConsolaOperationId(null)}
+        />
       )}
     </div>
   );

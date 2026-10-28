@@ -8,9 +8,9 @@ export default function ProgresoDespliegue({ pedido, operacion, isAdmin = false,
   const active = pedido.estado === 'activo';
   const failed = pedido.estado === 'error' || operacion?.estado === 'fallida';
   const uncertain = operacion?.estado === 'incierta' || operacion?.error_consulta;
-  const delivered = active ? 4 : operacion?.estado === 'confirmada' || (!pedido.operation_id && pedido.servicio_id && pedido.estado === 'en_despliegue') ? 3
-    : ['bootstrap', 'verificacion'].includes(operacion?.fase) ? 2
-      : ['lista', 'dispatch_started', 'tarea'].includes(operacion?.fase) ? 1 : 0;
+  const delivered = active ? 4 : operacion?.estado === 'confirmada' || operacion?.fase === 'finalizada' || (!pedido.operation_id && pedido.servicio_id && pedido.estado === 'en_despliegue') ? 3
+    : ['bootstrap', 'verificacion', 'instalacion', 'configuracion', 'arranque', 'comprobacion'].includes(operacion?.fase) ? 2
+      : ['lista', 'dispatch_started', 'tarea', 'creacion', 'entorno'].includes(operacion?.fase) ? 1 : 0;
   const waiting = delivered === 3 && !active && !failed && !uncertain;
   const working = !active && !failed && !uncertain && !waiting;
   const title = active ? 'Servicio disponible' : failed ? 'El despliegue necesita revisión'
