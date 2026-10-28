@@ -65,8 +65,10 @@ export default function AprobarPedidoModal({ open, pedido, templates = EMPTY, on
     : tamanosCompatibles(sizes, selected?.minimum_resources);
   const selectedSize = allowed.find((size) => size.id === sizeId) || allowed.find((size) => size.id === selected?.tamano_recomendado) || allowed[0];
   const definitionId = renewal ? pedido?.asignacion_snapshot?.definicion_version_id : selected?.definicion_version_id;
+  const configuracionId = renewal ? (pedido?.configuracion_despliegue_id || pedido?.asignacion_snapshot?.configuracion_despliegue_id) : selected?.configuracion_despliegue_id;
   const payload = { asignacion: { template_id: Number(templateId), ...(renewal ? resources : selectedSize ? recursosTamano(selectedSize) : {}),
-    ...(!renewal && selectedSize ? { tamano: selectedSize.id } : {}), ...(definitionId ? { definicion_version_id: definitionId } : {}) }, vigencia: dates,
+    ...(!renewal && selectedSize ? { tamano: selectedSize.id } : {}), ...(definitionId ? { definicion_version_id: definitionId } : {}),
+    ...(configuracionId ? { configuracion_despliegue_id: configuracionId } : {}) }, vigencia: dates,
     ...(destination ? { destino: JSON.parse(destination) } : {}) };
   const payloadKey = JSON.stringify(payload);
   const canEvaluate = Boolean(open && pedidoId && templateId && validDates && (renewal || (selectedSize && !sizesError && !loadingSizes)));
