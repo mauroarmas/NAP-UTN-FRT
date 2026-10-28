@@ -168,6 +168,7 @@ async def aprobar(pedido_id: int, data: PedidoAprobar,
 
 
 @router.post("/{pedido_id}/solicitar-ajuste")
+@router.post("/{pedido_id}/aclaracion")
 async def solicitar_ajuste_endpoint(pedido_id: int, data: PedidoSolicitarAjuste,
     clave: str = Header(alias='Idempotency-Key'),
     current_user: Usuario = Depends(require_admin), db: AsyncSession = Depends(get_db)):

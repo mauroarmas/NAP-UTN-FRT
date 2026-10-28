@@ -56,7 +56,17 @@ class AprobacionEfectiva(SeleccionEvaluacion):
     capacidad_token: str = Field(min_length=1, max_length=4096)
     justificacion_capacidad: str | None = Field(default=None, min_length=1, max_length=2000)
     desplegar_inmediatamente: StrictBool = False
+    solicitar_despliegue: Literal['inmediato', 'programado', 'al_inicio'] | StrictBool | None = None
     valores_privados: dict[str, SecretStr] | None = Field(default=None, exclude=True, repr=False)
+
+    @model_validator(mode='after')
+    def validar_intencion_despliegue(self):
+        if self.solicitar_despliegue is not None:
+            if self.solicitar_despliegue is False and self.desplegar_inmediatamente:
+                raise ValueError('Decisiones de despliegue contradictorias: solicitar_despliegue=False con desplegar_inmediatamente=True')
+            if self.solicitar_despliegue in ('programado', 'al_inicio') and self.desplegar_inmediatamente:
+                raise ValueError('Decisiones de despliegue contradictorias: despliegue programado con desplegar_inmediatamente=True')
+        return self
 
     @field_validator('valores_privados', mode='before')
     @classmethod

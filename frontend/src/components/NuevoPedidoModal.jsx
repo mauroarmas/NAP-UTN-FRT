@@ -22,6 +22,8 @@ export default function NuevoPedidoModal({ open, onClose, onCreated, user, initi
   const [description, setDescription] = useState('');
   const [title, setTitle] = useState('');
   const [otherName, setOtherName] = useState('');
+  const [imageRef, setImageRef] = useState('');
+  const [instructions, setInstructions] = useState('');
   const [dates, setDates] = useState(vigenciaInicial);
   const [validDates, setValidDates] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -35,7 +37,7 @@ export default function NuevoPedidoModal({ open, onClose, onCreated, user, initi
     if (!open) return;
     let active = true;
     const initialModel = initialTemplate?.modelo_servicio || 'iaas';
-    setModel(initialModel); setTemplateId(''); setCategoryId(''); setDescription(''); setTitle(''); setOtherName(''); setDates(vigenciaInicial());
+    setModel(initialModel); setTemplateId(''); setCategoryId(''); setDescription(''); setTitle(''); setOtherName(''); setImageRef(''); setInstructions(''); setDates(vigenciaInicial());
     setValidDates(false); setError(''); setFields({}); setBusy(false); submitting.current = false;
     key.current = crypto.randomUUID(); setLoading(true);
     Promise.all([getTemplates(), admin ? getCatedras() : getCatedrasMias()]).then(([tpl, cats]) => {
@@ -56,7 +58,7 @@ export default function NuevoPedidoModal({ open, onClose, onCreated, user, initi
   const edit = (setter, value) => { setter(value); key.current = crypto.randomUUID(); setFields({}); };
   const changeModel = (value) => {
     const first = templates.find((t) => compatible(t, value));
-    setModel(value); setTemplateId(first ? String(first.id) : value !== 'iaas' ? 'otro' : ''); setOtherName('');
+    setModel(value); setTemplateId(first ? String(first.id) : value !== 'iaas' ? 'otro' : ''); setOtherName(''); setImageRef(''); setInstructions('');
     key.current = crypto.randomUUID(); setError(''); setFields({});
   };
   const submit = async (event) => {
@@ -65,7 +67,12 @@ export default function NuevoPedidoModal({ open, onClose, onCreated, user, initi
     submitting.current = true; setBusy(true); setError(''); setFields({});
     const payload = { modelo_servicio: model, template_id: isOther ? null : Number(templateId), catedra_id: Number(categoryId),
       descripcion_requerimientos: description.trim(), vigencia: dates,
-      parametros_extra: { titulo: title.trim(), software_solicitado: isOther ? otherName.trim() : null } };
+      parametros_extra: {
+        titulo: title.trim(),
+        software_solicitado: isOther ? otherName.trim() : null,
+        ...(isOther && imageRef.trim() ? { referencia_imagen: imageRef.trim() } : {}),
+        ...(isOther && instructions.trim() ? { instrucciones_uso: instructions.trim() } : {}),
+      } };
     const chosen = templates.find(t => String(t.id) === templateId);
     if (chosen?.origen_biblioteca) payload.oferta_revision = chosen.revision;
     try {
@@ -123,6 +130,16 @@ export default function NuevoPedidoModal({ open, onClose, onCreated, user, initi
             <label htmlFor="request-other">¿Qué software o servicio necesitás?</label>
             <input id="request-other" className="input" maxLength={200} value={otherName} disabled={busy}
               onChange={(e) => edit(setOtherName, e.target.value)} placeholder="Nombre del servicio y su función principal" required />
+          </div>
+          <div className="request-field">
+            <label htmlFor="request-image-ref">Referencia de imagen (opcional)</label>
+            <input id="request-image-ref" className="input" maxLength={255} value={imageRef} disabled={busy}
+              onChange={(e) => edit(setImageRef, e.target.value)} placeholder="Ej.: mi-organizacion/mi-app:1.0 (sin contraseñas)" />
+          </div>
+          <div className="request-field">
+            <label htmlFor="request-instructions">Instrucciones de uso o configuración (opcional)</label>
+            <textarea id="request-instructions" className="input" rows={2} maxLength={2000} value={instructions} disabled={busy}
+              onChange={(e) => edit(setInstructions, e.target.value)} placeholder="Puertos requeridos o pasos de uso" />
           </div>
           <p className="request-hint"><Info size={15} aria-hidden="true" /> Administración evaluará tu propuesta, preparará el servicio y lo incorporará al catálogo antes de aprobar su asignación.</p>
         </div>}

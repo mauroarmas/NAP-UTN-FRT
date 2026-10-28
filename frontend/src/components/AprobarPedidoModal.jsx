@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { CalendarDays, CheckCircle2, ChevronDown, Info, Layers, LoaderCircle, Server, ShieldCheck } from 'lucide-react';
+import { CalendarDays, CheckCircle2, ChevronDown, Info, Key, Layers, LoaderCircle, Server, ShieldCheck } from 'lucide-react';
 import { aprobarPedido, evaluarPedido, getCapacidad, getTemplates } from '../services/api';
 import ErrorFormulario from './ErrorFormulario';
 import PanelCapacidad from './PanelCapacidad';
@@ -27,6 +27,7 @@ export default function AprobarPedidoModal({ open, pedido, templates = EMPTY, on
   const [refresh, setRefresh] = useState(0);
   const [justification, setJustification] = useState('');
   const [deployNow, setDeployNow] = useState(false);
+  const [privateValues, setPrivateValues] = useState({});
   const [error, setError] = useState('');
   const [evaluating, setEvaluating] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -53,7 +54,7 @@ export default function AprobarPedidoModal({ open, pedido, templates = EMPTY, on
     setResources({ vcpus: snapshot?.vcpus ?? template?.default_vcpus ?? 1,
       ram_mb: snapshot?.ram_mb ?? template?.default_ram_mb ?? 512, disk_gb: snapshot?.disk_gb ?? template?.default_disk_gb ?? 4 });
     setDates(initial.vigencia ? { ...initial.vigencia } : vigenciaInicial()); setValidDates(false); setPeriod(null); setEditDates(false);
-    setDestination(''); setDestinations([]); setEvaluation(null); setJustification(''); setDeployNow(false); setError('');
+    setDestination(''); setDestinations([]); setEvaluation(null); setJustification(''); setDeployNow(false); setPrivateValues({}); setError('');
     setBusy(false); setEvaluating(false); submitting.current = false; key.current = crypto.randomUUID();
     getCapacidad().then(({ data }) => { if (active) setDestinations(data?.destinos || []); })
       .catch(() => { if (active) setDestinations([]); });
@@ -94,9 +95,19 @@ export default function AprobarPedidoModal({ open, pedido, templates = EMPTY, on
     if (Date.now() >= evaluation.expires) { recheck(); return; }
     if (evaluation.data.justificacion_requerida && !justification.trim()) { setError('Explicá el motivo para aprobar con capacidad ajustada.'); return; }
     submitting.current = true; setBusy(true); setError('');
+    const secretsRequired = evaluation?.data?.configuracion_aprobada?.documento?.secretos?.filter((s) => s.modo === 'por_pedido') || EMPTY;
     try {
-      const response = await aprobarPedido(pedidoId, { ...evaluation.data.seleccion, capacidad_token: evaluation.data.capacidad_token,
-        ...(justification.trim() ? { justificacion_capacidad: justification.trim() } : {}), desplegar_inmediatamente: deployNow && !renewal && !future }, key.current);
+      const requestPayload = {
+        ...evaluation.data.seleccion,
+        capacidad_token: evaluation.data.capacidad_token,
+        ...(justification.trim() ? { justificacion_capacidad: justification.trim() } : {}),
+        ...(deployNow && !renewal ? {
+          solicitar_despliegue: future ? 'programado' : 'inmediato',
+          desplegar_inmediatamente: !future,
+        } : {}),
+        ...(secretsRequired.length > 0 ? { valores_privados: privateValues } : {}),
+      };
+      const response = await aprobarPedido(pedidoId, requestPayload, key.current);
       onAprobado?.(response.data); onClose();
     } catch (err) {
       setError(err);
@@ -110,6 +121,8 @@ export default function AprobarPedidoModal({ open, pedido, templates = EMPTY, on
   const blocked = Boolean(evaluation?.data.restricciones_fisicas?.length);
   const needsReason = Boolean(evaluation?.data.justificacion_requerida);
   const future = evaluation?.data.vigencia_efectiva?.inicio_at && Date.parse(evaluation.data.vigencia_efectiva.inicio_at) > Date.now();
+  const secretsRequired = evaluation?.data?.configuracion_aprobada?.documento?.secretos?.filter((s) => s.modo === 'por_pedido') || EMPTY;
+  const missingSecrets = secretsRequired.some((s) => !(privateValues[s.nombre] || '').trim());
   return <Dialog wide className="approval-dialog" title={`Aprobar pedido #${pedido.id}`} onClose={onClose} closeDisabled={busy}>
     <form onSubmit={submit} className="approval-form">
       <div className="approval-intro"><ShieldCheck size={22}/><div><strong>{pedido.catedra?.nombre || 'Revisá las condiciones del pedido'}</strong>
@@ -151,10 +164,19 @@ export default function AprobarPedidoModal({ open, pedido, templates = EMPTY, on
       {!renewal && destinations.length > 1 && <details className="approval-location"><summary>Ubicación del servicio</summary><label htmlFor="approval-destination">Destino autorizado</label><select id="approval-destination" className="input" value={destination} disabled={busy} onChange={(e) => { setDestination(e.target.value); invalidate(); }}>
         <option value="">Elegir automáticamente</option>{destinations.map((d) => <option key={`${d.destino.nodo}:${d.destino.storage}`} value={JSON.stringify(d.destino)}>{d.destino.nodo} / {d.destino.storage}</option>)}</select></details>}
       {evaluation?.data.cambio_version && <p className="callout"><Info size={16}/>Se usará la versión {evaluation.data.version_efectiva} del servicio y se informará a la cátedra.</p>}
-      {!renewal && <label className="approval-deploy"><input type="checkbox" checked={deployNow && !future} disabled={busy || Boolean(future) || !evaluation} onChange={(e) => { setDeployNow(e.target.checked); key.current = crypto.randomUUID(); }}/>
-        <span><strong>Desplegar después de aprobar</strong><small>{future ? 'Podrá desplegarse cuando comience la vigencia.' : 'Crear la instancia al confirmar este pedido.'}</small></span></label>}
+      {secretsRequired.length > 0 && <section className="approval-section" aria-labelledby="approval-secrets-title">
+        <h3 id="approval-secrets-title"><Key size={18}/>Datos confidenciales requeridos</h3>
+        {secretsRequired.map((sec) => <div key={sec.nombre} className="field">
+          <label htmlFor={`secret-${sec.nombre}`}>{sec.etiqueta || sec.nombre}</label>
+          <input id={`secret-${sec.nombre}`} type="password" className="input" required value={privateValues[sec.nombre] || ''}
+            disabled={busy} onChange={(e) => { setPrivateValues({ ...privateValues, [sec.nombre]: e.target.value }); key.current = crypto.randomUUID(); }}
+            placeholder={sec.descripcion || `Ingresá ${sec.nombre}`} autoComplete="new-password" />
+        </div>)}
+      </section>}
+      {!renewal && <label className="approval-deploy"><input type="checkbox" checked={deployNow} disabled={busy || !evaluation} onChange={(e) => { setDeployNow(e.target.checked); key.current = crypto.randomUUID(); }}/>
+        <span><strong>{future ? 'Programar despliegue al inicio de vigencia' : 'Desplegar después de aprobar'}</strong><small>{future ? 'NAP creará la instancia automáticamente cuando comience la fecha autorizada.' : 'Crear la instancia al confirmar este pedido.'}</small></span></label>}
       <div className="approval-actions"><button type="button" className="btn btn-secondary" onClick={onClose} disabled={busy}>Cancelar</button>
-        <button type="submit" className="btn btn-primary" disabled={busy || evaluating || !validDates || !evaluation || blocked || (needsReason && !justification.trim())}>{busy ? 'Aprobando…' : renewal ? 'Aprobar renovación' : 'Aprobar pedido'}</button></div>
+        <button type="submit" className="btn btn-primary" disabled={busy || evaluating || !validDates || !evaluation || blocked || (needsReason && !justification.trim()) || missingSecrets}>{busy ? 'Aprobando…' : renewal ? 'Aprobar renovación' : 'Aprobar pedido'}</button></div>
     </form>
   </Dialog>;
 }

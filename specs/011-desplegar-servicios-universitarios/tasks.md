@@ -135,21 +135,21 @@ si el cambio siguiente no la afecta. No eliminar pruebas existentes por este aju
 
 ### Pruebas primero
 
-- [ ] T065 [P] [US3] Crear `backend/tests/test_pedidos_aplicaciones_011.py` con Otro/imagen opcional, pertenencia, aprobación/aclaración/rechazo/reenvío, revisión congelada, valores sensibles write-only y avisos sin reservas o instalaciones prematuras.
-- [ ] T066 [P] [US3] Crear `backend/tests/postgres/test_despliegue_011.py`: dos aprobaciones sobre capacidad compartida, oferta cambiada durante evaluación, dos admisiones/slots concurrentes y renovación que conserva snapshot; una única reserva efectiva por decisión.
-- [ ] T067 [P] [US3] Crear `backend/tests/test_despliegue_programado_011.py` con reloj controlado: inicio inclusivo local, tick duplicado, revisión reemplazada, baja/revocación, perfil bloqueado, gracia desde max(aprobación,inicio), caída PVE y autor sistema sin CT anticipado.
-- [ ] T068 [P] [US3] Ampliar `frontend/tests/pedidos-formularios.test.jsx` para las dos entradas de imágenes, Otro con imagen opcional, sin hardware docente y aprobación con tamaños admitidos/una decisión de despliegue; conservar aclaración y justificación pedagógica.
+- [X] T065 [P] [US3] Crear `backend/tests/test_pedidos_aplicaciones_011.py` con Otro/imagen opcional, pertenencia, aprobación/aclaración/rechazo/reenvío, revisión congelada, valores sensibles write-only y avisos sin reservas o instalaciones prematuras.
+- [X] T066 [P] [US3] Crear `backend/tests/postgres/test_despliegue_011.py`: dos aprobaciones sobre capacidad compartida, oferta cambiada durante evaluación, dos admisiones/slots concurrentes y renovación que conserva snapshot; una única reserva efectiva por decisión.
+- [X] T067 [P] [US3] Crear `backend/tests/test_despliegue_programado_011.py` con reloj controlado: inicio inclusivo local, tick duplicado, revisión reemplazada, baja/revocación, perfil bloqueado, gracia desde max(aprobación,inicio), caída PVE y autor sistema sin CT anticipado.
+- [X] T068 [P] [US3] Ampliar `frontend/tests/pedidos-formularios.test.jsx` para las dos entradas de imágenes, Otro con imagen opcional, sin hardware docente y aprobación con tamaños admitidos/una decisión de despliegue; conservar aclaración y justificación pedagógica.
 
 ### Implementación
 
-- [ ] T069 [US3] Extender `backend/app/schemas/pedido.py`, `backend/app/services/pedido_service.py` y `frontend/src/components/NuevoPedidoModal.jsx` para Otro con referencia opcional sin credenciales embebidas/instrucciones de uso; mantener datos como necesidad sin autorizar ejecución y conservar propósito/fechas y catálogo docente.
-- [ ] T070 [US3] Completar evaluación/aprobación en `backend/app/services/evaluacion_service.py`, `backend/app/services/admision_service.py` y `backend/app/routers/pedidos.py`: hash/revisión/destino firmados, reserva indivisible, mínimos Small/Medium, ramas sin re-resolver fuentes y conflictos comprensibles; aclaración/rechazo no reserva ni instala.
-- [ ] T071 [US3] Integrar valores sensibles por pedido en `backend/app/schemas/pedido.py`, `backend/app/services/secreto_despliegue_service.py` y `backend/app/routers/pedidos.py`: sólo admin cuando el perfil lo exige, cifrar antes de persistir y no conservarlos en idempotencia, snapshot/contexto/respuestas; replays usan las mismas referencias/credenciales.
-- [ ] T072 [US3] Implementar `backend/app/services/despliegue_programado_service.py`: intención/revisión aprobada, clave estable por pedido/revisión, actor sistema, validación de vigencia/reserva/perfil y admisión única al inicio; decisión posterior/baja invalida la agenda anterior sin crear una máquina de estados adicional.
-- [ ] T073 [US3] Registrar agenda en `backend/app/worker.py` y adaptar `backend/app/services/capacidad_service.py` y `backend/app/services/admision_service.py` para gracia de reserva futura; conservar semántica de desplegar_inmediatamente y rechazar decisiones contradictorias con 422, sin operación/CT antes de inicio.
-- [ ] T074 [US3] Simplificar `frontend/src/components/AprobarPedidoModal.jsx` y `frontend/src/services/api.js`: tamaño permitido, vigencia/destino entendibles y una sola decisión de iniciar/programar; campos privados sólo cuando se requieren, evaluación obsoleta recuperable y feedback de reserva/programación/error sin UUID ni pasos extra.
-- [ ] T075 [US3] Integrar entrega y avisos con `backend/app/services/pedido_service.py`, `backend/app/services/notificacion_service.py`, `backend/app/routers/servicios.py` y `frontend/src/components/AccesoServicio.jsx`: texto según producto, acceso sólo a responsable vigente/admin y notificación posterior a disponibilidad probada; conservar avisos de aclaración/rechazo/reenvío y no prometer SSO arbitrario.
-- [ ] T076 [US3] Ejecutar aislamiento por dos cátedras para el motor Docker común y programación futura; documentar `docs/evidencia/011/us3-pedidos.md` con petición <=2 min, acceso ajeno denegado, datos/credenciales independientes y reserva/CT observados antes/después de inicio, sin exponer secretos.
+- [X] T069 [US3] Extender `backend/app/schemas/pedido.py`, `backend/app/services/pedido_service.py` y `frontend/src/components/NuevoPedidoModal.jsx` para Otro con referencia opcional sin credenciales embebidas/instrucciones de uso; mantener datos como necesidad sin autorizar ejecución y conservar propósito/fechas y catálogo docente.
+- [X] T070 [US3] Completar evaluación/aprobación en `backend/app/services/evaluacion_service.py`, `backend/app/services/admision_service.py` y `backend/app/routers/pedidos.py`: hash/revisión/destino firmados, reserva indivisible, mínimos Small/Medium, ramas sin re-resolver fuentes y conflictos comprensibles; aclaración/rechazo no reserva ni instala.
+- [X] T071 [US3] Integrar valores sensibles por pedido en `backend/app/schemas/pedido.py`, `backend/app/services/secreto_despliegue_service.py` y `backend/app/routers/pedidos.py`: sólo admin cuando el perfil lo exige, cifrar antes de persistir y no conservarlos en idempotencia, snapshot/contexto/respuestas; replays usan las mismas referencias/credenciales.
+- [X] T072 [US3] Implementar `backend/app/services/despliegue_programado_service.py`: intención/revisión aprobada, clave estable por pedido/revisión, actor sistema, validación de vigencia/reserva/perfil y admisión única al inicio; decisión posterior/baja invalida la agenda anterior sin crear una máquina de estados adicional.
+- [X] T073 [US3] Registrar agenda en `backend/app/worker.py` y adaptar `backend/app/services/capacidad_service.py` y `backend/app/services/admision_service.py` para gracia de reserva futura; conservar semántica de desplegar_inmediatamente y rechazar decisiones contradictorias con 422, sin operación/CT antes de inicio.
+- [X] T074 [US3] Simplificar `frontend/src/components/AprobarPedidoModal.jsx` y `frontend/src/services/api.js`: tamaño permitido, vigencia/destino entendibles y una sola decisión de iniciar/programar; campos privados sólo cuando se requieren, evaluación obsoleta recuperable y feedback de reserva/programación/error sin UUID ni pasos extra.
+- [X] T075 [US3] Integrar entrega y avisos con `backend/app/services/pedido_service.py`, `backend/app/services/notificacion_service.py`, `backend/app/routers/servicios.py` y `frontend/src/components/AccesoServicio.jsx`: texto según producto, acceso sólo a responsable vigente/admin y notificación posterior a disponibilidad probada; conservar avisos de aclaración/rechazo/reenvío y no prometer SSO arbitrario.
+- [X] T076 [US3] Ejecutar aislamiento por dos cátedras para el motor Docker común y programación futura; documentar `docs/evidencia/011/us3-pedidos.md` con petición <=2 min, acceso ajeno denegado, datos/credenciales independientes y reserva/CT observados antes/después de inicio, sin exponer secretos.
 
 **Checkpoint**: reserva al aprobar, instalación al inicio elegido, entrega sólo comprobada. El cambio de titular afecta acceso vigente y conserva la atribución histórica a la cátedra.
 
@@ -246,7 +246,7 @@ No repetir una instalación por seleccionar la misma imagen desde otra entrada d
 
 ## Criterio de finalización y recuento
 
-**43/95 tareas activas verificadas; 52 pendientes.** Los IDs originales se conservan:
+**55/95 tareas activas verificadas; 40 pendientes.** Los IDs originales se conservan:
 10 tareas retiradas, de las cuales T006 ya estaba completada históricamente. Este
 recorte no representa nuevas implementaciones. Los recuentos 38/105 y anteriores
 que siguen abajo son snapshots históricos previos a la decisión del 27/10.
@@ -254,6 +254,17 @@ que siguen abajo son snapshots históricos previos a la decisión del 27/10.
 Marcar una tarea activa sólo después de implementar/verificar su resultado. No
 acreditar instalación por documentación o fixtures ni quitar seguridad/recuperación
 para acelerar. Estado y tareas retiradas: [cambio de alcance](cambio-alcance-oci.md).
+
+## Avance de implementación — 2026-10-27 (US3 Pedidos, Otro y agenda programada)
+
+US3 (T065 a T076) completada y verificada. Se implementó el flujo docente simplificado
+con soporte de «Otro» (referencia de imagen opcional e instrucciones de uso, sin selección
+de hardware docente ni creación de CTs o reservas prematuras al solicitar). Aprobación
+administrativa indivisible con reserva atómica de capacidad, soporte de campos privados
+cifrados write-only (`valores_privados`), y decisión de despliegue unificada: encolado inmediato
+para pedidos en fecha y agenda periódica sin CT anticipado para pedidos futuros
+(`despliegue_programado_service.py`), con gracia extendida y reloj controlado. Evidencia
+en `docs/evidencia/011/us3-pedidos.md`.
 
 ## Avance de implementación — 2026-10-27 (US2 Docker Hub biblioteca)
 

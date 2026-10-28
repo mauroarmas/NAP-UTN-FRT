@@ -52,24 +52,29 @@ def operation_response(operation):
 async def _queue_deploy(db, pedido, *, actor, clave, payload):
     if pedido.configuracion_despliegue_id:
         from app.services.perfiles_service import validar_asignacion_aplicacion
-        await validar_asignacion_aplicacion(db,pedido)
+        await validar_asignacion_aplicacion(db, pedido)
     previous = await _open_operation(db, pedido)
     if previous:
         raise error(409, 'operacion_en_curso', 'Ya existe una operación abierta', operation_id=str(previous.id))
+    actor_usuario_id = actor.id if hasattr(actor, 'id') and isinstance(actor.id, int) else None
+    actor_tipo = 'usuario' if actor_usuario_id is not None else 'sistema'
+    actor_id_norm = str(actor.id) if hasattr(actor, 'id') else str(actor)
     operation = OperacionInfraestructura(tipo='desplegar', pedido_id=pedido.id,
-        actor_usuario_id=actor.id, actor_tipo='usuario', actor_id_normalizado=str(actor.id),
+        actor_usuario_id=actor_usuario_id, actor_tipo=actor_tipo, actor_id_normalizado=actor_id_norm,
         idempotency_key=clave, request_hash=hashlib.sha256(safe_json(payload).encode()).hexdigest(),
         estado='pendiente', fase='preparacion', creado_at=clock.now(), updated_at=clock.now(), next_poll_at=clock.now())
     operation.contexto_seguro = {'catedra_id': pedido.catedra_id, 'revision_decision': pedido.revision_decision,
         'asignacion': pedido.asignacion_snapshot, 'destino': pedido.destino_snapshot,
         'vigencia': pedido.decision_snapshot['vigencia'], 'modelo_servicio': pedido.modelo_servicio.value}
+    if payload.get('origen'):
+        operation.contexto_seguro['origen'] = payload['origen']
     if pedido.configuracion_despliegue_id:
         operation.contexto_seguro['configuracion_sha256']=pedido.asignacion_snapshot['configuracion_sha256']
     db.add(operation)
     await db.flush()
     from app.services.pedido_service import transicionar
-    await transicionar(db, pedido.id, EstadoPedido.EN_DESPLIEGUE, usuario=actor,
-        motivo='Despliegue admitido; pendiente de ejecución y verificación', operacion_id=operation.id,
+    await transicionar(db, pedido.id, EstadoPedido.EN_DESPLIEGUE, usuario=actor if actor_tipo == 'usuario' else None,
+        motivo='Despliegue admitido; pendiente de ejecución y verificación' if actor_tipo == 'usuario' else 'Despliegue programado admitido al inicio de vigencia', operacion_id=operation.id,
         evento_clave=f'operacion:{operation.id}:admitida')
     await notificacion_service.encolar_aviso_pedido(db, pedido, evento=f'operacion:{operation.id}:iniciada',
         tipo='despliegue_iniciado', asunto=f'Pedido #{pedido.id}: despliegue en curso',
@@ -121,9 +126,42 @@ async def aprobar(db, pedido_id, *, actor, payload, clave, pve=None):
                             restricciones=evaluation['restricciones_fisicas'])
             if evaluation['justificacion_requerida'] and not (body.justificacion_capacidad and body.justificacion_capacidad.strip()):
                 raise error(409, 'justificacion_capacidad_requerida', 'Justificá la sobreasignación antes de confirmar', evaluacion=evaluation)
-            if body.desplegar_inmediatamente and (pedido.tipo == TipoPedido.RENOVACION or clock.now() < period.inicio_at):
-                raise error(409, 'inicio_futuro' if pedido.tipo == TipoPedido.ALTA else 'renovacion_sin_despliegue',
-                            'La fecha inicial debe estar habilitada; una renovación solo registra condiciones')
+
+            intent = body.solicitar_despliegue
+            effective_immediate = False
+            effective_scheduled = False
+            if intent == 'inmediato':
+                effective_immediate = True
+            elif intent in ('programado', 'al_inicio'):
+                effective_scheduled = True
+            elif intent is True:
+                if clock.now() < period.inicio_at:
+                    effective_scheduled = True
+                else:
+                    effective_immediate = True
+            elif intent is False:
+                effective_immediate = False
+                effective_scheduled = False
+            else:
+                effective_immediate = bool(body.desplegar_inmediatamente)
+
+            if effective_immediate:
+                if pedido.tipo == TipoPedido.RENOVACION:
+                    raise error(409, 'renovacion_sin_despliegue', 'Una renovación solo registra condiciones')
+                if clock.now() < period.inicio_at:
+                    raise error(409, 'inicio_futuro', 'La fecha inicial debe estar habilitada')
+
+            if effective_scheduled:
+                if pedido.tipo == TipoPedido.RENOVACION:
+                    raise error(422, 'renovacion_sin_despliegue', 'Una renovación no admite despliegue programado')
+                if clock.now() >= period.inicio_at:
+                    effective_immediate = True
+                    effective_scheduled = False
+                else:
+                    pedido.despliegue_solicitado_at = clock.now()
+                    pedido.despliegue_programado_at = period.inicio_at
+                    pedido.despliegue_revision_programada = pedido.revision_decision + 1
+                    pedido.despliegue_solicitado_por = actor.id
             frozen=evaluation.get('configuracion_aprobada')
             assignment = {**evaluation['seleccion']['asignacion'], 'nombre': template.nombre, 'tipo': template.tipo.value,
                 'modelo_servicio': pedido.modelo_servicio.value,
@@ -217,13 +255,21 @@ async def aprobar(db, pedido_id, *, actor, payload, clave, pve=None):
                     motivo='Registro de condiciones de renovación', evento_clave=f'decision:{pedido.revision_decision}:registrando')
                 await transicionar(session, pedido.id, EstadoPedido.ACTIVO, usuario=actor,
                     motivo='Renovación registrada; conserva estado e identidad del servicio', evento_clave=f'decision:{pedido.revision_decision}:registrada')
-            if body.desplegar_inmediatamente:
+            if effective_immediate:
                 operation = await _queue_deploy(session, pedido, actor=actor, clave=clave, payload=normalized_payload)
                 return ResultadoDecision(202, operation_response(operation))
-            return ResultadoDecision(200, {'id': pedido.id, 'pedido_id': pedido.id, 'estado': pedido.estado.value,
+            disponibilidad = (
+                'programado_al_inicio' if effective_scheduled
+                else ('esperando_inicio' if clock.now() < period.inicio_at
+                else ('renovacion_registrada' if service else 'listo_para_desplegar'))
+            )
+            resp = {'id': pedido.id, 'pedido_id': pedido.id, 'estado': pedido.estado.value,
                 'revision_decision': pedido.revision_decision, 'asignacion_snapshot': assignment, 'destino_snapshot': destination,
                 'vigencia_efectiva': evaluation['vigencia_efectiva'],
-                'disponibilidad': 'esperando_inicio' if clock.now() < period.inicio_at else ('renovacion_registrada' if service else 'listo_para_desplegar')})
+                'disponibilidad': disponibilidad}
+            if effective_scheduled:
+                resp['despliegue_programado_at'] = period.inicio_at.isoformat()
+            return ResultadoDecision(200, resp)
 
     return await ejecutar(db, actor_id=actor.id, clave=clave, metodo='POST', ruta=f'/pedidos/{pedido_id}/aprobar',
         payload=normalized_payload, decidir=decide, target_tipo='pedido', target_id=pedido_id)

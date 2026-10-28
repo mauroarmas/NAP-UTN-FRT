@@ -22,6 +22,26 @@ class CatedraBreve(BaseModel):
 class DatosSolicitud(Contrato):
     titulo: str | None = Field(default=None, max_length=200)
     software_solicitado: str | None = Field(default=None, max_length=200)
+    referencia_imagen: str | None = Field(default=None, max_length=255)
+    instrucciones_uso: str | None = Field(default=None, max_length=2000)
+
+    @model_validator(mode='after')
+    def validar_referencia_sin_credenciales(self):
+        if self.referencia_imagen:
+            ref = self.referencia_imagen.strip()
+            if any(prefix in ref.lower() for prefix in ('http://', 'https://', 'ssh://')):
+                raise ValueError('La referencia de imagen no debe incluir protocolo')
+            if any(c in ref for c in (' ', '\t', '\n', '\r')):
+                raise ValueError('La referencia de imagen no puede contener espacios')
+            if '@' in ref:
+                parts = ref.split('@', 1)
+                # Digest allowed, e.g. @sha256:...
+                if not parts[1].startswith('sha256:'):
+                    raise ValueError('La referencia de imagen no puede incluir credenciales de acceso')
+                if any(c in parts[0] for c in (':', ' ')):
+                    # Something like user:pass@image@sha256:...
+                    raise ValueError('La referencia de imagen no puede incluir credenciales de acceso')
+        return self
 
 
 class PedidoCreate(Contrato):

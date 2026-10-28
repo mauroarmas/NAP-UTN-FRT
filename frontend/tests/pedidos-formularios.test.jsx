@@ -233,3 +233,85 @@ test('actualizaciones del listado no borran las fechas editadas ni el tamaño', 
   expect(screen.getByRole('radio', { name: /^Medium/ })).toBeChecked();
   expect(screen.getByLabelText('Fecha hasta')).toHaveValue('2027-07-15');
 });
+
+test('Otro admite referencia opcional e instrucciones y no expone hardware al docente', async () => {
+  const user = userEvent.setup();
+  api.createPedido.mockResolvedValue({ data: { id: 31, estado: 'solicitado' } });
+  const onCreated = vi.fn();
+  render(<NuevoPedidoModal open user={teacher} onClose={vi.fn()} onCreated={onCreated} />);
+  await waitFor(() => expect(screen.getByLabelText('Plantilla')).toHaveValue('1'));
+  await user.click(screen.getByRole('button', { name: /SaaS/ }));
+  expect(screen.getByLabelText('Servicio')).toHaveValue('otro');
+
+  // El docente no tiene selectores de hardware ni infraestructura
+  expect(screen.queryByLabelText(/vCPU/i)).not.toBeInTheDocument();
+  expect(screen.queryByLabelText(/RAM/i)).not.toBeInTheDocument();
+  expect(screen.queryByLabelText(/Disco/i)).not.toBeInTheDocument();
+
+  await user.type(screen.getByLabelText('¿Qué software o servicio necesitás?'), 'Entorno Jupyter');
+  await user.type(screen.getByLabelText('Referencia de imagen (opcional)'), 'jupyter/minimal-notebook:latest');
+  await user.type(screen.getByLabelText('Instrucciones de uso o configuración (opcional)'), 'Requiere exponer puerto 8888');
+  await user.type(screen.getByLabelText('Nombre de la solicitud'), 'Prácticas de Programación');
+  await user.type(screen.getByLabelText('Justificación pedagógica'), 'Uso docente en aula.');
+  await user.click(screen.getByRole('button', { name: 'Rango Personalizado' }));
+  await user.type(screen.getByLabelText('Fecha desde'), '2027-03-01');
+  await user.type(screen.getByLabelText('Fecha hasta'), '2027-06-30');
+
+  const send = screen.getByRole('button', { name: 'Enviar solicitud', exact: true });
+  await waitFor(() => expect(send).toBeEnabled());
+  await user.click(send);
+
+  await waitFor(() => expect(onCreated).toHaveBeenCalled());
+  expect(api.createPedido.mock.calls[0][0].parametros_extra).toEqual({
+    titulo: 'Prácticas de Programación',
+    software_solicitado: 'Entorno Jupyter',
+    referencia_imagen: 'jupyter/minimal-notebook:latest',
+    instrucciones_uso: 'Requiere exponer puerto 8888',
+  });
+});
+
+test('AprobarPedidoModal muestra decisión única de programar para fechas futuras y solicita campos privados', async () => {
+  const user = userEvent.setup();
+  api.evaluarPedido.mockImplementation(async (_id, seleccion) => ({
+    data: {
+      seleccion,
+      capacidad_token: 'token-future',
+      justificacion_requerida: false,
+      restricciones_fisicas: [],
+      costo_incremental: seleccion.asignacion,
+      vigencia_efectiva: {
+        inicio_at: '2027-03-01T03:00:00Z',
+        fin_exclusivo_at: '2027-07-01T03:00:00Z',
+      },
+      configuracion_aprobada: {
+        documento: {
+          secretos: [
+            { nombre: 'APP_SECRET', etiqueta: 'Contraseña de la aplicación', modo: 'por_pedido' },
+          ],
+        },
+      },
+    },
+  }));
+
+  const pedido = { id: 2, template_id: 1, modelo_servicio: 'iaas', vigencia: dates };
+  render(<AprobarPedidoModal open pedido={pedido} templates={templates} onClose={vi.fn()} />);
+
+  await waitFor(() => expect(screen.getByLabelText('Contraseña de la aplicación')).toBeInTheDocument());
+  expect(screen.getByText('Programar despliegue al inicio de vigencia')).toBeVisible();
+
+  // El botón de aprobar está deshabilitado mientras falte la clave privada
+  const submitBtn = screen.getByRole('button', { name: 'Aprobar pedido' });
+  expect(submitBtn).toBeDisabled();
+
+  await user.type(screen.getByLabelText('Contraseña de la aplicación'), 'mi-clave-super-segura');
+  await waitFor(() => expect(submitBtn).toBeEnabled());
+
+  await user.click(screen.getByLabelText(/Programar despliegue al inicio de vigencia/));
+  await user.click(submitBtn);
+
+  await waitFor(() => expect(api.aprobarPedido).toHaveBeenCalledOnce());
+  const approvedPayload = api.aprobarPedido.mock.calls[0][1];
+  expect(approvedPayload.solicitar_despliegue).toBe('programado');
+  expect(approvedPayload.desplegar_inmediatamente).toBe(false);
+  expect(approvedPayload.valores_privados).toEqual({ APP_SECRET: 'mi-clave-super-segura' });
+});

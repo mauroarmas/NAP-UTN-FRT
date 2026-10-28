@@ -148,7 +148,7 @@ async def resolver(db, pedido_id, *, actor, tipo, payload, clave):
                         modelo_servicio=data.modelo_servicio or request.modelo_servicio.value,
                         descripcion_requerimientos=data.descripcion_requerimientos if data.descripcion_requerimientos is not None else request.descripcion_requerimientos,
                         parametros_extra=data.parametros_extra or {key: value for key, value in (request.parametros_extra or {}).items()
-                            if key in {'titulo', 'software_solicitado'}},
+                            if key in {'titulo', 'software_solicitado', 'referencia_imagen', 'instrucciones_uso'}},
                         vigencia=data.vigencia, catedra_id=request.catedra_id)
                 except ValidationError:
                     raise error(422, 'solicitud_incompleta', 'Revisá el servicio solicitado y su justificación pedagógica; infraestructura requiere plantilla') from None
