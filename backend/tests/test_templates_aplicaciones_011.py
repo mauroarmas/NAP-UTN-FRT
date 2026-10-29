@@ -123,3 +123,25 @@ async def test_outdated_profile_hash_marks_offer_as_requiring_update_with_one_cl
     assert updated.json()['oferta_disponible'] is True
     assert updated.json()['requiere_actualizar_perfil'] is False
 
+
+async def test_retired_offer_can_be_deleted_or_readded_with_same_name(client,db,auth_admin,app_order,catalog_image):
+    body=request_body()
+    created=await client.post('/templates/aplicaciones',headers=auth_admin|{'Idempotency-Key':'add-retired-test-1'},json=body)
+    assert created.status_code==201,created.text
+    tid=created.json()['id']
+
+    # Retirar del catálogo
+    retired=await client.delete(f'/templates/{tid}',headers=auth_admin)
+    assert retired.status_code==200 and retired.json()['activo'] is False
+
+    # Volver a agregar con el mismo nombre reactiva y actualiza la oferta retirada
+    readded=await client.post('/templates/aplicaciones',headers=auth_admin|{'Idempotency-Key':'add-retired-test-2'},json=body)
+    assert readded.status_code==201,readded.text
+    assert readded.json()['id']==tid and readded.json()['activo'] is True and readded.json()['oferta_disponible'] is True
+
+    # Retirar nuevamente y eliminar definitivamente
+    await client.delete(f'/templates/{tid}',headers=auth_admin)
+    deleted=await client.delete(f'/templates/{tid}?definitivo=true',headers=auth_admin)
+    assert deleted.status_code==200,deleted.text
+    listing=(await client.get('/templates/?incluir_retiradas=true',headers=auth_admin)).json()
+    assert not any(row['id']==tid for row in listing)

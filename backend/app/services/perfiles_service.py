@@ -21,6 +21,8 @@ async def exigir_configuracion(db, template, *, bloquear=False):
             or template.definicion_version_id or row.modelo_servicio!=template.modelo_servicio.value):
         raise error(409,'configuracion_no_disponible','La aplicación seleccionada ya no está disponible')
     document=validar_documento(row.documento)
+    from app.services.application_compatibility_service import require_document
+    require_document(document)
     if (row.sha256!=digest_configuracion(document) or row.origen!=document['origen']
             or row.modelo_servicio!=document['modelo_servicio']
             or document['perfil']!={'id':row.perfil_id,'revision':row.perfil_revision,'sha256':row.perfil_sha256}
@@ -45,6 +47,8 @@ async def validar_asignacion_aplicacion(db,pedido):
     row=await db.get(ConfiguracionDespliegue,pedido.configuracion_despliegue_id)
     try:
         document=validar_documento(snapshot['configuracion'])
+        from app.services.application_compatibility_service import require_document
+        require_document(document)
         if (not row or row.estado not in {'validada','retirada'} or snapshot['configuracion_despliegue_id']!=str(row.id)
                 or snapshot['configuracion_sha256']!=row.sha256 or digest_configuracion(document)!=row.sha256
                 or snapshot['configuracion_revision']!=row.revision
@@ -108,6 +112,7 @@ async def anexar_disponibilidad(db, templates):
             row.oferta_disponible=False
             row.requiere_actualizar_perfil=False
             row.configuracion_actualizacion=None
+            row.motivo_no_disponible=None
             row.minimum_resources=None;row.tamanos_permitidos=[];row.tamano_recomendado=None
             row.origen_biblioteca=False;row.version_ofrecida=None;row.codigo_definicion=None
             try:
@@ -116,7 +121,8 @@ async def anexar_disponibilidad(db, templates):
                 row.tamanos_permitidos=tamanos_compatibles(row.minimum_resources)
                 row.tamano_recomendado=next(iter(row.tamanos_permitidos),None)
                 row.oferta_disponible=True;row.origen_biblioteca=document['origen']=='community_scripts'
-            except HTTPException:
+            except HTTPException as exc:
+                row.motivo_no_disponible=exc.detail.get('mensaje') if isinstance(exc.detail,dict) else str(exc.detail)
                 from app.models.configuracion_despliegue import ConfiguracionDespliegue
                 from app.schemas.configuracion_despliegue import validar_documento
                 from app.services.configuracion_despliegue_service import choose_profile
@@ -124,10 +130,14 @@ async def anexar_disponibilidad(db, templates):
                 if cfg and cfg.estado=='validada':
                     try:
                         doc=validar_documento(cfg.documento)
+                        from app.services.application_compatibility_service import require_document
+                        active_ref,_=choose_profile()
+                        # Check whether the current prepared recipe can replace
+                        # this historical profile; never mutate its snapshot.
+                        require_document({**doc,'perfil':active_ref})
                         row.minimum_resources=doc['minimum_resources']
                         row.tamanos_permitidos=tamanos_compatibles(row.minimum_resources)
                         row.tamano_recomendado=next(iter(row.tamanos_permitidos),None)
-                        active_ref,_=choose_profile()
                         if doc['perfil']!=active_ref:
                             img=doc['imagen']
                             imagen_ref=f"{img['repositorio']}:{img['tag_original']}" if img.get('tag_original') else f"{img['repositorio']}@{img['manifest_digest']}"
@@ -140,7 +150,7 @@ async def anexar_disponibilidad(db, templates):
                                 'variables':doc.get('variables',{}),
                                 'secretos':doc.get('secretos',[]),
                                 'persistencia':doc.get('persistencia',[]),
-                                'ruta_salud':doc['access']['probe']['path'],
+                                'ruta_salud':doc['access']['probe'].get('path','/'),
                                 'websocket':doc['access'].get('websocket',False),
                                 'revision_esperada':row.revision,
                             }

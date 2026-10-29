@@ -69,22 +69,34 @@ async def verify(sessions,lease,*,pve=None,probe=None):
     async with flow._locked(sessions,lease) as (db,op,identity,service,pedido,ledger):
         final=op.contexto_seguro.get('consola_job_final') or {}
         checks=set((final.get('resultado') or {}).get('comprobaciones',[]))
+        # Fresh PVE ownership is established above; any failed delivery check
+        # rolls back this transaction and never marks the service usable.
+        identity.estado='materializada';identity.ownership_verificada_at=clock.now()
+        # The final worker acknowledgement and a separate fresh network probe
+        # must both agree on the protocol of this approved instance.
+        _,instance=await destination(db,service,prepared=False)
+        database=instance['access']['tipo']=='tcp'
+        required={'aislamiento','runtime','salud','autenticacion_tcp' if database else 'acceso_web'}
         attempt=await db.scalar(select(IntentoDespliegue).where(IntentoDespliegue.operacion_id==op.id))
         if (final.get('estado')!='confirmado' or (final.get('resultado') or {}).get('recurso_configurado') is not True
-                or not {'aislamiento','runtime','salud','acceso_web'}<=checks
+                or not required<=checks
                 or op.contexto_seguro.get('application_console_ack_pending',True)
                 or attempt is None or attempt.ultimo_source_seq<final.get('last_source_seq',2**63)
                 or attempt.runner_job_id!=str(attempt.execution_id) or not await flow._coverage(db,op,pedido,service)):
             raise InfraNoVerificable()
-        # Only a fresh PVE observation can recover ownership certainty. This
-        # does not deliver access or release the retained capacity commitment.
-        identity.estado='materializada';identity.ownership_verificada_at=clock.now()
-        _,instance=await destination(db,service,prepared=False)
-        if instance['access']['tipo']!='web':raise InfraNoVerificable()
-    result=await (probe or probe_web)(instance)  # Never hold SQL across network IO.
+        if database:
+            from app.services.secreto_despliegue_service import para_dispatch
+            values=await para_dispatch(db,lease)
+            private={'MARIADB_PASSWORD':values['MARIADB_PASSWORD']}
+            values.clear()
+    if database:
+        from app.services.mariadb_probe_service import probe as probe_database
+        try:result=await (probe or probe_database)(instance,private)
+        finally:private.clear()
+    else:result=await (probe or probe_web)(instance)  # Never hold SQL across network IO.
     if (type(result) is not AccessObservation or (result.host,result.address,result.port,result.configuration_sha256)!=
             (instance['host'],instance['address'],instance['port'],instance['configuration_sha256'])
-            or result.status not in instance['access']['probe']['estados']):raise InfraNoVerificable()
+            or result.status not in ([1] if database else instance['access']['probe']['estados'])):raise InfraNoVerificable()
     async with flow._locked(sessions,lease) as (db,op,identity,service,pedido,ledger):
         await validar_asignacion_aplicacion(db,pedido)
         _,current=await destination(db,service,prepared=False)
@@ -96,7 +108,7 @@ async def verify(sessions,lease,*,pve=None,probe=None):
         service.acceso_metadata={'preparacion_id':str(op.id),'local_health':True,'automatic_access_verified':True,
             'configuracion_sha256':instance['configuration_sha256'],'nonce_sha256':sha256(nonce.encode()).hexdigest(),
             'host':instance['host'],'addresses':[instance['address']],'endpoint':instance['endpoint'],'port':instance['port'],
-            'metodo':'https','probe_status':result.status,'probe_verified_at':now.isoformat()}
+            'metodo':'mariadb' if database else 'https','probe_status':result.status,'probe_verified_at':now.isoformat()}
         before=service.estado.value
         service.estado=EstadoServicio.RUNNING;service.disponibilidad_aplicacion='utilizable'
         service.observado_at=service.verificado_at=service.acceso_red_verificado_at=now
@@ -108,7 +120,7 @@ async def verify(sessions,lease,*,pve=None,probe=None):
         actor=await db.get(Usuario,op.actor_usuario_id) if op.actor_usuario_id else None
         if pedido.estado!=EstadoPedido.EN_DESPLIEGUE:raise InfraNoVerificable()
         await pedido_service.transicionar(db,pedido.id,EstadoPedido.ACTIVO,usuario=actor,
-            motivo='Instalación y acceso HTTPS comprobados automáticamente',operacion_id=op.id,
+            motivo='Instalación y acceso TLS comprobados automáticamente',operacion_id=op.id,
             evento_clave=f'operacion:{op.id}:entrega_aplicacion')
         db.add(historial_service.registrar_servicio(service.id,before,service.estado.value,
             comentario='Aplicación disponible; TLS y salud comprobados',operacion_id=op.id,

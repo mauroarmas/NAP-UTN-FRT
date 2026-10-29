@@ -26,15 +26,20 @@ export default function ConsolaOperacion({ operationId, onClose, intervalMs = 10
   const lastItemSeqRef = useRef(null);
   const layerRef = useRef(null);
   const panelRef = useRef(null);
+  const onCloseRef = useRef(onClose);
+
+  useLayoutEffect(() => {
+    onCloseRef.current = onClose;
+  });
 
   useLayoutEffect(() => {
     return activateModal({
       panel: panelRef.current,
       layer: layerRef.current,
       previous: document.activeElement,
-      dismiss: onClose,
+      dismiss: () => onCloseRef.current?.(),
     });
-  }, [onClose]);
+  }, []);
 
   // Auto-scroll when new items arrive and not paused
   useEffect(() => {
@@ -130,6 +135,9 @@ export default function ConsolaOperacion({ operationId, onClose, intervalMs = 10
       aria-modal="true"
       aria-label="Consola de operación"
       tabIndex={-1}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onCloseRef.current?.();
+      }}
     >
       <div ref={panelRef} className="consola-container" tabIndex={-1}>
         {/* Header */}

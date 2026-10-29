@@ -2,6 +2,7 @@
 from copy import deepcopy
 from hashlib import sha256
 import json
+import re
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -21,7 +22,7 @@ from app.services import application_profiles_service as profiles
 from app.services.acceso_service import requiere_admin_actual
 from app.services.idempotencia_service import ejecutar,ResultadoDecision
 from app.services.perfiles_service import anexar_disponibilidad
-from app.services.oci_registry_service import resolve_image
+from app.services.oci_registry_service import resolve_image,reference as image_reference
 from app.utils.clock import clock
 from app.utils.errors import error
 
@@ -45,6 +46,24 @@ def registry_hash(profile):
 
 
 async def candidate(body,*,model,resolver=None):
+    from app.services import mariadb_application_service as mariadb
+    if mariadb.is_reference(body.imagen):
+        _,_,tag=image_reference(body.imagen)
+        if not re.fullmatch(r'11\.4(?:\.[0-9]+)?',tag):
+            raise error(422,'mariadb_version_no_admitida','Para este servicio de prácticas usá la imagen mariadb:11.4.')
+        ref,profile=choose_profile()
+        image=await (resolver or resolve_image)(body.imagen,architecture=profile['base']['arquitectura'])
+        mariadb.require_validation(ref,image)
+        document=validar_documento({'schema_version':'nap-deployment/1','origen':'imagen_docker',
+            'modelo_servicio':'paas','perfil':ref,'base':profile['base'],'minimum_resources':profile['minimum_resources'],
+            'access':{'tipo':'tcp','puerto':3306,'politica':'mariadb-tls',
+                'probe':{'tipo':'mariadb_select_1','timeout_segundos':10}},
+            'variables':mariadb.VARIABLES,'secretos':[{'nombre':n,'etiqueta':'Contraseña de la base' if n=='MARIADB_PASSWORD' else 'Administración interna','modo':'generado'} for n in sorted(mariadb.SECRET_NAMES)],
+            'persistencia':['/var/lib/mysql'],'imagen':{key:image[key] for key in ('repositorio','tag_original',
+                'manifest_digest','index_digest','config_digest','os','arquitectura','registry_profile_id')}})
+        return {'document':document,'profile':profile,'registry_sha256':image['registry_profile_sha256']}
+    from app.services.application_compatibility_service import require_image
+    require_image(body.imagen)
     reference,profile=choose_profile()
     image=await (resolver or resolve_image)(body.imagen,architecture=profile['base']['arquitectura'])
     if not set(image['volumes'])<=set(body.persistencia):
@@ -75,6 +94,8 @@ async def change(db,*,actor,body,clave,template_id=None,resolver=None):
     template=await db.get(RecursoTemplate,template_id) if not create else None
     if not create and (template is None or template.revision!=body.revision_esperada):raise conflict()
     model=body.modelo_servicio or (template.modelo_servicio.value if template else 'saas')
+    from app.services.mariadb_application_service import is_reference
+    if is_reference(body.imagen):model='paas'
     # The authorization/catalog reads are complete before contacting a registry.
     await db.commit()
     prepared=await candidate(body,model=model,resolver=resolver)
@@ -86,11 +107,29 @@ async def change(db,*,actor,body,clave,template_id=None,resolver=None):
         profile=profiles.require_profile(document['perfil'],cluster_uuid=get_settings().infrastructure_profile.get('cluster_id'))
         registry=get_settings().application_registry_profiles.get(document['imagen']['registry_profile_id'])
         if profile!=prepared['profile'] or not registry or registry_hash(registry)!=prepared['registry_sha256']:raise conflict()
+        if document['access']['tipo']=='tcp':
+            from app.services.mariadb_application_service import require_document
+            require_document(document)
         if create:
-            if await session.scalar(select(RecursoTemplate.id).where(RecursoTemplate.nombre==body.nombre)):raise conflict()
-            item=RecursoTemplate(nombre=body.nombre,descripcion=body.descripcion,tipo=TipoRecurso.LXC,
-                modelo_servicio=ModeloServicio(model),activo=True,revision=1)
-            session.add(item);codigo='app-'+uuid4().hex;revision=1
+            existing=await session.scalar(select(RecursoTemplate).where(RecursoTemplate.nombre==body.nombre).with_for_update().execution_options(populate_existing=True))
+            if existing is not None and existing.activo:raise conflict()
+            if existing is not None:
+                previous=await session.get(ConfiguracionDespliegue,existing.configuracion_despliegue_id) if existing.configuracion_despliegue_id else None
+                codigo=previous.codigo if previous else 'app-'+uuid4().hex
+                revision=previous.revision+1 if previous else 1
+                existing.descripcion=body.descripcion
+                existing.tipo=TipoRecurso.LXC
+                existing.modelo_servicio=ModeloServicio(model)
+                existing.activo=True
+                existing.revision+=1
+                if isinstance(existing.config_extra,dict) and existing.config_extra.get('archivado'):
+                    extra=dict(existing.config_extra);extra.pop('archivado',None)
+                    existing.config_extra=extra or None
+                item=existing
+            else:
+                item=RecursoTemplate(nombre=body.nombre,descripcion=body.descripcion,tipo=TipoRecurso.LXC,
+                    modelo_servicio=ModeloServicio(model),activo=True,revision=1)
+                session.add(item);codigo='app-'+uuid4().hex;revision=1
         else:
             item=await session.scalar(select(RecursoTemplate).where(RecursoTemplate.id==template_id).with_for_update().execution_options(populate_existing=True))
             if item is None or item.revision!=body.revision_esperada:raise conflict()

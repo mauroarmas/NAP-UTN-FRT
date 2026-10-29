@@ -25,6 +25,29 @@ beforeEach(() => {
   });
 });
 
+test('explica la incompatibilidad conocida y evita agregarla', async () => {
+  const user = userEvent.setup();
+  const next = vi.fn();
+  api.buscarAplicaciones.mockResolvedValue({ data: { items: [{ ...hubItem, nombre: 'redis',
+    repositorio: 'redis', compatibilidad: 'no_compatible', motivo_no_disponible: 'Redis requiere un adaptador de conexión.' }] } });
+  render(<BibliotecaAplicaciones onContinue={next}/>);
+  await user.type(screen.getByLabelText('Nombre de aplicación'), 'redis');
+  await user.click(screen.getByRole('button', { name: 'Buscar' }));
+  expect(await screen.findByText('Redis requiere un adaptador de conexión.')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Agregar redis' })).toBeDisabled();
+  expect(next).not.toHaveBeenCalled();
+});
+
+test('una imagen sin comprobar no se presenta como un servicio validado', async () => {
+  const user = userEvent.setup();
+  api.buscarAplicaciones.mockResolvedValue({ data: { items: [{ ...hubItem, compatibilidad: 'sin_comprobar' }] } });
+  render(<BibliotecaAplicaciones/>);
+  await user.type(screen.getByLabelText('Nombre de aplicación'), 'whoami');
+  await user.click(screen.getByRole('button', { name: 'Buscar' }));
+  expect(await screen.findByText(/Funcionamiento todavía sin comprobar en NAP/)).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Agregar whoami' })).toBeEnabled();
+});
+
 test('busca por una categoría real y conserva los filtros tras un error de consulta', async () => {
   const user = userEvent.setup();
   api.buscarAplicaciones

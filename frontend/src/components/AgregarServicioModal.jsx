@@ -6,7 +6,7 @@ import AplicacionPropiaForm from './AplicacionPropiaForm';
 
 export default function AgregarServicioModal({ onClose, onGuardado }) {
   const [application, setApplication] = useState(null);
-  const [source, setSource] = useState('biblioteca');
+  const [source, setSource] = useState('imagen');
   const [operations, setOperations] = useState({});
   const busy = Object.values(operations).some(Boolean);
   const libraryBusy = useCallback((value) => setOperations((current) => ({ ...current, library: value })), []);
@@ -27,18 +27,6 @@ export default function AgregarServicioModal({ onClose, onGuardado }) {
         <div className="own-application-source" role="group" aria-label="Origen del servicio">
           <button
             type="button"
-            className={`btn ${source === 'biblioteca' ? 'btn-primary' : 'btn-secondary'}`}
-            disabled={busy}
-            aria-pressed={source === 'biblioteca'}
-            onClick={() => {
-              setSource('biblioteca');
-              setApplication(null);
-            }}
-          >
-            Docker Hub
-          </button>
-          <button
-            type="button"
             className={`btn ${source === 'imagen' ? 'btn-primary' : 'btn-secondary'}`}
             disabled={busy}
             aria-pressed={source === 'imagen'}
@@ -49,12 +37,25 @@ export default function AgregarServicioModal({ onClose, onGuardado }) {
           >
             Imagen propia
           </button>
+          <button
+            type="button"
+            className={`btn ${source === 'biblioteca' ? 'btn-primary' : 'btn-secondary'}`}
+            disabled={busy}
+            aria-pressed={source === 'biblioteca'}
+            onClick={() => {
+              setSource('biblioteca');
+              setApplication(null);
+            }}
+          >
+            Docker Hub
+          </button>
         </div>
 
         {source === 'imagen' ? (
           <AplicacionPropiaForm onAdded={finish} onBusyChange={additionBusy} />
         ) : (
           <>
+            <div className="callout"><strong>Encontrar una imagen no garantiza que NAP pueda instalarla.</strong><p>Las imágenes web sencillas pueden usar el despliegue general. Algunas aplicaciones necesitan una base de datos u otros componentes: NAP debe tener una configuración preparada para ellas. Al agregar verificamos la imagen; al desplegar comprobamos que funcione.</p></div>
             {application && (
               <>
                 <button

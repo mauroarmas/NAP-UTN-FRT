@@ -48,7 +48,7 @@ class ApplicationJobClient(GuestRunnerClient):
         if action != 'profiles':
             if node is not None and node != request['node']: raise JobError('IDENTITY_MISMATCH')
             node = request['node']
-            if action == 'start':
+            if action in {'start','cleanup'}:
                 actual = fingerprint(request)
                 if expected_fingerprint is not None and expected_fingerprint != actual: raise JobError('EXECUTION_CONFLICT')
                 expected_fingerprint = actual

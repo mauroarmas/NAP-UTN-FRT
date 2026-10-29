@@ -69,3 +69,20 @@ def test_running_guest_is_not_stopped_to_change_features(native):
     values['status'] = 'running'
     with pytest.raises(JobError): node.enable_environment(identity)
     assert not any(v[0] == '/usr/sbin/pct' for v in values['calls'])
+
+
+def test_cleanup_never_touches_a_reused_or_live_vmid(native):
+    node,values,identity=native
+    with pytest.raises(JobError):node.assert_absent(identity)
+    # An unavailable/malformed observation is not absence.
+    node.run_command=lambda *args,**kwargs:b'{}'
+    with pytest.raises(JobError):node.assert_absent(identity)
+    node.run_command=lambda *args,**kwargs:json.dumps([{'vmid':str(identity['vmid'])}]).encode()
+    with pytest.raises(JobError):node.assert_absent(identity)
+
+
+def test_cleanup_observes_clusterwide_absence_without_requiring_enabled_old_profile(native):
+    node,values,identity=native
+    node.run_command=lambda *args,**kwargs:b'[]'
+    node.assert_absent(identity)
+    with pytest.raises(JobError):node.assert_absent(identity|{'cluster_uuid':'foreign'})

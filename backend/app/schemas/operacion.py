@@ -9,6 +9,10 @@ class OperacionResponse(Contrato):
     tipo: Literal['desplegar', 'iniciar', 'detener', 'reiniciar', 'pausar', 'eliminar', 'reparar']
     estado: Literal['pendiente', 'en_curso', 'confirmada', 'fallida', 'incierta']
     fase: str
+    fase_aplicacion: str | None = None
+    actividad_aplicacion_at: datetime | None = None
+    reintento_disponible: bool | None = None
+    motivo_compatibilidad: str | None = None
     pedido_id: int | None
     servicio_id: int | None
     intento: int

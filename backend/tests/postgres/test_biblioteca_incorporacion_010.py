@@ -2,15 +2,15 @@ import asyncio
 from sqlalchemy import select, func
 from app.models.usuario import Usuario
 from tests import factories
-from tests.fakes_biblioteca import FakeFuente, DRAWIO
+from tests.fakes_biblioteca import DRAWIO
+from fastapi import HTTPException
 
 
-async def test_importacion_concurrente_con_claves_distintas(pg_sessions, monkeypatch):
+async def test_importaciones_retiradas_concurrentes_no_crean_registros(pg_sessions):
     from app.services import biblioteca_service
     from app.models.incorporacion_aplicacion import IncorporacionAplicacion
     from app.models.usuario import RolUsuario
     from app.schemas.biblioteca import IncorporacionCreate
-    monkeypatch.setattr(biblioteca_service, 'get_fuente', lambda: FakeFuente())
     async with pg_sessions() as db:
         actor = await factories.crear_usuario(db, 'admin-biblioteca', rol=RolUsuario.ADMIN)
         actor_id = actor.id
@@ -21,11 +21,13 @@ async def test_importacion_concurrente_con_claves_distintas(pg_sessions, monkeyp
             actor = await db.get(Usuario, actor_id)
             await barrier.wait()
             body = IncorporacionCreate(identidad_externa=DRAWIO['identidad_externa'], revision_fuente=DRAWIO['revision_fuente'])
-            result = await biblioteca_service.incorporar(db, actor=actor, data=body, clave=key)
-            await db.commit()
-            return result
+            try:
+                await biblioteca_service.incorporar(db, actor=actor, data=body, clave=key)
+            except HTTPException as exc:
+                assert exc.detail['codigo'] == 'origen_no_admitido'
+                return exc.status_code
+            raise AssertionError('Una ruta retirada no puede crear incorporaciones')
     a,b = await asyncio.gather(run('a'), run('b'))
-    assert a.resultado['id'] == b.resultado['id']
-    assert sorted([a.status_code, b.status_code]) == [200,201]
+    assert [a,b] == [422,422]
     async with pg_sessions() as db:
-        assert await db.scalar(select(func.count()).select_from(IncorporacionAplicacion)) == 1
+        assert await db.scalar(select(func.count()).select_from(IncorporacionAplicacion)) == 0

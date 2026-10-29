@@ -89,6 +89,8 @@ def registrar_trabajos(*, solo_notificaciones=False):
     scheduler.registrar('procesar_agenda_despliegue', procesar_agenda_despliegue, cada_minutos=1)
     scheduler.registrar('limpiar_autenticacion', limpiar_autenticacion, cada_minutos=1)
     scheduler.registrar('reconciliar_operaciones', reconciliar_operaciones, cada_minutos=1)
+    from app.services.estado_servicio_service import sincronizar as sincronizar_servicios
+    scheduler.registrar('sincronizar_servicios', sincronizar_servicios, cada_minutos=1)
     scheduler.registrar('evaluar_alertas', alerta_service.evaluar_alertas, cada_minutos=1)
     scheduler.registrar('agregar_y_purgar_metricas', resumen_metricas_service.agregar_y_purgar, cada_minutos=1440, diario=True)
     scheduler.registrar('procesar_operaciones', procesar_operaciones, cada_segundos=5)

@@ -139,3 +139,31 @@ def test_installed_readonly_package_has_same_policy_hash_without_backend_imports
     result=subprocess.run([sys.executable,'-I','-c',code,str(node/'opt/nap')],capture_output=True,timeout=10)
     assert result.returncode==0,result.stderr.decode()
     assert result.stdout.decode().strip()==policy_digest()
+
+
+def test_native_maria_plan_has_tls_readonly_nonroot_and_scoped_data(application):
+    app=application
+    app.configuration.update(access={'tipo':'tcp','puerto':3306},variables={'MARIADB_USER':'docente'},
+        secretos=[{'nombre':'MARIADB_PASSWORD'},{'nombre':'MARIADB_ROOT_PASSWORD'}],persistencia=['/var/lib/mysql'])
+    app.configuration['imagen']['repositorio']='docker.io/library/mariadb'
+    args=application_arguments(app.identity,app.configuration,{'vcpus':2,'ram_mb':1024,'disk_gb':8})
+    assert '--user=mysql' in args and '--publish=3306:3306' in args
+    assert '--require-secure-transport=ON' in args
+    assert 'type=bind,source=/etc/nap/database-tls,target=/run/nap-tls,readonly' in args
+    assert 'MARIADB_PASSWORD' in args and '--privileged' not in args
+    assert '--entrypoint' not in args
+
+
+def test_database_probe_uses_bounded_tls_sql_and_password_only_in_environment(application,tmp_path):
+    app=application;calls=[]
+    app.configuration.update(access={'tipo':'tcp','puerto':3306},persistencia=['/var/lib/mysql'])
+    request={'identity':app.identity,'configuration':app.configuration,'action':'probe',
+        'network':{'address':'172.16.36.81'},'private_values':{'MARIADB_PASSWORD':'fixture-db-private'}}
+    guest=DockerGuest(request,root=tmp_path,run=lambda args,**kwargs:calls.append((args,kwargs)) or b'1\n')
+    guest.verify_started=lambda:None
+    guest.probe_database()
+    args,options=calls[0]
+    assert args[:3]==['/usr/bin/timeout','--kill-after=2','15']
+    assert '--ssl-verify-server-cert' in args and '--execute=SELECT 1' in args
+    assert '--host=172.16.36.81' in args and 'fixture-db-private' not in repr(args)
+    assert options['environment']=={'MYSQL_PWD':'fixture-db-private'}

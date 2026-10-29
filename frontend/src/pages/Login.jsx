@@ -94,7 +94,10 @@ export default function Login({ onLogin }) {
 
           <hr className="hr" />
           <p className="login__foot">
-            ¿Problemas para acceder? Contactá a Mesa de Ayuda TIC — FRT.
+            ¿Problemas para acceder? Contactá a Transformación Digital:{' '}
+            <a href="mailto:transformaciondigital@frt.utn.edu.ar" style={{ color: 'inherit', textDecoration: 'underline' }}>
+              transformaciondigital@frt.utn.edu.ar
+            </a>
           </p>
         </form>
       </div>

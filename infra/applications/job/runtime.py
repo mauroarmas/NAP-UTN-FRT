@@ -116,6 +116,18 @@ class NodeRuntime:
         self._spools = {}
         supervisor.spool_factory = self.spool
 
+    def cleanup(self,request):
+        from hashlib import sha256
+        from .protocol import PROTOCOL,fingerprint
+        identity={k:request[k] for k in ('cluster_uuid','node','resource_uuid','vmid')}
+        identity['nonce_sha256']=sha256(request['nonce'].encode()).hexdigest()
+        self.node.isolation_factory().release(identity,
+            assert_absent=lambda:self.node.assert_absent(identity),
+            observe=lambda:self.node.observe_retired_isolation(identity),
+            remove=lambda:self.node.remove_retired_isolation(identity))
+        return {'protocol':PROTOCOL,'ok':True,'action':'cleanup',
+            'data':{'released':True,'fingerprint':fingerprint(request)}}
+
     def spool(self, execution_id):
         execution_id = uuid_text(execution_id)
         if execution_id not in self._spools:

@@ -307,3 +307,28 @@ async def test_cobertura_vencida_bloquea_reinicio(
     assert exc_info.value.status_code == 409
     assert exc_info.value.detail["codigo"] == "sin_cobertura_actual"
 
+
+
+@pytest.mark.parametrize('cleanup_confirmed',[False,True])
+async def test_baja_releases_host_rules_before_releasing_vmid_network_and_capacity(db,active_app_service,proxmox,cleanup_confirmed):
+    from infra.applications.job.protocol import PROTOCOL,fingerprint
+    sessions,service_id,node,_,admin_id=active_app_service
+    calls=[]
+    class CleanupNode:
+        async def execute(self,request,**kwargs):
+            assert request['action']=='cleanup';calls.append(dict(request))
+            assert str(request['nonce']) and request['vmid'] not in proxmox.estados
+            return ({'protocol':PROTOCOL,'ok':True,'action':'cleanup','data':{'released':True,'fingerprint':fingerprint(request)}}
+                if cleanup_confirmed else {'protocol':PROTOCOL,'ok':False,'error':'UNCONFIRMED'})
+    result=await orquestacion_service.eliminar_servicio(db,service_id,await db.get(Usuario,admin_id),clave='delete-with-network-cleanup')
+    await db.commit()
+    for _ in range(4):
+        await wake(db);await procesar_una(sessions,pve=proxmox,runner=CleanupNode())
+    db.expire_all();service=await db.get(Servicio,service_id)
+    ledger=await db.scalar(select(CompromisoCapacidad).where(CompromisoCapacidad.servicio_id==service_id))
+    network=await db.scalar(select(ReservaRedAplicacion).where(ReservaRedAplicacion.identidad_id==service.identidad_infraestructura_id))
+    assert calls
+    assert bool(service.deleted_at)==cleanup_confirmed
+    assert bool(ledger.liberado_at)==cleanup_confirmed
+    assert bool(network.liberada_at)==cleanup_confirmed
+    if not cleanup_confirmed:assert ledger.disk_bytes_retenidos>0

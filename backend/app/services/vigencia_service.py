@@ -127,22 +127,29 @@ async def anexar_cobertura(db, services, *, usuario=None):
         service.proximo_inicio, service.fin_efectivo_at = coverage['proximo_inicio'], coverage['fin_actual']
         service.fuente_observacion = 'worker' if service.observado_at else 'sin_observacion'
         ledger, identity = ledgers.get(service.id), identities.get(service.identidad_infraestructura_id)
-        regular = bool(service.tipo == 'lxc' and service.asignacion_snapshot and service.nombre_snapshot and service.modelo_servicio and identity and ledger and periods
+        operable = bool(service.tipo == 'lxc' and service.asignacion_snapshot and identity and ledger
             and ledger.identidad_infraestructura_id == identity.id and not identity.ausencia_confirmada_at)
+        regular = bool(operable and service.nombre_snapshot and service.modelo_servicio and periods)
         uncertain = bool((ledger and ledger.estado == 'incierto') or (identity and identity.estado == 'incierta'))
+        service.estado_sincronizado = bool(service.observado_at and not uncertain
+            and clock.now() - timedelta(minutes=2) <= db_utc(service.observado_at) <= clock.now())
         service.regularizacion_pendiente = not regular or uncertain
-        service.regularizacion_legacy = service.tipo == 'lxc' and service.definicion_version_id is None
+        service.regularizacion_legacy = service.tipo == 'lxc' and service.definicion_version_id is None and not regular
         actions = []
+        # Detener y retirar no necesitan ampliar cobertura ni completar el catálogo.
+        # El ejecutor vuelve a verificar la propiedad antes de cualquier efecto.
+        if operable and not getattr(service, 'operation_id', None):
+            if service.estado == EstadoServicio.RUNNING or ledger.vcpus_retenidos or ledger.ram_mb_retenida:
+                actions.append('stop')
+            if usuario and usuario.rol.value == 'admin':
+                actions.append('delete')
         if regular and not uncertain and not getattr(service, 'operation_id', None):
             actions.append('renovar')
             if service.estado == EstadoServicio.RUNNING:
-                actions.append('stop')
                 if coverage['cubierto']:
                     actions.append('restart')
             elif coverage['cubierto'] and service.estado in {EstadoServicio.STOPPED, EstadoServicio.PAUSED}:
                 actions.append('start')
-            if usuario and usuario.rol.value == 'admin':
-                actions.append('delete')
         service.acciones_habilitadas = actions
         service.motivo_bloqueo = 'Hay una operación abierta' if getattr(service, 'operation_id', None) else (
             'La asignación requiere reconciliación' if uncertain else 'Regularizá asignación y períodos' if not regular else 'No hay cobertura en esta fecha' if not coverage['cubierto'] else None)

@@ -65,3 +65,31 @@ def test_reboot_can_recreate_missing_table_only_for_same_owned_stopped_resource(
     state['table']=None
     reboot=IsolationManager(directory=manager.directory,boot_id=str(uuid4()))
     assert reboot.ensure(owner,policy,**actions) and state['effects']==2
+
+
+@pytest.mark.parametrize('bad',[None,'live','nonce','rule','unknown'])
+def test_release_requires_absence_exact_receipt_and_rules_and_is_replayable(guard,policy,bad):
+    manager,owner,state,actions=guard
+    manager.ensure(owner,policy,**actions)
+    if bad=='nonce':owner['nonce_sha256']='b'*64
+    if bad=='rule':state['table']['nftables'][2]['rule']['expr']=[{'accept':None}]
+    if bad=='unknown':owner['resource_uuid']=str(uuid4())
+    def absent():
+        if bad=='live':raise JobError('IDENTITY_MISMATCH')
+    removals=[]
+    def remove():removals.append(True);state['table']=None
+    kwargs={'assert_absent':absent,'observe':lambda:deepcopy(state['table']),'remove':remove}
+    if bad:
+        with pytest.raises(JobError):manager.release(owner,**kwargs)
+        assert state['table'] is not None and not removals
+    else:
+        assert manager.release(owner,**kwargs)
+        assert manager.release(owner,**kwargs) and len(removals)==1
+
+
+def test_lost_cleanup_response_recovers_absence_without_deleting_again(guard,policy):
+    manager,owner,state,actions=guard;manager.ensure(owner,policy,**actions)
+    def lost():state['table']=None;raise JobError('UNCONFIRMED')
+    kwargs={'assert_absent':lambda:None,'observe':lambda:deepcopy(state['table']),'remove':lost}
+    with pytest.raises(JobError):manager.release(owner,**kwargs)
+    assert manager.release(owner,**kwargs)

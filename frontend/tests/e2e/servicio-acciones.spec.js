@@ -56,13 +56,13 @@ test('siempre activo confirma el cambio junto al servicio y muestra los fallos',
     service.exento_pausado = true;
     return route.fulfill({ json: service });
   });
-  page.once('dialog', (dialog) => dialog.dismiss());
   await opciones(page);
   await page.getByRole('button', { name: 'Marcar siempre activo' }).click();
+  await page.getByRole('dialog', { name: 'Modo siempre activo' }).getByRole('button', { name: 'Cancelar' }).click();
   expect(writes).toBe(0);
-  page.once('dialog', (dialog) => dialog.accept());
   await opciones(page);
   await page.getByRole('button', { name: 'Marcar siempre activo' }).click();
+  await page.getByRole('dialog', { name: 'Modo siempre activo' }).getByRole('button', { name: 'Habilitar siempre activo' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Siempre activo habilitado' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Iniciar servicio', exact: true })).toBeDisabled();
   await opciones(page);
@@ -129,9 +129,10 @@ test('reiniciar un servicio habilitado envía una sola orden y espera confirmaci
   });
   await page.route(`**/api/v1/operaciones/${operationId}`, (route) => route.fulfill({ json: {
     operation_id: operationId, servicio_id: 7, tipo: 'reiniciar', estado: 'en_curso', fase: 'tarea' } }));
-  page.once('dialog', (dialog) => dialog.accept());
   await opciones(page);
   await page.getByRole('button', { name: 'Reiniciar', exact: true }).click();
+  expect(orders).toBe(0);
+  await page.getByRole('dialog', { name: 'Reiniciar servicio' }).getByRole('button', { name: 'Reiniciar', exact: true }).click();
   await expect(page.getByText(/Operación en curso/).first()).toBeVisible();
   await opciones(page);
   await expect(page.getByRole('button', { name: 'Reiniciar', exact: true })).toBeDisabled();

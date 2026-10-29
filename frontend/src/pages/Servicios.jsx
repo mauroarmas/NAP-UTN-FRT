@@ -5,7 +5,7 @@ import useOperacion, { operacionAbierta, textoOperacion } from '../hooks/useOper
 import { mensajeError } from '../utils/errors.js';
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
-  RefreshCw, Play, Pause, RotateCw, Trash2, Activity,
+  RefreshCw, Play, Square, RotateCw, Trash2, Activity,
   Pin, PinOff, CalendarClock, Send, Loader2, Search, X, Settings, CircleAlert,
 } from 'lucide-react';
 import {
@@ -13,7 +13,7 @@ import {
   reiniciarServicio, eliminarServicio, getStatusServicio, getCatedras, getCatedrasMias,
   getTemplates, reactivarServicio, actualizarServicio, listarOperaciones,
 } from '../services/api';
-import { PageHead, StatusPill, Empty, Dialog } from '../components/ui';
+import { PageHead, StatusPill, Empty, Dialog, ConfirmDialog } from '../components/ui';
 import RenovarServicioModal from '../components/RenovarServicioModal';
 import AccesoServicio from '../components/AccesoServicio';
 import RegularizarServicioModal from '../components/RegularizarServicioModal';
@@ -71,6 +71,7 @@ export default function Servicios({ user }) {
   const [revisionDetalle, setRevisionDetalle] = useState(null);
   const [resultadoPreferencia, setResultadoPreferencia] = useState(null);
   const [consolaOperationId, setConsolaOperationId] = useState(null);
+  const [confirmacion, setConfirmacion] = useState(null);
   const statusRequest = useRef(0);
   const intentKeys = useRef({});
   const claveIntencion = (tipo, id) => {
@@ -173,17 +174,26 @@ export default function Servicios({ user }) {
   };
 
   const handleDesplegar = async (pedidoId) => {
-    if (accionandoRef.current || !confirm(`¿Desplegar pedido #${pedidoId} en Proxmox?`)) return;
-    marcarAccion('deploy', pedidoId);
-    try {
-      registrarOrden(await desplegarPedido(pedidoId, {}, claveIntencion('deploy', pedidoId)), 'deploy', pedidoId);
-      await fetchData();
-    } catch (err) {
-      registrarConflicto(err);
-      setActionError(`Error: ${mensajeError(err, 'No se confirmó la acción. Volvé a consultar el servicio.')}`);
-    } finally {
-      marcarAccion(null);
-    }
+    if (accionandoRef.current) return;
+    setConfirmacion({
+      title: 'Desplegar pedido',
+      message: `¿Desplegar pedido #${pedidoId} en Proxmox?`,
+      detail: 'Se aprovisionará el recurso y se iniciarán los servicios de la cátedra.',
+      confirmText: 'Desplegar',
+      danger: false,
+      onConfirm: async () => {
+        marcarAccion('deploy', pedidoId);
+        try {
+          registrarOrden(await desplegarPedido(pedidoId, {}, claveIntencion('deploy', pedidoId)), 'deploy', pedidoId);
+          await fetchData();
+        } catch (err) {
+          registrarConflicto(err);
+          setActionError(`Error: ${mensajeError(err, 'No se confirmó la acción. Volvé a consultar el servicio.')}`);
+        } finally {
+          marcarAccion(null);
+        }
+      },
+    });
   };
 
   const handleReactivar = async (id) => {
@@ -202,13 +212,7 @@ export default function Servicios({ user }) {
     }
   };
 
-  const handleExento = async (s) => {
-    if (accionandoRef.current) return;
-    const activando = !s.exento_pausado;
-    if (activando && !confirm(
-      'Marcar "siempre activo" excluye este servicio del apagado automático por falta de uso.\n\n' +
-      'Usalo cuando el servicio deba seguir arriba aunque no registre actividad.'
-    )) return;
+  const ejecutarCambioExento = async (s, activando) => {
     setResultadoPreferencia(null);
     marcarAccion('exento', s.id);
     try {
@@ -226,13 +230,30 @@ export default function Servicios({ user }) {
     }
   };
 
+  const handleExento = async (s) => {
+    if (accionandoRef.current) return;
+    const activando = !s.exento_pausado;
+    if (activando) {
+      setConfirmacion({
+        title: 'Modo siempre activo',
+        message: '¿Excluir este servicio del apagado automático por falta de uso?',
+        detail: 'Usalo cuando el servicio deba seguir arriba aunque no registre actividad.',
+        confirmText: 'Habilitar siempre activo',
+        danger: false,
+        onConfirm: () => ejecutarCambioExento(s, true),
+      });
+      return;
+    }
+    await ejecutarCambioExento(s, false);
+  };
+
   const handleRenovar = (servicio, periodo = null) => {
     setNotice('');
     setRenovacion({ servicio, periodo });
   };
 
-  const accionSimple = (verbo, fn, confirmMsg) => async (id) => {
-    if (accionandoRef.current || (confirmMsg && !confirm(confirmMsg))) return;
+  const ejecutarAccionSimple = (verbo, fn) => async (id) => {
+    if (accionandoRef.current) return;
     marcarAccion(verbo, id);
     try {
       registrarOrden(await fn(id, claveIntencion(verbo, id)), verbo, id);
@@ -246,27 +267,63 @@ export default function Servicios({ user }) {
     }
   };
 
-  const handleStart = accionSimple('start', iniciarServicio);
-  const handleStop = accionSimple('stop', detenerServicio, '¿Detener el servicio?');
-  const handleRestart = accionSimple('restart', reiniciarServicio, '¿Reiniciar el servicio?');
+  const handleStart = ejecutarAccionSimple('start', iniciarServicio);
+
+  const handleStop = (id) => {
+    if (accionandoRef.current) return;
+    setConfirmacion({
+      title: 'Detener servicio',
+      message: '¿Detener el servicio?',
+      detail: 'La cátedra y los estudiantes no podrán acceder hasta que se vuelva a iniciar.',
+      confirmText: 'Detener',
+      danger: true,
+      onConfirm: () => ejecutarAccionSimple('stop', detenerServicio)(id),
+    });
+  };
+
+  const handleRestart = (id) => {
+    if (accionandoRef.current) return;
+    setConfirmacion({
+      title: 'Reiniciar servicio',
+      message: '¿Reiniciar el servicio?',
+      detail: 'El servicio se detendrá momentáneamente y volverá a levantarse en Proxmox.',
+      confirmText: 'Reiniciar',
+      danger: false,
+      onConfirm: () => ejecutarAccionSimple('restart', reiniciarServicio)(id),
+    });
+  };
 
   const handleEliminar = async (s) => {
+    if (accionandoRef.current) return;
     const huerfano = s.existe_en_proxmox === false;
-    const aviso = huerfano
+    const title = huerfano ? 'Dar de baja registro' : 'Dar de baja servicio';
+    const message = huerfano
       ? `El contenedor ${s.proxmox_vmid} ya no existe en Proxmox.\n¿Dar de baja el registro del servicio?`
-      : `¿Dar de baja el servicio y eliminar el contenedor ${s.proxmox_vmid} en Proxmox?\nEsta acción no se puede deshacer.`;
-    if (accionandoRef.current || !confirm(aviso)) return;
-    marcarAccion('delete', s.id);
-    try {
-      registrarOrden(await eliminarServicio(s.id, claveIntencion('delete', s.id)), 'delete', s.id);
-      await fetchData();
-    } catch (err) {
-      registrarConflicto(err);
-      setActionError(mensajeError(err, 'No se confirmó la acción. Volvé a consultar el servicio.'));
-      await fetchData();
-    } finally {
-      marcarAccion(null);
-    }
+      : `¿Dar de baja el servicio y eliminar el contenedor ${s.proxmox_vmid} en Proxmox?`;
+    const detail = huerfano
+      ? 'Se limpiará el registro del servicio en NAP.'
+      : 'Esta acción no se puede deshacer.';
+
+    setConfirmacion({
+      title,
+      message,
+      detail,
+      confirmText: 'Dar de baja',
+      danger: true,
+      onConfirm: async () => {
+        marcarAccion('delete', s.id);
+        try {
+          registrarOrden(await eliminarServicio(s.id, claveIntencion('delete', s.id)), 'delete', s.id);
+          await fetchData();
+        } catch (err) {
+          registrarConflicto(err);
+          setActionError(mensajeError(err, 'No se confirmó la acción. Volvé a consultar el servicio.'));
+          await fetchData();
+        } finally {
+          marcarAccion(null);
+        }
+      },
+    });
   };
 
   const handleStatus = async (id) => {
@@ -275,6 +332,7 @@ export default function Servicios({ user }) {
     try {
       const { data } = await getStatusServicio(id);
       if (statusRequest.current === request) setStatusDetalle({ servicioId: id, data });
+      await reloadServices();
     } catch {
       if (statusRequest.current === request) setStatusDetalle({ servicioId: id,
         error: 'No se pudo consultar el estado del servicio. La conexión con la infraestructura puede no estar disponible. Intentá nuevamente o consultá al administrador.' });
@@ -645,7 +703,7 @@ export default function Servicios({ user }) {
                             className="btn btn-secondary btn-sm" disabled={ocupada} onClick={() => { setNotice(''); setRegularizacion(s); }}>
                             Regularizar registro
                           </button>}
-                          <span className="card-meta">{s.confirmado_at ? `Última confirmación: ${new Date(s.confirmado_at).toLocaleString('es-AR')}` : 'Sin confirmación registrada'} · {s.fuente_observacion === 'worker' ? 'Observación del sistema' : 'Sin observación reciente'}</span>
+                          <span className="card-meta">{s.observado_at ? `Última comprobación en Proxmox: ${new Date(s.observado_at).toLocaleString('es-AR')}` : 'Estado pendiente de comprobar en Proxmox'}</span>
                           {resultadoPreferencia?.id === s.id && <p className={`service-action-feedback ${resultadoPreferencia.error ? 'bad' : ''}`}
                             role={resultadoPreferencia.error ? 'alert' : 'status'}>{resultadoPreferencia.mensaje}</p>}
                         </div>
@@ -683,11 +741,11 @@ export default function Servicios({ user }) {
                                   className="btn-icon warn"
                                   onClick={() => handleStop(s.id)}
                                   disabled={!permite('stop')}
-                                  aria-label="Pausar / Detener servicio"
+                                  aria-label="Detener servicio"
                                   aria-busy={busy('stop')}
-                                  title={permite('stop') ? 'Pausar / Detener servicio' : motivoAccion('stop')}
+                                  title={permite('stop') ? 'Detener servicio (conserva los datos)' : motivoAccion('stop')}
                                 >
-                                  {busy('stop') ? <Spinner size={14} /> : <Pause size={16} />}
+                                  {busy('stop') ? <Spinner size={14} /> : <Square size={16} />}
                                 </button>
                               ) : (
                                 <button
@@ -793,6 +851,7 @@ export default function Servicios({ user }) {
                                             handleEliminar(s);
                                           }}
                                           disabled={!permite('delete')}
+                                          title={permite('delete') ? 'Eliminar la instancia y sus datos de Proxmox' : motivoAccion('delete')}
                                         >
                                           <Trash2 size={14} />
                                           <span>Dar de baja</span>
@@ -860,6 +919,24 @@ export default function Servicios({ user }) {
         <ConsolaOperacion
           operationId={consolaOperationId}
           onClose={() => setConsolaOperationId(null)}
+        />
+      )}
+
+      {confirmacion && (
+        <ConfirmDialog
+          title={confirmacion.title}
+          message={confirmacion.message}
+          detail={confirmacion.detail}
+          confirmText={confirmacion.confirmText || 'Aceptar'}
+          cancelText={confirmacion.cancelText || 'Cancelar'}
+          danger={confirmacion.danger}
+          busy={Boolean(accionando)}
+          onClose={() => setConfirmacion(null)}
+          onConfirm={async () => {
+            const fn = confirmacion.onConfirm;
+            setConfirmacion(null);
+            await fn();
+          }}
         />
       )}
     </div>

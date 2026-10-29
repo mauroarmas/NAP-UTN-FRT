@@ -29,6 +29,28 @@ class IsolationManager:
         if str(UUID(boot_id))!=boot_id:raise JobError('UNCONFIRMED')
         self.boot_id=boot_id
 
+    def release(self,identity,*,assert_absent,observe,remove):
+        binding={key:identity[key] for key in ('cluster_uuid','resource_uuid','nonce_sha256','vmid')}
+        with StateStore(self.directory,create=False) as store:
+            with store.lock('resource',identity['resource_uuid']):
+                assert_absent()
+                row=store.read('credential',identity['resource_uuid'])
+                actual=observe()  # None is a positively observed absent table.
+                if row is None:
+                    if actual is not None:raise JobError('UNCONFIRMED')
+                    return True
+                if (set(row)!={'schema_version','binding','policy_sha256','state','boot_id','nft_sha256'}
+                        or row['schema_version']!='nap-isolation/1' or row['binding']!=binding
+                        or row['state'] not in {'planned','applied','released'}):raise JobError('UNCONFIRMED')
+                if actual is not None:
+                    if row['state']!='applied' or sha256(canonical(normalized(actual))).hexdigest()!=row['nft_sha256']:
+                        raise JobError('UNCONFIRMED')
+                    assert_absent()
+                    remove()
+                    if observe() is not None:raise JobError('UNCONFIRMED')
+                row['state']='released';store.write('credential',identity['resource_uuid'],row)
+                return True
+
     def ensure(self,identity,policy,*,assert_stopped,install,observe):
         name=table_name(policy);policy_sha=sha256(canonical(policy)).hexdigest()
         binding={key:identity[key] for key in ('cluster_uuid','resource_uuid','nonce_sha256','vmid')}

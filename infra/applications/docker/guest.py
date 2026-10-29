@@ -84,8 +84,10 @@ class DockerGuest:
         self.private_write(self.directory/'instance.json',json.dumps(expected,sort_keys=True).encode())
         self.private_write(self.cli/'config.json',b'{"auths":{}}')
 
-    def docker(self,args,*,capture=False,environment=None,config=None):
-        return self.run(['/usr/bin/docker','--config',str(config or self.cli),*args],capture=capture,environment=environment)
+    def docker(self,args,*,capture=False,environment=None,config=None,timeout=None):
+        command=['/usr/bin/docker','--config',str(config or self.cli),*args]
+        if timeout is not None:command=['/usr/bin/timeout','--kill-after=2',str(timeout),*command]
+        return self.run(command,capture=capture,environment=environment)
 
     def inspect(self,kind,name):
         raw=self.docker([kind,'inspect',name],capture=True)
@@ -125,11 +127,16 @@ class DockerGuest:
         info=self.inspect('image',image['repositorio']+'@'+image['manifest_digest'])
         if (info['Id'] not in {image['config_digest'],image['manifest_digest']} or info['Os']!='linux' or info['Architecture']!=image['arquitectura']
                 or not set((info.get('Config') or {}).get('Volumes') or {})<=set(self.configuration['persistencia'])):raise InstallError()
+        if self.configuration['access']['tipo']=='tcp':return
         edge=self.request['edge']
         self.docker(['pull','--platform','linux/'+edge['arquitectura'],edge['repositorio']+'@'+edge['manifest_digest']])
         if self.inspect('image',edge['repositorio']+'@'+edge['manifest_digest'])['Id'] not in {edge['config_digest'],edge['manifest_digest']}:raise InstallError()
 
     def configure(self):
+        if self.configuration['access']['tipo']=='tcp':
+            self.database_tls()
+            self.configure_volumes()
+            return
         material=self.request['tls'];edge_dir=self.directory/'edge'
         self.private_write(edge_dir/'tls/server.crt',(material['certificate_pem']+material['ca_pem']).encode())
         self.private_write(edge_dir/'tls/server.key',material['private_key_pem'].encode())
@@ -144,6 +151,30 @@ https://:8443 {
 }
 '''
         self.private_write(edge_dir/'Caddyfile',caddy.encode())
+        self.configure_volumes()
+
+    def database_tls(self):
+        """Read-only TLS mount owned by mysql inside this guest, never shared."""
+        directory=self.directory/'database-tls'
+        if not directory.exists():directory.mkdir(mode=0o700)
+        info=directory.lstat()
+        if (directory.resolve()!=directory or not stat.S_ISDIR(info.st_mode)
+                or info.st_mode&0o077 or info.st_uid not in {os.geteuid(),999}):raise InstallError()
+        material=self.request['tls']
+        for name,value in {'ca.crt':material['ca_pem'],'server.crt':material['certificate_pem']+material['ca_pem'],
+                'server.key':material['private_key_pem']}.items():
+            path=directory/name;raw=value.encode()
+            if path.exists() or path.is_symlink():
+                info=path.lstat()
+                if (not stat.S_ISREG(info.st_mode) or info.st_nlink!=1 or info.st_uid not in {os.geteuid(),999}
+                        or info.st_mode&0o077 or path.read_bytes()!=raw):raise InstallError()
+            else:
+                descriptor=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+                with os.fdopen(descriptor,'wb') as target:target.write(raw);target.flush();os.fsync(target.fileno())
+            os.chown(path,999,999)
+        os.chown(directory,999,999)
+
+    def configure_volumes(self):
         for path in self.configuration['persistencia']:
             name=volume_name(self.identity['resource_uuid'],path)
             names=self.docker(['volume','ls','--format','{{json .Name}}'],capture=True).decode().splitlines()
@@ -157,8 +188,12 @@ https://:8443 {
         if set(values)!={s['nombre'] for s in self.configuration['secretos']}:raise InstallError()
         environment={**self.configuration['variables'],**values}
         if any(type(v)is not str or '\x00'in v for v in environment.values()):raise InstallError()
-        args=application_arguments(self.identity,self.configuration,self.request['resources'])
+        args=application_arguments(self.identity,self.configuration,self.request['resources'],tls_directory=str(self.directory/'database-tls'))
         self.docker(args,environment=environment)
+        if self.configuration['access']['tipo']=='web':self.start_edge()
+        self.verify_started()
+
+    def start_edge(self):
         edge=self.request['edge'];edge_dir=self.directory/'edge'
         self.docker(['run','-d','--name',self.edge_name,'--pull=never','--restart=unless-stopped',
             '--network=host','--read-only','--cap-drop=ALL','--cap-add=NET_BIND_SERVICE','--security-opt=no-new-privileges:true',
@@ -170,6 +205,7 @@ https://:8443 {
             '--mount','type=bind,source='+str(edge_dir/'tls')+',target=/run/nap-tls,readonly',
             '--entrypoint=caddy',edge['repositorio']+'@'+edge['manifest_digest'],
             'run','--config','/etc/caddy/Caddyfile','--adapter','caddyfile'])
+    def verify_started(self):
         app=self.inspect('container',self.name)
         if (not app['State']['Running'] or app['Image'] not in {self.configuration['imagen']['config_digest'],self.configuration['imagen']['manifest_digest']}
                 or app['Config']['Labels'].get('nap.resource_uuid')!=self.identity['resource_uuid']
@@ -177,11 +213,16 @@ https://:8443 {
                 or app.get('AppArmorProfile') in (None,'','unconfined')
                 or app['Config'].get('Healthcheck',{}).get('Test')!=['NONE']):raise InstallError()
         mounts={v['Destination']:v for v in app['Mounts']}
+        if self.configuration['access']['tipo']=='tcp':
+            tls=mounts.pop('/run/nap-tls',{})
+            if (tls.get('Type')!='bind' or tls.get('Source')!=str(self.directory/'database-tls')
+                    or tls.get('RW') is not False):raise InstallError()
         if set(mounts)!=set(self.configuration['persistencia']):raise InstallError()
         for path,mount in mounts.items():
             if mount.get('Type')!='volume' or mount.get('Name')!=volume_name(self.identity['resource_uuid'],path):raise InstallError()
 
     def probe(self):
+        if self.configuration['access']['tipo']=='tcp':return self.probe_database()
         probe=self.configuration['access']['probe'];deadline=time.monotonic()+90
         context=ssl.create_default_context(cadata=self.request['tls']['ca_pem'])
         while time.monotonic()<deadline:
@@ -197,6 +238,22 @@ https://:8443 {
             finally:
                 if connection is not None:connection.close()
             time.sleep(1)
+        raise InstallError('DEPENDENCY_UNAVAILABLE')
+
+    def probe_database(self):
+        deadline=time.monotonic()+120
+        password=self.request['private_values']['MARIADB_PASSWORD']
+        while time.monotonic()<deadline:
+            try:
+                self.verify_started()
+                raw=self.docker(['exec','--env','MYSQL_PWD',self.name,'mariadb','--no-defaults',
+                    '--protocol=tcp','--host='+self.request['network']['address'],'--port=3306','--user=docente',
+                    '--database=catedra','--connect-timeout=5','--ssl-ca=/run/nap-tls/ca.crt',
+                    '--ssl-verify-server-cert','--batch','--skip-column-names','--execute=SELECT 1'],
+                    capture=True,environment={'MYSQL_PWD':password},timeout=15)
+                if raw.strip()==b'1':return
+            except InstallError:pass
+            time.sleep(2)
         raise InstallError('DEPENDENCY_UNAVAILABLE')
 
     def execute(self):

@@ -171,6 +171,13 @@ class ConfiguracionDocker(Comun):
         if ((self.base.os, self.base.version) != ('ubuntu', '24.04')
                 or self.imagen.arquitectura != self.base.arquitectura):
             raise ValueError('Plataforma no admitida')
+        if self.access.tipo=='tcp' and (
+                self.imagen.repositorio!='docker.io/library/mariadb' or self.modelo_servicio!='paas'
+                or self.access.puerto!=3306 or self.persistencia!=['/var/lib/mysql']
+                or self.variables!={'MARIADB_DATABASE':'catedra','MARIADB_USER':'docente','MARIADB_ROOT_HOST':'localhost'}
+                or {s.nombre for s in self.secretos}!={'MARIADB_PASSWORD','MARIADB_ROOT_PASSWORD'}
+                or any(s.modo!='generado' for s in self.secretos)):
+            raise ValueError('Configuración de base de datos no admitida')
         return self
 
 

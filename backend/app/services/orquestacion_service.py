@@ -206,7 +206,10 @@ async def _dispatch(sessions, lease, action, *, pve, after_dispatch):
             'ostemplate': assignment['image']['volume_id'], 'net0': op.contexto_seguro['red_preparada'],
             'pool': identity.pool_catedra, 'description': identities.descripcion(identity),
             'unprivileged': 1, 'start': 0 if assignment.get('configuracion_despliegue_id') else 1, 'force': 0, 'restore': 0}
-        if assignment.get('configuracion_despliegue_id'):config['onboot']=0
+        if assignment.get('configuracion_despliegue_id'):
+            config['onboot']=0
+            gw=(((op.contexto_seguro.get('red_reservada') or {}).get('instance') or {}).get('static_ip') or {}).get('gateway')
+            if gw:config['nameserver']=gw
     async with _locked(sessions, lease) as (db, op, current, service, request, ledger):
         if current.id != identity.id or op.fase not in {'lista', 'creacion', 'detencion_necesaria', 'eliminacion_necesaria'}:
             raise LeasePerdido()
@@ -318,10 +321,19 @@ async def _cancel_obsolete_pause(sessions, lease, observation):
         return True
 
 
-async def _confirmed(sessions, lease, observation, *, preparation=None):
+async def _confirmed(sessions, lease, observation, *, preparation=None, runner=None):
+    if observation.estado=='ausente':
+        op,identity,service,_,_=await _view(sessions,lease)
+        if op.tipo=='eliminar' and service and service.configuracion_despliegue_id:
+            from app.services.application_cleanup_service import release
+            await release(identity,runner=runner)
+
     async with _locked(sessions, lease) as (db, op, identity, service, request, ledger):
         if op.tipo == 'eliminar' and observation.estado == 'ausente':
             identities.retirar(identity, observation)
+            await db.flush()
+            from app.services.reserva_red_service import liberar_aplicacion
+            await liberar_aplicacion(db,identity,observation)
             service.deleted_at = clock.now().replace(tzinfo=None)
             new_state = EstadoServicio.STOPPED
             ledger.vcpus_retenidos = ledger.ram_mb_retenida = ledger.disk_bytes_retenidos = 0
@@ -368,7 +380,10 @@ async def _confirmed(sessions, lease, observation, *, preparation=None):
                     motivo=op.motivo or ('Efecto confirmado: ' + op.tipo), operacion_id=op.id,
                     evento_clave=f'operacion:{op.id}:pedido_confirmado')
         db.add(historial_service.registrar_servicio(service.id, before, new_state.value,
-            comentario='Efecto de infraestructura confirmado: ' + op.tipo, operacion_id=op.id,
+            comentario=('Servicio detenido verificado en Proxmox; sin atribuir una tarea externa'
+                if op.contexto_seguro.get('resultado_por_observacion') else
+                'Estado solicitado ya presente en Proxmox; sin enviar orden' if op.contexto_seguro.get('sin_cambios') else
+                'Efecto de infraestructura confirmado: ' + op.tipo), operacion_id=op.id,
             evento_clave=f'operacion:{op.id}:confirmada', metadata=historial_service.asignacion_historica(service)))
         if preparation and request and op.tipo == 'desplegar':
             await notificacion_service.avisar_despliegue_confirmado(db, request, service, op)
@@ -409,18 +424,44 @@ async def procesar_lease(sessions, lease, *, pve=None, runner=None, after_dispat
                     if op.tipo == 'eliminar':
                         observation = await identities.observar(identity, pve=pve)
                         if observation.estado == 'ausente':
-                            await _confirmed(sessions, lease, observation)
+                            await _confirmed(sessions, lease, observation, runner=runner)
                             return
                         if observation.estado != 'propia':
                             raise InfraNoVerificable()
                         if observation.status == 'running':
                             action = 'detener'
+                if action == 'detener':
+                    observation = await identities.observar(identity, pve=pve)
+                    if observation.estado == 'propia' and observation.status == 'stopped' and not observation.config.get('lock'):
+                        if op.tipo == 'eliminar':
+                            async with _locked(sessions, lease) as (db, current, *rest):
+                                await _cas(db, lease, fase='eliminacion_necesaria')
+                            continue
+                        async with _locked(sessions, lease) as (db, current, *rest):
+                            await _cas(db, lease, contexto_seguro={**current.contexto_seguro,
+                                'accion_externa': 'detener', 'sin_cambios': True,
+                                'detencion_fuera_cobertura': op.tipo in {'desplegar', 'iniciar', 'reiniciar'}})
+                        await _confirmed(sessions, lease, observation, runner=runner)
+                        return
                 await _dispatch(sessions, lease, action, pve=pve, after_dispatch=after_dispatch)
                 continue
             if op.fase in {'dispatch_started', 'tarea'}:
                 if not op.upid:
                     recovered = await recuperar_upid(op, identity, pve=pve)
                     if recovered is None:
+                        # Proxmox puede no devolver UPID al detener un LXC ya
+                        # apagado. Solo reconciliar ese estado estable, nunca
+                        # inferir que un reinicio o una instalación terminó.
+                        if (op.tipo in {'detener', 'pausar'}
+                            and op.contexto_seguro.get('accion_externa') == 'detener'
+                            and op.deadline_at and clock.now() >= db_utc(op.deadline_at)):
+                            observation = await identities.observar(identity, pve=pve)
+                            if observation.estado == 'propia' and observation.status == 'stopped' and not observation.config.get('lock'):
+                                async with _locked(sessions, lease) as (db, current, *rest):
+                                    await _cas(db, lease, contexto_seguro={**current.contexto_seguro,
+                                        'resultado_por_observacion': True})
+                                await _confirmed(sessions, lease, observation, runner=runner)
+                                return
                         await _defer(sessions, lease, uncertain=True, code='dispatch_no_confirmado')
                         return
                     async with _locked(sessions, lease) as (db, current, *rest):
@@ -438,7 +479,7 @@ async def procesar_lease(sessions, lease, *, pve=None, runner=None, after_dispat
                 from app.services.proxmox_client import tarea_exitosa
                 if not tarea_exitosa(exitstatus):
                     if op.tipo == 'eliminar' and op.contexto_seguro['accion_externa'] == 'eliminar' and observation.estado == 'ausente':
-                        await _confirmed(sessions, lease, observation)
+                        await _confirmed(sessions, lease, observation, runner=runner)
                         return
                     await _finish_failure(sessions, lease, 'tarea_fallida', absence=observation if observation.estado == 'ausente' else None)
                     return
@@ -457,7 +498,7 @@ async def procesar_lease(sessions, lease, *, pve=None, runner=None, after_dispat
                         if not await _coverage(db, current, current_request, current_service):
                             await _cas(db, lease, fase='detencion_necesaria')
                             continue
-                await _confirmed(sessions, lease, observation)
+                await _confirmed(sessions, lease, observation, runner=runner)
                 return
             if op.fase == 'bootstrap':
                 observation = await identities.observar(identity, pve=pve)
@@ -493,7 +534,7 @@ async def procesar_lease(sessions, lease, *, pve=None, runner=None, after_dispat
                         await _cas(db, lease, fase='detencion_necesaria')
                 if not covered:
                     continue
-                await _confirmed(sessions, lease, observation, preparation=preparation)
+                await _confirmed(sessions, lease, observation, preparation=preparation, runner=runner)
                 return
             raise InfraNoVerificable()
         await _defer(sessions, lease)

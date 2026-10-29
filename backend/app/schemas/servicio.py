@@ -118,7 +118,7 @@ class AccesoServicioResponse(Contrato):
     producto: str | None = None
     disponibilidad: str
     verificado_at: datetime | None = None
-    metodo: Literal['consola', 'postgresql', 'https'] | None = None
+    metodo: Literal['consola', 'postgresql', 'https', 'mariadb'] | None = None
     direccion: str | None = None
     puerto: int | None = None
     puede_revelar_credenciales: bool
@@ -132,7 +132,7 @@ class AccesoServicioResponse(Contrato):
 class AccesoReveladoResponse(Contrato):
     servicio_id: int
     estado_entrega: Literal['solo_validacion', 'entregado']
-    metodo: Literal['consola', 'postgresql', 'https']
+    metodo: Literal['consola', 'postgresql', 'https', 'mariadb']
     direccion: str
     credenciales: dict[str, str | int]
     instrucciones: str

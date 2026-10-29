@@ -77,6 +77,7 @@ test('Agregar servicio integra la biblioteca dentro de un solo diálogo', async 
   render(<Definiciones />);
   expect(screen.queryByRole('button', { name: 'Preparación y biblioteca' })).not.toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: 'Agregar servicio', exact: true }));
+  await user.click(screen.getByRole('button', { name: 'Docker Hub' }));
   expect(screen.getAllByRole('dialog')).toHaveLength(1);
   expect(screen.getAllByRole('dialog')).toHaveLength(1);
   await user.type(screen.getByLabelText('Nombre de aplicación'), 'diagramas');

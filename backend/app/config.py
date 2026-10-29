@@ -1,6 +1,6 @@
 from pydantic_settings import BaseSettings
 from pydantic import Field, model_validator
-from app.schemas.biblioteca_config import FuenteBiblioteca, BuilderHost, PerfilEnsayo
+from app.schemas.biblioteca_config import BuilderHost, PerfilEnsayo
 from app.schemas.application_profiles import ProfileRegistry, ProfileError
 from functools import lru_cache
 import json
@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     application_gateway_port: int = Field(default=443, ge=1, le=65535)
     application_gateway_ca_file: str = ''
     application_profiles: dict = Field(default_factory=dict)
+    mariadb_application_validation: dict = Field(default_factory=dict)
     application_network_profiles: dict = Field(default_factory=dict)
     application_registry_profiles: dict = Field(default_factory=lambda:{'docker-hub':{
         'registry':{'host':'registry-1.docker.io','allow_public':True},
@@ -51,7 +52,6 @@ class Settings(BaseSettings):
         'token_endpoint':{'host':'auth.docker.io','allow_public':True},'token_service':'registry.docker.io',
         'blob_endpoints':[{'host':'production.cloudfront.docker.com','allow_public':True}]}},repr=False)
 
-    biblioteca_fuente: FuenteBiblioteca = Field(default_factory=FuenteBiblioteca)
     builder_hosts: dict[str, BuilderHost] = Field(default_factory=dict, repr=False)
     perfiles_ensayo: dict[str, PerfilEnsayo] = Field(default_factory=dict)
 
@@ -136,7 +136,10 @@ def settings_from_file(path) -> Settings:
             if (not stat.S_ISREG(info.st_mode) or info.st_uid!=os.getuid()
                 or info.st_mode&0o077 or info.st_size>1024*1024): raise ValueError()
             value=json.load(handle,object_pairs_hook=unique,parse_constant=invalid_constant)
-        if not isinstance(value,dict) or not value.keys()<=Settings.model_fields.keys(): raise ValueError()
+        if not isinstance(value,dict): raise ValueError()
+        # Older private files may still carry the retired discovery configuration.
+        value.pop('biblioteca_fuente', None)
+        if not value.keys()<=Settings.model_fields.keys(): raise ValueError()
         return Settings(_env_file=None,**value)
     except Exception:
         raise RuntimeError('Configuración privada inválida; revisar archivo, permisos, campos y formato') from None

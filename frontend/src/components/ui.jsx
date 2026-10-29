@@ -1,7 +1,7 @@
 import { useId, useLayoutEffect, useRef } from 'react';
 import { activateModal } from '../utils/modalFocus';
 import { createPortal } from 'react-dom';
-import { X } from 'lucide-react';
+import { AlertTriangle, Info, X } from 'lucide-react';
 
 // Piezas compartidas del sistema de diseño. Cada una es fina a propósito:
 // envuelve una convención de marcado, no una abstracción.
@@ -99,6 +99,97 @@ export function Dialog({ title, onClose, children, actions, wide = false, closeD
         {actions && <div className="dialog-actions">{actions}</div>}
       </div>
     </div>, document.body,
+  );
+}
+
+// Modal de confirmación accesible con la estética del portal.
+export function ConfirmDialog({
+  title = '¿Confirmar acción?',
+  message,
+  detail,
+  confirmText = 'Aceptar',
+  cancelText = 'Cancelar',
+  danger = false,
+  busy = false,
+  onConfirm,
+  onClose,
+  children,
+}) {
+  return (
+    <Dialog
+      title={title}
+      onClose={busy ? undefined : onClose}
+      closeDisabled={busy}
+      actions={
+        <>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={onClose}
+            disabled={busy}
+          >
+            {cancelText}
+          </button>
+          <button
+            type="button"
+            className={`btn ${danger ? 'btn-danger' : 'btn-primary'}`}
+            onClick={onConfirm}
+            disabled={busy}
+            autoFocus
+          >
+            {busy ? 'Procesando…' : confirmText}
+          </button>
+        </>
+      }
+    >
+      <div className="confirm-dialog-content">
+        {message && <p className="confirm-dialog-message">{message}</p>}
+        {detail && (
+          <div className={`callout ${danger ? 'bad' : 'accent'}`} role="status">
+            {danger ? <AlertTriangle size={16} aria-hidden="true" /> : <Info size={16} aria-hidden="true" />}
+            <div>{detail}</div>
+          </div>
+        )}
+        {children}
+      </div>
+    </Dialog>
+  );
+}
+
+// Modal de aviso / alerta accesible.
+export function AlertDialog({
+  title = 'Aviso',
+  message,
+  detail,
+  tone = 'accent',
+  buttonText = 'Entendido',
+  onClose,
+}) {
+  return (
+    <Dialog
+      title={title}
+      onClose={onClose}
+      actions={
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={onClose}
+          autoFocus
+        >
+          {buttonText}
+        </button>
+      }
+    >
+      <div className="confirm-dialog-content">
+        {message && <p className="confirm-dialog-message">{message}</p>}
+        {detail && (
+          <div className={`callout ${tone}`} role="alert">
+            {tone === 'bad' ? <AlertTriangle size={16} aria-hidden="true" /> : <Info size={16} aria-hidden="true" />}
+            <div>{detail}</div>
+          </div>
+        )}
+      </div>
+    </Dialog>
   );
 }
 

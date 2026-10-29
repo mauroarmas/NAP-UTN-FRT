@@ -126,8 +126,10 @@ class CompromisoPedidoResponse(Contrato):
 
 
 class PedidoResponse(BaseModel):
+    servicio_dado_de_baja: bool = False
     compromiso_capacidad: CompromisoPedidoResponse | None = None
     operation_id: UUID | None = None
+    ultima_operacion_id: UUID | None = None
     vigencia: dict | None = None
     vigencia_aprobada: dict | None = None
     despliegue_habilitado: bool = False

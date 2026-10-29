@@ -84,6 +84,13 @@ def parse_request(raw):
         if action == 'profiles':
             if set(value) != {'protocol', 'action'}: raise ValueError()
             return value
+        if action=='cleanup':
+            if set(value)!={'protocol','action','cluster_uuid','node','vmid','resource_uuid','nonce'}:raise ValueError()
+            _uuid(value['cluster_uuid']);_uuid(value['resource_uuid'])
+            _integer(value['vmid'],100,999999999)
+            _match(r'[A-Za-z0-9][A-Za-z0-9._-]{0,99}',value['node'])
+            _match(r'[a-f0-9]{64}',value['nonce'])
+            return value
         extras = {'status': set(), 'start': {'configuracion', 'secretos', 'secreto_referencias'},
                   'read': {'after', 'limit_bytes'}, 'ack': {'through_seq'}}
         if type(action) is not str or action not in extras or set(value) != IDENTITY_FIELDS | {'action'} | extras[action]:
@@ -160,6 +167,10 @@ def parse_response(raw, *, request):
         _keys(value, {'protocol', 'ok', 'action', 'data'})
         if value['action'] != request['action']: raise ValueError()
         action, data = value['action'], value['data']
+        if action=='cleanup':
+            _keys(data,{'fingerprint','released'})
+            if data['released'] is not True or data['fingerprint']!=fingerprint(request):raise ValueError()
+            return value
         if action == 'profiles':
             _keys(data, {'profiles'})
             profiles = data['profiles']

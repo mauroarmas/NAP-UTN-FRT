@@ -38,7 +38,8 @@ Artefactos del repositorio:
 
 `infra/applications/docker/runtime.py::policy_digest()` calcula el digest SHA-256 canónico de todos los módulos del motor (`job/*.py`, `docker/*.py`, `profiles/docker/ubuntu24.json`, `schemas/nap-deployment-1.json`, `runner/node_executor.py` y `profiles/profile_contract.py`).
 
-- **Digest canónico actual del repositorio y nodo**: `73e804b60ce027506da11c9b8ad549c0b361de8df397b8214d5f0bd4a8eab2c2`.
+- **Digest inicial (revisión 1, histórico)**: `73e804b60ce027506da11c9b8ad549c0b361de8df397b8214d5f0bd4a8eab2c2`.
+- **Digest actual (revisión 3, MariaDB nativa y web)**: `4ebb0a71e161fd3d20c89a4c29ec60c1e735ac1cfe3cc0d7dcf732e133c18ac0`.
 
 ---
 
@@ -46,3 +47,13 @@ Artefactos del repositorio:
 
 Tras aprobar la compuerta real en Proxmox (`T050`/`T109`) con `infra/laboratorio/011/validar_motor_docker.py` para `docker.io/traefik/whoami` (`execution_id: 4bba6281-3a9a-40ef-891d-49e122729537`) y `172.16.36.1:5443/nap/campus-demo` (`execution_id: d07d3250-aba2-463f-8ce6-b8c20e7e806c`), el perfil `docker-ubuntu24:1` (`sha256: 2ed42514102e2f2ed7702bf4f1162f4ba2b6c175f2012f929c0895e743f67a24`, plataforma `{"pve": "9.2.2", "kernel": "7.0.2-6-pve", "arquitectura": "amd64"}`) quedó habilitado de forma idéntica en `/etc/nap/applications-011/runner.json` (nodo) y `/home/mauro/.local/share/nap010/privado/settings.json` (portal).
 
+
+## 4. Extensión acotada PaaS
+
+La revisión 3 conserva base, recursos, aislamiento y versiones del motor e incorpora
+la receta nativa de MariaDB. Se volvió a comprobar whoami por HTTPS y se comprobó
+MariaDB con TLS, autenticación, persistencia y recuperación en el mismo Proxmox.
+El perfil `docker-ubuntu24:3` tiene SHA-256
+`0456c50bdb5e1e89d3ef44b6a26faef676a0fea49048f1abd70f0add850aaeeb`
+y está habilitado de forma idéntica en nodo y portal. Las revisiones 1 y 2 quedaron bloqueadas
+y conservadas como históricas. Detalle: [MariaDB PaaS](mariadb-paas.md).

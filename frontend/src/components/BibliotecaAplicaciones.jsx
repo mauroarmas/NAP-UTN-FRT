@@ -108,7 +108,7 @@ export default function BibliotecaAplicaciones({ onSelected, onContinue, onBusyC
             <input
               id="biblioteca-q"
               className="input"
-              placeholder="Ej.: whoami, postgres, redis, nginx…"
+              placeholder="Ej.: whoami, nginx, drawio…"
               value={q}
               maxLength={100}
               onChange={(event) => {
@@ -207,14 +207,17 @@ export default function BibliotecaAplicaciones({ onSelected, onContinue, onBusyC
                     </div>
                   </div>
                   {row.descripcion && <p className="library-app-description">{row.descripcion}</p>}
+                  {row.compatibilidad === 'preparada' && <p className="callout">PaaS para prácticas SQL. MariaDB 11.4 tiene una configuración preparada: base, usuario, contraseña, TLS y datos persistentes. Se comprueba cada instancia al desplegar.</p>}
+                  {row.compatibilidad === 'sin_comprobar' && <p className="card-meta">Funcionamiento todavía sin comprobar en NAP. Requiere acceso web y una sola imagen; se comprueba al desplegar.</p>}
+                  {row.motivo_no_disponible && <p className="callout">{row.motivo_no_disponible}</p>}
                   <button
                     type="button"
                     className="btn btn-primary library-app-action"
-                    disabled={busy}
+                    disabled={busy || row.compatibilidad === 'no_compatible'}
                     aria-label={`Agregar ${row.nombre}`}
                     onClick={() => choose(row)}
                   >
-                    Agregar servicio
+                    {row.compatibilidad === 'no_compatible' ? 'Todavía no disponible en NAP' : 'Agregar servicio'}
                     <ArrowRight size={16} />
                   </button>
                 </article>

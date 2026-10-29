@@ -4,15 +4,6 @@ from pydantic import Field, StrictInt, field_validator
 from app.schemas.common import Contrato
 
 
-class FuenteBiblioteca(Contrato):
-    enabled: bool = True
-    cache_seconds: StrictInt = Field(default=900, ge=1, le=3600)
-    deadline_seconds: StrictInt = Field(default=10, ge=1, le=10)
-    max_entries: StrictInt = Field(default=10000, ge=1, le=10000)
-    max_bytes: StrictInt = Field(default=8388608, ge=1024, le=8388608)
-    token: str = Field(default='', repr=False)
-
-
 class BuilderHost(Contrato):
     host: str = Field(pattern=r'^[A-Za-z0-9.-]+$')
     port: StrictInt = Field(default=22, ge=1, le=65535)

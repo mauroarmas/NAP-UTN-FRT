@@ -73,6 +73,20 @@ test('fallo confirmado muestra botón Reintentar en el detalle del pedido', () =
   expect(botonReintentar).not.toBeDisabled();
 });
 
+test('un servicio dado de baja conserva el pedido sin anunciarlo operativo', () => {
+  render(<MemoryRouter><DetalleDialog
+    detalle={{ id: 39, estado: 'activo', tipo: 'alta', servicio_dado_de_baja: true,
+      created_at: '2026-10-28T20:00:00Z', historial: [] }}
+    onClose={vi.fn()} isAdmin templateDe={() => ({ nombre: 'Ubuntu 24.04' })}
+    templateNombre={() => 'Ubuntu 24.04'} catedraNombre={() => 'Verificación'} formatDate={(d) => d}
+  /></MemoryRouter>);
+  expect(screen.getByText('Servicio dado de baja')).toBeVisible();
+  expect(screen.getByRole('status')).toHaveTextContent('Este pedido conserva su aprobación y su historial.');
+  expect(screen.queryByText('Servicio activo y registrado.')).not.toBeInTheDocument();
+  expect(screen.queryByText('El servicio se encuentra operativo.')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /Reintentar despliegue/ })).not.toBeInTheDocument();
+});
+
 test('estado incierto no muestra Reintentar masivo y visibiliza estado de verificación', () => {
   const pedido = {
     id: 12,
@@ -137,7 +151,6 @@ test('limpieza pendiente y textoOperacion visible cuando falla la eliminación',
 
 test('confirmación destructiva requerida antes de solicitar baja de servicio', async () => {
   const user = userEvent.setup();
-  const confirmSpy = vi.spyOn(window, 'confirm');
 
   const servicio = {
     id: 101,
@@ -167,25 +180,34 @@ test('confirmación destructiva requerida antes de solicitar baja de servicio', 
   const botonBaja = await screen.findByRole('button', { name: /Dar de baja/i });
   expect(botonBaja).toBeVisible();
 
-  // 1. Cancelar la confirmación
-  confirmSpy.mockReturnValueOnce(false);
+  // 1. Abrir modal y cancelar
   await user.click(botonBaja);
+  const modalBaja = await screen.findByRole('dialog', { name: /Dar de baja servicio/i });
+  expect(modalBaja).toBeVisible();
+  expect(screen.getByText(/¿Dar de baja el servicio y eliminar el contenedor 105 en Proxmox\?/i)).toBeInTheDocument();
+  expect(screen.getByText(/Esta acción no se puede deshacer/i)).toBeInTheDocument();
 
-  expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('¿Dar de baja el servicio y eliminar el contenedor 105 en Proxmox?'));
+  // Cancelar la confirmación
+  const botonCancelar = screen.getByRole('button', { name: /Cancelar/i });
+  await user.click(botonCancelar);
+  expect(screen.queryByRole('dialog', { name: /Dar de baja servicio/i })).not.toBeInTheDocument();
   expect(api.eliminarServicio).not.toHaveBeenCalled();
 
-  // 2. Reabrir menú y aceptar la confirmación
+  // 2. Reabrir menú y aceptar la confirmación en el modal
   await user.click(botonOpciones);
   const botonBaja2 = await screen.findByRole('button', { name: /Dar de baja/i });
-  confirmSpy.mockReturnValueOnce(true);
   await user.click(botonBaja2);
 
-  expect(confirmSpy).toHaveBeenCalledTimes(2);
+  const modalBaja2 = await screen.findByRole('dialog', { name: /Dar de baja servicio/i });
+  expect(modalBaja2).toBeVisible();
+
+  const botonConfirmar = modalBaja2.querySelector('.btn-danger');
+  expect(botonConfirmar).toHaveTextContent(/Dar de baja/i);
+  await user.click(botonConfirmar);
+
   await waitFor(() => {
     expect(api.eliminarServicio).toHaveBeenCalledWith(101, expect.any(String));
   });
-
-  confirmSpy.mockRestore();
 });
 
 test('polling de estado no dispara reinstalación ni duplicación de vistas', async () => {
@@ -238,4 +260,17 @@ test('polling de estado no dispara reinstalación ni duplicación de vistas', as
   expect(api.desplegarPedido).not.toHaveBeenCalled();
   expect(api.reintentarPedido).not.toHaveBeenCalled();
   expect(api.iniciarServicio).not.toHaveBeenCalled();
+});
+
+test('administración puede detener y borrar con revisión pendiente cuando el servidor lo habilita', async () => {
+  const user = userEvent.setup();
+  api.listarServicios.mockResolvedValue({ data: [{ id: 7, estado: 'running', catedra_id: 1,
+    nombre_snapshot: 'Aplicación', regularizacion_pendiente: true,
+    acciones_habilitadas: ['stop', 'delete'], observado_at: '2026-10-28T23:00:00Z' }] });
+  render(<Servicios user={{ rol: 'admin' }} />);
+  expect(await screen.findByRole('button', { name: 'Detener servicio', exact: true })).toBeEnabled();
+  await user.click(screen.getByTitle('Opciones del servicio'));
+  expect(screen.getByRole('button', { name: 'Dar de baja' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Reiniciar', exact: true })).toBeDisabled();
+  expect(screen.getByText(/Última comprobación en Proxmox/)).toBeVisible();
 });

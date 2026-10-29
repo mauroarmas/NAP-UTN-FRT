@@ -141,7 +141,8 @@ async def test_consola_tail_inicial_y_cabeceras_no_store(
     assert data["operation_id"] == str(op.id)
     assert data["operacion_raiz_id"] == str(op.id)
     assert data["estado"] == "en_curso"
-    assert data["fase"] == "creacion"
+    # The captured runner phase is newer than the orchestration's creation marker.
+    assert data["fase"] == "instalacion"
     assert data["intento_efectivo"] == 1
     assert data["first_retained_seq"] == 1
     assert data["last_seq"] == 3

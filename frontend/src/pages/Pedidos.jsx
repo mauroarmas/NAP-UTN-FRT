@@ -19,7 +19,7 @@ import AprobarPedidoModal from '../components/AprobarPedidoModal';
 import AjustePedidoModal from '../components/AjustePedidoModal';
 import ReenviarPedidoModal from '../components/ReenviarPedidoModal';
 import ConsolaOperacion from '../components/ConsolaOperacion';
-import { PageHead, StatusPill, Dialog, Empty } from '../components/ui';
+import { PageHead, StatusPill, Dialog, Empty, ConfirmDialog, AlertDialog } from '../components/ui';
 import { ESTADO_PEDIDO_CONFIG as ESTADO_CONFIG, PASOS_PEDIDO } from '../constants/estados';
 
 // Una aprobación revertida y un rechazo original terminan en el mismo estado.
@@ -198,19 +198,30 @@ export default function Pedidos({ user }) {
     if (data?.operation_id) setOperationIds((current) => [...new Set([...current, data.operation_id])]);
   };
   const [motivoReversion, setMotivoReversion] = useState('');
+  const [confirmacion, setConfirmacion] = useState(null);
+  const [avisoModal, setAvisoModal] = useState(null);
+  const [cancelandoPedido, setCancelandoPedido] = useState(null);
 
-  const handleCancelarPedido = async (pedidoId) => {
+  const handleCancelarPedido = (pedidoId) => {
     if (busyRef.current) return;
-    const motivo = prompt('Motivo de cancelación (obligatorio):');
-    if (!motivo?.trim()) return;
+    setCancelandoPedido({ id: pedidoId, motivo: '' });
+  };
+
+  const ejecutarCancelacion = async (pedidoId, motivo) => {
+    if (busyRef.current) return;
+    setCancelandoPedido(null);
     busyRef.current = true;
     setTransicionando(true);
     try {
-      await cancelarPedido(pedidoId, motivo.trim(), claveIntencion('cancelar', pedidoId, motivo.trim()));
+      await cancelarPedido(pedidoId, motivo, claveIntencion('cancelar', pedidoId, motivo));
       delete intentKeys.current[`cancelar:${pedidoId}`];
       await actualizarDetalle(pedidoId);
     } catch (err) {
-      alert(mensajeError(err, 'Error al cancelar el pedido'));
+      setAvisoModal({
+        title: 'Error al cancelar',
+        message: mensajeError(err, 'Error al cancelar el pedido'),
+        tone: 'bad',
+      });
     } finally {
       busyRef.current = false;
       setTransicionando(false);
@@ -230,7 +241,7 @@ export default function Pedidos({ user }) {
   const fetchPedidos = pedidosRemote.reload;
   useEffect(() => {
     if (pedidosRemote.data) setOperationIds((current) => [...new Set([...current,
-      ...pedidosRemote.data.map((p) => p.operation_id).filter(Boolean)])]);
+      ...pedidosRemote.data.map((p) => p.operation_id || p.ultima_operacion_id).filter(Boolean)])]);
   }, [pedidosRemote.data]);
   const templatesRemote = useRemoteData((options) => getTemplates(true, null, options), {
     key: `perfiles-pedidos:${scope}`, errorMessage: 'No se pudieron consultar los perfiles.' });
@@ -255,7 +266,7 @@ export default function Pedidos({ user }) {
     const q = query.trim().toLowerCase();
     if (!q) return pedidos;
     return pedidos.filter((p) =>
-      [`#${p.id}`, templateNombre(p.template_id), catedraNombre(p.catedra_id), ESTADO_CONFIG[p.estado]?.label, descripcionPedido(p), p.modelo_servicio || '', vigenciaLabel(p) || '']
+      [`#${p.id}`, templateNombre(p.template_id), catedraNombre(p.catedra_id), p.servicio_dado_de_baja ? 'Servicio dado de baja' : ESTADO_CONFIG[p.estado]?.label, descripcionPedido(p), p.modelo_servicio || '', vigenciaLabel(p) || '']
         .join(' ').toLowerCase().includes(q));
   }, [pedidos, query, templates, catedras, misCatedras]);
 
@@ -267,7 +278,7 @@ export default function Pedidos({ user }) {
     fetchPedidos();
     if (detalle) verDetalle(detalle.id);
   });
-  const operacionDelPedido = (p) => p.operation_id ? operaciones[p.operation_id] : Object.values(operaciones)
+  const operacionDelPedido = (p) => (p.operation_id || p.ultima_operacion_id) ? operaciones[p.operation_id || p.ultima_operacion_id] : Object.values(operaciones)
     .filter((op) => op.pedido_id === p.id && op.tipo === 'desplegar')
     .sort((a, b) => (Date.parse(a.creado_at) || 0) - (Date.parse(b.creado_at) || 0)).at(-1);
 
@@ -314,7 +325,11 @@ export default function Pedidos({ user }) {
       setMotivoReversion('');
       registrarOrden(data);
     } catch {
-      alert('Error al cargar detalle');
+      setAvisoModal({
+        title: 'Error al cargar detalle',
+        message: 'No se pudo obtener el detalle actualizado del pedido.',
+        tone: 'bad',
+      });
     }
   };
 
@@ -328,7 +343,11 @@ export default function Pedidos({ user }) {
   const handleRechazar = async () => {
     if (busyRef.current) return;
     if (!motivoRechazo.trim()) {
-      alert('Ingresá un motivo de rechazo: la cátedra lo va a ver.');
+      setAvisoModal({
+        title: 'Motivo requerido',
+        message: 'Ingresá un motivo de rechazo: la cátedra lo va a ver.',
+        tone: 'warn',
+      });
       return;
     }
     busyRef.current = true;
@@ -338,7 +357,11 @@ export default function Pedidos({ user }) {
       delete intentKeys.current[`rechazar:${detalle.id}`];
       await actualizarDetalle(detalle.id);
     } catch (err) {
-      alert(mensajeError(err, 'Error al rechazar el pedido'));
+      setAvisoModal({
+        title: 'Error al rechazar el pedido',
+        message: mensajeError(err, 'Error al rechazar el pedido'),
+        tone: 'bad',
+      });
     } finally {
       busyRef.current = false;
       setTransicionando(false);
@@ -348,48 +371,79 @@ export default function Pedidos({ user }) {
   const handleRevertir = async () => {
     if (busyRef.current) return;
     if (!motivoReversion.trim()) {
-      alert('Escribí por qué deshacés la aprobación: la cátedra lo va a ver.');
+      setAvisoModal({
+        title: 'Motivo requerido',
+        message: 'Escribí por qué deshacés la aprobación: la cátedra lo va a ver.',
+        tone: 'warn',
+      });
       return;
     }
-    if (!confirm(`¿Deshacer la aprobación del pedido #${detalle.id}?\n\nLa capacidad que había reservado vuelve a estar libre en el acto.`)) return;
-    busyRef.current = true;
-    setTransicionando(true);
-    try {
-      const { data } = await revertirAprobacion(detalle.id, motivoReversion, claveIntencion('revertir', detalle.id, motivoReversion));
-      delete intentKeys.current[`revertir:${detalle.id}`];
-      const c = data.capacidad_liberada;
-      await actualizarDetalle(detalle.id);
-      alert(c && (c.vcpus || c.ram_mb || c.storage_gb)
-        ? `Aprobación deshecha. Volvieron a estar libres ${c.vcpus} vCPU, ${c.ram_mb} MB de RAM y ${c.storage_gb} GB de disco.`
-        : 'Aprobación deshecha. Consultá el detalle actualizado de la decisión.');
-    } catch (err) {
-      // El backend ya redacta un mensaje distinto para cada uno de los cuatro
-      // conflictos; volcarlo crudo perdería justamente eso.
-      const d = err.response?.data?.detail;
-      alert(d?.mensaje || (typeof d === 'string' ? d : 'Error al deshacer la aprobación'));
-    } finally {
-      busyRef.current = false;
-      setTransicionando(false);
-    }
+    setConfirmacion({
+      title: 'Deshacer aprobación',
+      message: `¿Deshacer la aprobación del pedido #${detalle.id}?`,
+      detail: 'La capacidad que había reservado vuelve a estar libre en el acto.',
+      confirmText: 'Deshacer aprobación',
+      danger: true,
+      onConfirm: async () => {
+        busyRef.current = true;
+        setTransicionando(true);
+        try {
+          const { data } = await revertirAprobacion(detalle.id, motivoReversion, claveIntencion('revertir', detalle.id, motivoReversion));
+          delete intentKeys.current[`revertir:${detalle.id}`];
+          const c = data.capacidad_liberada;
+          await actualizarDetalle(detalle.id);
+          setAvisoModal({
+            title: 'Aprobación deshecha',
+            message: c && (c.vcpus || c.ram_mb || c.storage_gb)
+              ? `Aprobación deshecha. Volvieron a estar libres ${c.vcpus} vCPU, ${c.ram_mb} MB de RAM y ${c.storage_gb} GB de disco.`
+              : 'Aprobación deshecha. Consultá el detalle actualizado de la decisión.',
+            tone: 'accent',
+          });
+        } catch (err) {
+          const d = err.response?.data?.detail;
+          setAvisoModal({
+            title: 'No se pudo deshacer la aprobación',
+            message: d?.mensaje || (typeof d === 'string' ? d : 'Error al deshacer la aprobación'),
+            tone: 'bad',
+          });
+        } finally {
+          busyRef.current = false;
+          setTransicionando(false);
+        }
+      },
+    });
   };
 
   const handleDesplegar = async (pedidoId) => {
-    if (busyRef.current || !confirm(`¿Solicitar el despliegue del pedido #${pedidoId}?`)) return;
-    busyRef.current = true;
-    setTransicionando(true);
-    try {
-      const { data } = await desplegarPedido(pedidoId, {}, claveIntencion('deploy', pedidoId));
-      registrarOrden(data);
-      delete intentKeys.current[`deploy:${pedidoId}`];
-      await verDetalle(pedidoId);
-      fetchPedidos();
-    } catch (err) {
-      registrarOrden(err.response?.data?.detail);
-      alert(mensajeError(err, 'Error al desplegar el pedido'));
-    } finally {
-      busyRef.current = false;
-      setTransicionando(false);
-    }
+    if (busyRef.current) return;
+    setConfirmacion({
+      title: 'Solicitar despliegue',
+      message: `¿Solicitar el despliegue del pedido #${pedidoId}?`,
+      detail: 'Se iniciará el aprovisionamiento de la instancia en Proxmox.',
+      confirmText: 'Desplegar',
+      danger: false,
+      onConfirm: async () => {
+        busyRef.current = true;
+        setTransicionando(true);
+        try {
+          const { data } = await desplegarPedido(pedidoId, {}, claveIntencion('deploy', pedidoId));
+          registrarOrden(data);
+          delete intentKeys.current[`deploy:${pedidoId}`];
+          await verDetalle(pedidoId);
+          fetchPedidos();
+        } catch (err) {
+          registrarOrden(err.response?.data?.detail);
+          setAvisoModal({
+            title: 'Error al desplegar',
+            message: mensajeError(err, 'Error al desplegar el pedido'),
+            tone: 'bad',
+          });
+        } finally {
+          busyRef.current = false;
+          setTransicionando(false);
+        }
+      },
+    });
   };
 
   const handleReintentar = async (pedidoId) => {
@@ -404,7 +458,11 @@ export default function Pedidos({ user }) {
       fetchPedidos();
     } catch (err) {
       registrarOrden(err.response?.data?.detail);
-      alert(mensajeError(err, 'Error al reintentar el despliegue'));
+      setAvisoModal({
+        title: 'Error al reintentar',
+        message: mensajeError(err, 'Error al reintentar el despliegue'),
+        tone: 'bad',
+      });
     } finally {
       busyRef.current = false;
       setTransicionando(false);
@@ -499,14 +557,14 @@ export default function Pedidos({ user }) {
                     )}
                   </div>
                   <div className="row gap-3" style={{ flex: 'none' }}>
-                    <StatusPill kind={fueRevertido(p) ? 'warn' : kindDe(p.estado)}>
-                      {fueRevertido(p) ? 'Aprobación deshecha' : (p.tipo === 'renovacion' && p.estado === 'activo' ? 'Renovación registrada' : cfg.label || p.estado)}
+                    <StatusPill kind={p.servicio_dado_de_baja ? 'off' : fueRevertido(p) ? 'warn' : kindDe(p.estado)}>
+                      {p.servicio_dado_de_baja ? 'Servicio dado de baja' : fueRevertido(p) ? 'Aprobación deshecha' : (p.tipo === 'renovacion' && p.estado === 'activo' ? 'Renovación registrada' : cfg.label || p.estado)}
                     </StatusPill>
                     <button className="btn btn-ghost btn-sm" onClick={() => verDetalle(p.id)}>Ver detalle</button>
                   </div>
                 </div>
 
-                {p.tipo !== 'renovacion' && ['en_despliegue', 'error'].includes(p.estado)
+                {!p.servicio_dado_de_baja && p.tipo !== 'renovacion' && ['en_despliegue', 'error'].includes(p.estado)
                   ? (
                     <div>
                       <ProgresoDespliegue pedido={p} operacion={operacionDelPedido(p)} isAdmin={isAdmin} compact/>
@@ -637,6 +695,72 @@ export default function Pedidos({ user }) {
           onClose={() => setConsolaOperationId(null)}
         />
       )}
+
+      {cancelandoPedido && (
+        <Dialog
+          title={`Cancelar pedido #${cancelandoPedido.id}`}
+          onClose={() => setCancelandoPedido(null)}
+          actions={
+            <>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setCancelandoPedido(null)}
+              >
+                Volver
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                disabled={!cancelandoPedido.motivo?.trim()}
+                onClick={() => ejecutarCancelacion(cancelandoPedido.id, cancelandoPedido.motivo.trim())}
+              >
+                Confirmar cancelación
+              </button>
+            </>
+          }
+        >
+          <div className="confirm-dialog-content">
+            <p className="confirm-dialog-message">Indicá el motivo por el cual cancelás este pedido (será visible en el historial):</p>
+            <textarea
+              className="input"
+              rows={3}
+              placeholder="Motivo de cancelación (obligatorio)"
+              value={cancelandoPedido.motivo}
+              onChange={(e) => setCancelandoPedido({ ...cancelandoPedido, motivo: e.target.value })}
+              autoFocus
+            />
+          </div>
+        </Dialog>
+      )}
+
+      {confirmacion && (
+        <ConfirmDialog
+          title={confirmacion.title}
+          message={confirmacion.message}
+          detail={confirmacion.detail}
+          confirmText={confirmacion.confirmText || 'Aceptar'}
+          cancelText={confirmacion.cancelText || 'Cancelar'}
+          danger={confirmacion.danger}
+          busy={transicionando}
+          onClose={() => setConfirmacion(null)}
+          onConfirm={async () => {
+            const fn = confirmacion.onConfirm;
+            setConfirmacion(null);
+            await fn();
+          }}
+        />
+      )}
+
+      {avisoModal && (
+        <AlertDialog
+          title={avisoModal.title}
+          message={avisoModal.message}
+          detail={avisoModal.detail}
+          tone={avisoModal.tone}
+          onClose={() => setAvisoModal(null)}
+        />
+      )}
     </div>
   );
 }
@@ -653,7 +777,7 @@ export function DetalleDialog({
 
   const cfg = ESTADO_CONFIG[detalle.estado] || {};
   const revertido = fueRevertido(detalle);
-  const kind = revertido ? 'warn' : kindDe(detalle.estado);
+  const kind = detalle.servicio_dado_de_baja ? 'off' : revertido ? 'warn' : kindDe(detalle.estado);
   const puedeRevertir = isAdmin && detalle.estado === 'aprobado' && !detalle.servicio_id && !transicionando;
 
   const parsed = parseDescripcionPedido(detalle);
@@ -672,7 +796,7 @@ export function DetalleDialog({
         <div className="row wrap between gap-2" style={{ width: '100%' }}>
           <div className="row wrap gap-2" style={{ alignItems: 'center' }}>
             <StatusPill kind={kind}>
-              {revertido ? 'Aprobación deshecha' : (detalle.tipo === 'renovacion' && detalle.estado === 'activo' ? 'Renovación registrada' : cfg.label || detalle.estado)}
+              {detalle.servicio_dado_de_baja ? 'Servicio dado de baja' : revertido ? 'Aprobación deshecha' : (detalle.tipo === 'renovacion' && detalle.estado === 'activo' ? 'Renovación registrada' : cfg.label || detalle.estado)}
             </StatusPill>
             <span className={`tag ${modeloServicioBadge(detalle.modelo_servicio).kind}`}>
               {modeloServicioBadge(detalle.modelo_servicio).label}
@@ -858,7 +982,7 @@ export function DetalleDialog({
       )}
 
       {/* Estado: EN DESPLIEGUE */}
-      {detalle.tipo !== 'renovacion' && detalle.estado === 'en_despliegue' && (
+      {!detalle.servicio_dado_de_baja && detalle.tipo !== 'renovacion' && detalle.estado === 'en_despliegue' && (
         <div className="decision-container">
           <ProgresoDespliegue pedido={detalle} operacion={operacion} isAdmin={isAdmin}/>
           {isAdmin && (detalle.operation_id || operacion?.operation_id) && (
@@ -876,7 +1000,7 @@ export function DetalleDialog({
       )}
 
       {/* Estado: ERROR */}
-      {detalle.estado === 'error' && (
+      {!detalle.servicio_dado_de_baja && detalle.estado === 'error' && (
         <div className="decision-container" style={{ borderColor: 'var(--st-bad-bd)' }}>
           <ProgresoDespliegue pedido={detalle} operacion={operacion} isAdmin={isAdmin}/>
           {isAdmin && (
@@ -885,7 +1009,7 @@ export function DetalleDialog({
                 <button
                   className="btn btn-primary btn-sm"
                   onClick={() => onReintentar(detalle.id)}
-                  disabled={transicionando || !detalle.despliegue_habilitado}
+                  disabled={transicionando || !detalle.despliegue_habilitado || operacion?.reintento_disponible === false}
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
                 >
                   <RefreshCw size={14} /> Reintentar despliegue
@@ -1045,7 +1169,10 @@ export function DetalleDialog({
       )}
 
       {/* Estado: ACTIVO */}
-      {detalle.estado === 'activo' && (
+      {detalle.servicio_dado_de_baja && <div className="callout" role="status">
+        El servicio fue dado de baja. Este pedido conserva su aprobación y su historial.
+      </div>}
+      {detalle.estado === 'activo' && !detalle.servicio_dado_de_baja && (
         <div className="callout ok" style={{ marginBottom: 'var(--space-3)' }}>
           <CheckCircle2 size={16} />
           <div>

@@ -104,6 +104,8 @@ async def buscar(db, *, actor, filters):
     items = []
     for r in results:
         repo_name = r.get('repo_name', '')
+        from app.services.application_compatibility_service import incompatibility
+        reason = incompatibility(repo_name) if repo_name else None
         is_official = bool(r.get('is_official'))
         is_automated = bool(r.get('is_automated'))
         distintivos = []
@@ -114,13 +116,15 @@ async def buscar(db, *, actor, filters):
         items.append({
             'nombre': repo_name,
             'repositorio': repo_name,
-            'referencia': repo_name if ':' in repo_name else f'{repo_name}:latest',
+            'referencia': 'mariadb:11.4' if repo_name in {'mariadb','library/mariadb'} else repo_name if ':' in repo_name else f'{repo_name}:latest',
             'descripcion': r.get('short_description') or None,
             'procedencia': 'oficial' if is_official else 'comunidad',
             'distintivos': distintivos,
             'estrellas': r.get('star_count', 0),
             'descargas': r.get('pull_count', 0),
             'categorias': [],
+            'compatibilidad': 'no_compatible' if reason else 'preparada' if repo_name in {'mariadb','library/mariadb'} else 'sin_comprobar',
+            'motivo_no_disponible': reason,
         })
 
     next_cursor = None
@@ -142,9 +146,9 @@ async def categorias(db, *, actor):
 
 
 async def incorporar(db, *, actor, data, clave):
-    """Rechazo explícito de nuevas incorporaciones Community Scripts."""
+    """The retired import endpoint cannot create new catalog entries."""
     await requiere_admin_actual(db, actor)
-    raise error(422, 'community_scripts_retirado', 'Community Scripts se retiró del alcance. Utilizá Docker Hub o ingresá una imagen propia.')
+    raise error(422, 'origen_no_admitido', 'Agregá el servicio desde Docker Hub o ingresá una imagen propia.')
 
 
 async def obtener(db, identity, *, actor, bloquear=False):

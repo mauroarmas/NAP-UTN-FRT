@@ -87,7 +87,7 @@ test('202 mantiene pendiente y bloquea otra orden hasta confirmación', async ({
   expect(orders).toBe(1);
   confirmed = true;
   await expect(page.getByText(/Efecto de infraestructura confirmado/).first()).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Pausar / Detener servicio', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Detener servicio', exact: true })).toBeEnabled();
   expect(orders).toBe(1);
 });
 

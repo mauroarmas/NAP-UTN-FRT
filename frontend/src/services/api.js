@@ -73,14 +73,14 @@ export const updateCatedra = (id, data, { confirmar = false } = {}) =>
   api.patch(`/catedras/${id}`, data, { params: confirmar ? { confirmar: true } : {}, headers: { 'Idempotency-Key': crypto.randomUUID() } });
 
 // Proxmox
-export const getProxmoxStatus = () => api.get('/proxmox/status');
+export const getProxmoxStatus = (options = {}) => api.get('/proxmox/status', options);
 export const getProxmoxNodes = () => api.get('/proxmox/nodes');
-export const getProxmoxResources = () => api.get('/proxmox/resources');
+export const getProxmoxResources = (options = {}) => api.get('/proxmox/resources', options);
 export const verificarInfraCatedra = (id, options = {}) => api.get(`/catedras/${id}/infraestructura`, options);
 // Espacio por storage. Ojo: no es lo mismo que el disco del nodo (ese es solo
 // su sistema de archivos raíz); los contenedores viven en el storage con
 // contenido rootdir/images.
-export const getProxmoxStorage = () => api.get('/proxmox/storage');
+export const getProxmoxStorage = (options = {}) => api.get('/proxmox/storage', options);
 export const getProxmoxTemplates = (storage = 'local') => api.get('/proxmox/templates', { params: { storage } });
 
 // Pedidos
@@ -135,6 +135,7 @@ export const updateTemplate = (id, data) => api.patch(`/templates/${id}`, data);
 // Retirar no borra: la plantilla sale del catálogo pero los pedidos y servicios
 // que la referencian la siguen resolviendo.
 export const retirarTemplate = (id) => api.delete(`/templates/${id}`);
+export const eliminarTemplateDefinitivo = (id) => api.delete(`/templates/${id}`, { params: { definitivo: true } });
 export const reactivarTemplate = (id) => api.patch(`/templates/${id}`, { activo: true });
 
 // Servicios / Orquestación

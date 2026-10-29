@@ -1,5 +1,9 @@
 # Infraestructura de laboratorio: cluster Proxmox + TrueNAS + portal
 
+> **Actualización 29/10/2026:** esta guía conserva el estado histórico del 27/10.
+> La integración de los scripts posteriores, el contraste con nuestro motor actual y
+> los límites de la validación están en [la revisión de integración](revision-integracion-2026-10-29.md).
+
 Runbook de lo construido en el laboratorio local (27/10/2026) para **repetirlo en servidores reales**.
 No contiene secretos: tokens, contraseñas, llaves privadas y el dump de la base viven fuera del repo.
 

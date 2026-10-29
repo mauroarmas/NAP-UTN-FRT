@@ -58,6 +58,14 @@ async def test_baja_libera_el_contenedor_y_conserva_la_fila(
         db, proxmox, catedra, usuario_catedra, template, proxmox_vmid="120", estado=EstadoServicio.RUNNING
     )
     servicio_id = servicio.id
+    pedido_id = servicio.pedido_id
+    from app.models.pedido import Pedido
+    pedido = await db.get(Pedido, pedido_id)
+    pedido.servicio_id = servicio_id
+    await db.commit()
+    before = await client.get(f'/pedidos/{pedido_id}', headers=auth_admin)
+    assert before.status_code == 200
+    assert before.json()['servicio_dado_de_baja'] is False
 
     r = await _ejecutar_baja(client, engine, db, proxmox, servicio_id, auth_admin)
 
@@ -71,6 +79,12 @@ async def test_baja_libera_el_contenedor_y_conserva_la_fila(
     assert fila.deleted_at is not None
     assert fila.vcpus_asignados >= 1
     assert fila.ram_asignada_mb >= 512
+    detail = await client.get(f'/pedidos/{pedido_id}', headers=auth_admin)
+    assert detail.status_code == 200
+    assert detail.json()['servicio_dado_de_baja'] is True
+    assert detail.json()['estado'] == 'activo'  # La aprobación histórica se conserva.
+    listing = await client.get('/pedidos/', headers=auth_admin)
+    assert next(p for p in listing.json() if p['id'] == pedido_id)['servicio_dado_de_baja'] is True
 
 
 async def test_servicio_dado_de_baja_desaparece_de_listados(

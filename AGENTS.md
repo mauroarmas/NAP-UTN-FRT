@@ -1,5 +1,37 @@
 # Instrucciones y memoria del proyecto NAP
 
+## Alcance académico prioritario (28/10/2026)
+
+Prioridad final aclarada por Mauro: terminar una integración fiable con Proxmox y
+las interfaces para aprovechar el clúster en la práctica supervisada. Cerrar conexión,
+inventario/capacidad, creación/operación/baja, seguimiento y reconciliación. No condicionar
+esta entrega a implementar más aplicaciones. MariaDB cubre el caso PaaS acotado y
+ya está comprobada en el laboratorio (29/10/2026). Memos y BookStack quedan para
+ampliaciones posteriores; Redis está descartado. Demostrar los servicios
+ya comprobados. La cobertura de varios nodos debe diferenciar pruebas con dobles de
+una validación real: el laboratorio actual sólo tiene un nodo.
+
+Mauro aclaró que el objetivo inmediato es una práctica supervisada para aprender y
+demostrar el sistema en infraestructura universitaria limitada, estimada en 8 GB de
+RAM total, CPU antiguas y storage compartido. Es una estimación: verificar capacidad
+y compatibilidad de arquitectura antes de migrar. Priorizar una demostración pequeña
+y reproducible sobre ampliar la plataforma o admitir cualquier imagen de Docker Hub.
+
+- Catálogo acotado: IaaS Ubuntu/Debian; PaaS MariaDB 11.4; SaaS Draw.io.
+  MariaDB está implementada y comprobada en el Proxmox local, incluida persistencia
+  y baja con liberación de dirección y reglas de red. La universidad requiere su
+  propia comprobación. Memos y BookStack quedan pospuestos; Redis está descartado.
+  No sumar más aplicaciones como requisito de cierre.
+- Dimensionar una demostración de 2–3 instancias simultáneas con consumo medido,
+  sin prometer ese saldo antes de conocer la infraestructura. El catálogo no reserva recursos.
+- Conservar pedidos, aprobación, acceso, aislamiento entre cátedras, persistencia y baja.
+  Completar estos recorridos y documentar límites antes de sumar aplicaciones.
+- Imagen propia sigue primero en Agregar servicio, mediante referencia publicada y
+  configuración breve. Builds, carga de archivos de imagen y stacks libres quedan fuera
+  de esta entrega. Docker Hub debe explicar que búsqueda y compatibilidad son distintas.
+
+Ver [docs/rumbo-mini-cloud.md](docs/rumbo-mini-cloud.md) para el orden de entrega.
+
 ## Estado de implementación 011 (28/10/2026)
 
 Feature 011 (desplegar servicios universitarios vía OCI) está implementada y validada de extremo a extremo
@@ -12,13 +44,29 @@ plataforma PVE `9.2.2` / kernel `7.0.2-6-pve`) fue validado con la compuerta rea
 para `traefik/whoami` y `campus-demo` y quedó habilitado de forma idéntica en `/etc/nap/applications-011/runner.json`
 y en `settings.json` del portal. Documentación operativa y evidencias en `docs/evidencia/011/` y `docs/despliegue-aplicaciones.md`.
 
+La extensión PaaS MariaDB 11.4 (29/10/2026) usa el perfil `docker-ubuntu24:3`
+(`sha256: 0456c50bdb5e1e89d3ef44b6a26faef676a0fea49048f1abd70f0add850aaeeb`,
+`policy_digest: 4ebb0a71e161fd3d20c89a4c29ec60c1e735ac1cfe3cc0d7dcf732e133c18ac0`),
+comprobado en Proxmox real con MariaDB y whoami y sincronizado en nodo y portal.
+Los perfiles 1 y 2 se conservan bloqueados como históricos. MariaDB entrega una base `catedra`
+y un usuario `docente`, contraseña generada por instancia y TLS obligatorio; la clave
+root no se entrega. Sólo Medium está validado. Ver `docs/mariadb-paas.md` y
+`docs/evidencia/011/mariadb-paas.md`. Redis sigue descartado; no ampliar el catálogo
+con BookStack/Memos como condición de cierre del proyecto académico.
+
+Cierre de integración del 28/10/2026: ciclo IaaS real de Ubuntu Small confirmado en el
+laboratorio (pedido 39 / servicio 21): creación, credenciales iniciales, detención, inicio,
+reinicio y baja con ausencia y liberación de capacidad verificadas. El recurso de ensayo
+ya está eliminado; su historial se conserva. Pedidos distingue ahora servicio dado de baja
+de aprobación histórica activa. Evidencia y límites en `docs/evidencia/011/administracion-instancias.md`.
+
 ## Preferencias acordadas con Mauro
 
 - **Propósito del producto: un pequeño AWS simple para la universidad.** Docker Hub es la
   biblioteca de aplicaciones; también se admiten referencias de imágenes propias en registries
   autorizados. Ambas entradas reutilizan un único motor Docker/OCI. **Community Scripts se retiró
   del alcance el 27/10/2026**; no implementar Core/harness o pilotos por esa vía. IaaS conserva
-  Ubuntu/Debian. El runtime genérico está parcialmente construido y pendiente del gate real.
+  Ubuntu/Debian. El runtime genérico y MariaDB PaaS están validados en el laboratorio; la universidad requiere su propia configuración y comprobación.
 
 - **Simplicidad ante todo**. Las cátedras no son técnicas y el administrador sólo un poco más.
   Formularios cortos, lenguaje cotidiano, botones claros y progreso/éxito/error visibles.

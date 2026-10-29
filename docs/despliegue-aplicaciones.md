@@ -112,6 +112,23 @@ Cuando un servicio finaliza su ciclo lectivo o se solicita su retiro:
 5. Si ocurre cualquier fallo durante la destrucción, el servicio pasa a estado `limpieza_pendiente` y **no se liberan** los recursos para evitar colisiones con futuros servicios.
 
 ### 5.3 Reintento de despliegue fallido
+La búsqueda distingue incompatibilidades conocidas de imágenes todavía sin comprobar.
+Redis, MySQL y PostgreSQL oficiales requieren un adaptador de conexión de datos que este alcance
+no implementa: se muestran con esa explicación y no se pueden
+agregar, solicitar ni reintentar con la misma configuración. La comprobación también
+alcanza ofertas ya existentes y referencias manuales, independientemente de su tag.
+MariaDB 11.4 tiene una configuración preparada PaaS con TLS y consulta SQL autenticada; ver
+[MariaDB para prácticas](mariadb-paas.md). Las ofertas históricas de MariaDB configuradas como web
+no se reintentan con esa configuración: se actualiza la oferta sin alterar los pedidos aprobados.
+No se confunden las herramientas de administración web con los servidores de datos.
+
+El avance muestra la última fase capturada del intento y su hora, conservando el
+estado interno de orquestación por separado. `finalizada` por sí sola no acredita
+etapas exitosas. Para los intentos históricos, un fallo genérico de dependencias
+registrado durante la comprobación se presenta como fallo de acceso; el código
+original y la consola permanecen en el historial. Si no hay evidencia suficiente,
+se pide revisar el diagnóstico sin inventar una causa.
+
 Si un despliegue experimenta un fallo transitorio de red o infraestructura:
 1. El portal muestra el estado `fallida` con el motivo comprensible en lenguaje claro.
 2. La consola administrativa ofrece el botón **«Reintentar despliegue»** (`POST /operaciones/{id}/reintentar`).

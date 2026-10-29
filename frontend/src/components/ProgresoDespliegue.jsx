@@ -2,6 +2,13 @@ import { AlertTriangle, Check, CheckCircle2, Clock3, LoaderCircle } from 'lucide
 import { Link } from 'react-router-dom';
 
 const STEPS = ['Preparar recursos', 'Crear instancia', 'Iniciar aplicación', 'Habilitar acceso'];
+const PHASE_TEXT = {
+  entorno: ['Preparando el entorno…', 'Preparando Docker dentro de la instancia. La aplicación se instalará a continuación.'],
+  instalacion: ['Descargando la aplicación…', 'Descargando la imagen de la aplicación. La primera descarga puede demorar varios minutos.'],
+  configuracion: ['Configurando la aplicación…', 'Preparando los datos y la configuración de esta instancia.'],
+  arranque: ['Iniciando la aplicación…', 'Iniciando la aplicación y comprobando que permanezca encendida.'],
+  comprobacion: ['Comprobando el acceso…', 'La aplicación inició. Estamos comprobando que responda correctamente antes de entregarla. Si la comprobación falla, se mostrará el motivo.'],
+};
 
 const ERROR_MESSAGES = {
   perfil_aplicacion_no_disponible: 'La infraestructura todavía no tiene habilitado Docker para esta aplicación.',
@@ -37,23 +44,25 @@ export default function ProgresoDespliegue({ pedido, operacion, isAdmin = false,
   const active = pedido.estado === 'activo';
   const failed = pedido.estado === 'error' || operacion?.estado === 'fallida';
   const uncertain = operacion?.estado === 'incierta' || operacion?.error_consulta;
-  const delivered = active ? 4 : operacion?.estado === 'confirmada' || operacion?.fase === 'finalizada' || (!pedido.operation_id && pedido.servicio_id && pedido.estado === 'en_despliegue') ? 3
-    : ['bootstrap', 'verificacion', 'instalacion', 'configuracion', 'arranque', 'comprobacion'].includes(operacion?.fase) ? 2
-      : ['lista', 'dispatch_started', 'tarea', 'creacion', 'entorno'].includes(operacion?.fase) ? 1 : 0;
-  const waiting = delivered === 3 && !active && !failed && !uncertain;
+  const phase = operacion?.fase_aplicacion || operacion?.fase;
+  const checking = phase === 'comprobacion' && operacion?.estado !== 'confirmada';
+  const delivered = active ? 4 : operacion?.estado === 'confirmada' || phase === 'comprobacion' || (!pedido.operation_id && pedido.servicio_id && pedido.estado === 'en_despliegue') ? 3
+    : ['bootstrap', 'verificacion', 'entorno', 'instalacion', 'configuracion', 'arranque'].includes(phase) ? 2
+      : ['lista', 'dispatch_started', 'tarea', 'creacion'].includes(phase) ? 1 : 0;
+  const waiting = delivered === 3 && !checking && !active && !failed && !uncertain;
   const working = !active && !failed && !uncertain && !waiting;
   const title = active ? 'Servicio disponible' : failed ? 'El despliegue necesita revisión'
     : operacion?.error_consulta ? 'No se pudo actualizar el avance' : uncertain ? 'Comprobando el estado de la instancia'
       : waiting ? 'Servicio iniciado · acceso pendiente'
-        : ['Preparando el despliegue…', 'Creando la instancia…', 'Iniciando la aplicación…'][delivered] || 'Consultando el avance…';
+        : PHASE_TEXT[phase]?.[0] || ['Preparando el despliegue…', 'Creando la instancia…', 'Iniciando la aplicación…'][delivered] || 'Consultando el avance…';
   const description = active ? 'El servicio ya puede utilizarse.' : failed ? resolverMotivoFallo(pedido, operacion)
     : operacion?.error_consulta ? 'Mostramos el último estado conocido. Volveremos a consultar automáticamente.'
       : uncertain ? 'NAP está verificando el resultado. No hace falta volver a pedir el despliegue.'
         : waiting ? isAdmin ? 'La instancia está creada. Comprobá su acceso desde Servicios para completar la entrega.'
           : 'La instancia está creada. Administración debe completar la verificación del acceso.'
-          : delivered === 1 ? 'Proxmox está creando el contenedor del servicio.'
+          : PHASE_TEXT[phase]?.[1] || (delivered === 1 ? 'Proxmox está creando el contenedor del servicio.'
             : delivered === 2 ? 'Configurando la aplicación y comprobando que inicie correctamente.'
-              : 'Validando los recursos y la conexión. Podés cerrar esta ventana; el proceso continúa.';
+              : 'Validando los recursos y la conexión. Podés cerrar esta ventana; el proceso continúa.');
   const Icon = active ? CheckCircle2 : failed || uncertain ? AlertTriangle : waiting ? Clock3 : LoaderCircle;
   const mode = active ? 'is-ready' : failed ? 'is-failed' : uncertain || waiting ? 'is-attention' : 'is-running';
   return <section className={`deployment-progress ${mode} ${compact ? 'is-compact' : ''}`} aria-label="Avance del despliegue">
@@ -68,6 +77,8 @@ export default function ProgresoDespliegue({ pedido, operacion, isAdmin = false,
     {!compact && <ol className="deployment-progress__steps">{STEPS.map((label, index) => <li key={label} className={index < delivered ? 'is-done' : index === delivered ? 'is-current' : ''} aria-current={index === delivered && !active ? 'step' : undefined}>
       <span>{index < delivered ? <Check size={13}/> : index + 1}</span>{label}</li>)}</ol>}
     {compact && (uncertain || waiting || failed) && <p className="deployment-progress__hint">{description}</p>}
+    {failed && !compact && operacion?.motivo_compatibilidad && <p className="deployment-progress__hint">{operacion.motivo_compatibilidad}</p>}
+    {working && !compact && operacion?.actividad_aplicacion_at && <p className="deployment-progress__hint">Último avance registrado: <time dateTime={operacion.actividad_aplicacion_at}>{new Date(operacion.actividad_aplicacion_at).toLocaleTimeString('es-AR')}</time>. El estado se actualiza automáticamente.</p>}
     {waiting && !compact && <Link className="btn btn-secondary" to="/servicios">{isAdmin ? 'Revisar servicio' : 'Ver mis servicios'}</Link>}
   </section>;
 }

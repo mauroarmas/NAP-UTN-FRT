@@ -25,7 +25,7 @@ test('agrega una imagen desde el mismo diálogo y conserva datos tras un error',
   });
   await page.goto('/catalogo');
   await page.getByRole('button', { name: 'Agregar servicio', exact: true }).click();
-  await page.getByRole('button', { name: 'Imagen Docker', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Imagen propia', exact: true })).toHaveAttribute('aria-pressed', 'true');
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('Nombre del servicio').fill('Campus de prácticas');
   await dialog.getByLabel('Imagen Docker').fill('universidad/campus:curso');

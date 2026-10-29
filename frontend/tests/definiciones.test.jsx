@@ -12,7 +12,7 @@ vi.mock('../src/services/api', () => ({ listarIncorporaciones: vi.fn().mockResol
   validarDefinicion: vi.fn(), publicarDefinicion: vi.fn(), retirarDefinicion: vi.fn(), registrarEvidencia: vi.fn(),
   getTamanos: vi.fn(), createTemplate: vi.fn(), updateTemplate: vi.fn(),
   getTemplates: vi.fn(), sincronizarIaas: vi.fn().mockResolvedValue({}), cambiarConfiguracionAplicacion: vi.fn(),
-  retirarTemplate: vi.fn(), reactivarTemplate: vi.fn() }));
+  retirarTemplate: vi.fn(), eliminarTemplateDefinitivo: vi.fn(), reactivarTemplate: vi.fn() }));
 
 beforeEach(() => { vi.clearAllMocks(); api.getTamanos.mockResolvedValue({ data: sizes }); });
 
@@ -122,5 +122,32 @@ test('muestra Requiere actualizar y actualiza en un clic cuando cambia el perfil
     )
   );
   expect(await screen.findByText(/se actualizó al perfil actual/i)).toBeVisible();
+});
+
+test('permite eliminar definitivamente un servicio retirado', async () => {
+  const user = userEvent.setup();
+  const retiredRow = {
+    id: 22,
+    nombre: 'phpmyadmin',
+    descripcion: 'Web interface for MySQL',
+    modelo_servicio: 'paas',
+    tipo: 'lxc',
+    activo: false,
+    revision: 2,
+    oferta_disponible: false,
+    tamanos_permitidos: [],
+  };
+  api.getTemplates
+    .mockResolvedValueOnce({ data: [retiredRow] })
+    .mockResolvedValueOnce({ data: [] });
+  api.eliminarTemplateDefinitivo.mockResolvedValue({ data: retiredRow });
+
+  render(<MemoryRouter><Definiciones user={{ id: 1, rol: 'admin' }} /></MemoryRouter>);
+  await user.click(await screen.findByLabelText(/Mostrar retirados/i));
+  expect(await screen.findByText('phpmyadmin')).toBeVisible();
+  await user.click(screen.getByRole('button', { name: /Eliminar/i }));
+  await user.click(screen.getByRole('button', { name: /Eliminar definitivamente/i }));
+  await waitFor(() => expect(api.eliminarTemplateDefinitivo).toHaveBeenCalledWith(22));
+  expect(await screen.findByText(/phpmyadmin se eliminó definitivamente/i)).toBeVisible();
 });
 

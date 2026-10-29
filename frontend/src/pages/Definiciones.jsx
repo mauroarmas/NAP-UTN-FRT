@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Layers, Package, Pencil, Plus, RefreshCw, Search } from 'lucide-react';
-import { cambiarConfiguracionAplicacion, getTemplates, reactivarTemplate, retirarTemplate, sincronizarIaas } from '../services/api';
+import { Layers, Package, Pencil, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { cambiarConfiguracionAplicacion, eliminarTemplateDefinitivo, getTemplates, reactivarTemplate, retirarTemplate, sincronizarIaas } from '../services/api';
 import { Dialog, Empty, PageHead, StatusPill } from '../components/ui';
 import AgregarServicioModal from '../components/AgregarServicioModal';
 import TemplatesAdmin from '../components/TemplatesAdmin';
@@ -27,6 +27,7 @@ export default function Definiciones({ user }) {
   const [showRetired, setShowRetired] = useState(false);
   const [editor, setEditor] = useState(null);
   const [retiring, setRetiring] = useState(null);
+  const [deleting, setDeleting] = useState(null);
   const [busy, setBusy] = useState(false);
   const alive = useRef(true);
   const running = useRef(false);
@@ -72,6 +73,17 @@ export default function Definiciones({ user }) {
     } catch (err) { setError(mensajeError(err, 'No se pudo actualizar la configuración de la aplicación.')); }
     finally { running.current = false; setBusy(false); }
   };
+  const removeRetired = async (row) => {
+    if (running.current || !row) return;
+    running.current = true; setBusy(true); setError('');
+    try {
+      await eliminarTemplateDefinitivo(row.id);
+      setDeleting(null);
+      setNotice(`${row.nombre} se eliminó definitivamente del catálogo.`);
+      await refresh();
+    } catch (err) { setError(mensajeError(err, 'No se pudo eliminar el servicio retirado.')); }
+    finally { running.current = false; setBusy(false); }
+  };
   const visible = rows.filter((row) => (showRetired || row.activo) && (model === 'todos' || row.modelo_servicio === model) &&
     `${row.nombre} ${row.descripcion || ''}`.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
   return <div className="fade-in service-admin">
@@ -103,8 +115,9 @@ export default function Definiciones({ user }) {
       {loading ? <p role="status">Cargando servicios…</p> : !visible.length ? <Empty icon={<Package size={24} />} hint={search || showRetired ? 'Probá otra búsqueda o revisá los filtros.' : 'Agregá una aplicación preparada o buscá una nueva en la biblioteca.'}>No hay servicios para mostrar.</Empty> :
         <div className="service-card-grid">{visible.map((row) => <article className="card service-card" key={row.id}>
           <div className="row between gap-2"><span className="service-card__category">{MODELS[row.modelo_servicio] || 'Servicio'}</span>
-            <StatusPill kind={!row.activo ? 'off' : row.oferta_disponible ? 'ok' : 'warn'}>{!row.activo ? 'Retirado' : row.oferta_disponible ? 'Disponible' : row.requiere_actualizar_perfil ? 'Requiere actualizar' : 'Revisar conexión'}</StatusPill></div>
+            <StatusPill kind={!row.activo ? 'off' : row.oferta_disponible ? 'ok' : 'warn'}>{!row.activo ? 'Retirado' : row.oferta_disponible ? 'Disponible' : row.requiere_actualizar_perfil ? 'Requiere actualizar' : row.motivo_no_disponible ? 'Todavía no disponible' : 'Revisar conexión'}</StatusPill></div>
           <h2>{row.nombre}</h2><p className="service-card__description">{row.descripcion || 'Agregá una descripción para ayudar a las cátedras a elegir.'}</p>
+          {row.activo && !row.oferta_disponible && row.motivo_no_disponible && <p className="callout">{row.motivo_no_disponible}</p>}
           {row.version_ofrecida && <span className="card-meta">Versión {row.version_ofrecida}</span>}
           <div className="service-card__sizes"><span className="card-meta">Tamaños compatibles</span><div className="row wrap gap-2">
             {(row.tamanos_permitidos || []).map((id) => <span className="service-size-badge" key={id}>{id === 'small' ? 'Small' : 'Medium'}{id === row.tamano_recomendado ? ' · recomendado' : ''}</span>)}
@@ -114,7 +127,8 @@ export default function Definiciones({ user }) {
             {row.activo && row.oferta_disponible && row.tipo === 'lxc' && <button className="btn btn-primary" onClick={() => setRequested(row)}>Solicitar {row.nombre}</button>}
             {row.activo && row.requiere_actualizar_perfil && row.configuracion_actualizacion && <button className="btn btn-primary" disabled={busy} onClick={() => updateProfileConfiguration(row)}><RefreshCw size={15} /> Actualizar aplicación</button>}
             <button className="btn btn-secondary" onClick={() => setEditor(row)}><Pencil size={15} /> Editar servicio</button>
-            <button className="btn btn-ghost" disabled={busy} onClick={() => row.activo ? setRetiring(row) : changeAvailability(row)}>{row.activo ? 'Retirar' : 'Volver a ofrecer'}</button></div>
+            <button className="btn btn-ghost" disabled={busy} onClick={() => row.activo ? setRetiring(row) : changeAvailability(row)}>{row.activo ? 'Retirar' : 'Volver a ofrecer'}</button>
+            {!row.activo && <button className="btn btn-ghost" disabled={busy} onClick={() => setDeleting(row)}><Trash2 size={15} /> Eliminar</button>}</div>
         </article>)}</div>}
       <p className="card-meta mt-4">Los recursos se reservan al aprobar cada pedido. Las bases Linux de Proxmox aparecen automáticamente.</p>
     </section>
@@ -126,6 +140,11 @@ export default function Definiciones({ user }) {
       <p>Dejará de ofrecerse en pedidos nuevos. Los pedidos aprobados, el historial y las instancias existentes se conservan.</p>
       {error && <p role="alert" className="callout bad">{error}</p>}
       <div className="dialog-form-actions"><button className="btn btn-secondary" disabled={busy} onClick={() => setRetiring(null)}>Cancelar</button><button className="btn btn-danger" disabled={busy} onClick={() => changeAvailability(retiring)}>{busy ? 'Retirando…' : 'Retirar del catálogo'}</button></div>
+    </Dialog>}
+    {deleting && <Dialog title={`Eliminar ${deleting.nombre}`} onClose={() => { if (!busy) setDeleting(null); }} closeDisabled={busy}>
+      <p>Se quitará definitivamente de los servicios retirados y podrás volver a agregar un servicio con este nombre.</p>
+      {error && <p role="alert" className="callout bad">{error}</p>}
+      <div className="dialog-form-actions"><button className="btn btn-secondary" disabled={busy} onClick={() => setDeleting(null)}>Cancelar</button><button className="btn btn-danger" disabled={busy} onClick={() => removeRetired(deleting)}>{busy ? 'Eliminando…' : 'Eliminar definitivamente'}</button></div>
     </Dialog>}
   </div>;
 }

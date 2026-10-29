@@ -436,8 +436,6 @@ async def estado_en_proxmox(
     db: AsyncSession = Depends(get_db),
 ):
     """Consulta el estado real del contenedor directamente en Proxmox."""
-    from app.services.proxmox_client import get_proxmox_client
-
     servicio = vigente_o_404(
         await db.get(Servicio, servicio_id), "Servicio no encontrado"
     )
@@ -447,16 +445,16 @@ async def estado_en_proxmox(
         raise HTTPException(status_code=400, detail="Servicio sin VMID asignado")
 
     try:
-        pve = get_proxmox_client()
-        status = pve.get_lxc_status(servicio.proxmox_node, int(servicio.proxmox_vmid))
-        # Consultar el estado real es también la ocasión de corregir el registro.
-        await sincronizar_estado(db, servicio)
+        from app.services.estado_servicio_service import actualizar
+        observation = await actualizar(db, servicio_id)
+        await db.commit()
         return {
             "servicio_id": servicio_id,
             "vmid": servicio.proxmox_vmid,
             "node": servicio.proxmox_node,
             "estado": servicio.estado.value,
-            "proxmox_status": status,
+            "proxmox_status": observation.metricas or {'status': observation.status},
         }
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Error consultando Proxmox: {str(exc)}")
+    except Exception:
+        await db.rollback()
+        raise HTTPException(status_code=502, detail='No se pudo verificar el estado y la identidad del servicio en Proxmox') from None

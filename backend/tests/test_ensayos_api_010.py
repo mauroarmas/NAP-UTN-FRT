@@ -1,12 +1,14 @@
-from tests.fakes_biblioteca import DRAWIO, FakeFuente
+from tests.fakes_biblioteca import DRAWIO
 import pytest
 
 
-async def test_revision_nap_independiente_y_ensayo_sin_perfil(client, auth_admin, monkeypatch):
-    from app.services import biblioteca_service
-    monkeypatch.setattr(biblioteca_service,'get_fuente',lambda:FakeFuente())
-    result=await client.post('/biblioteca/incorporaciones',json={k:DRAWIO[k] for k in ['identidad_externa','revision_fuente']},headers=auth_admin|{'Idempotency-Key':'inc'})
-    inc=result.json();url=f"/biblioteca/incorporaciones/{inc['id']}/definicion"
+async def test_revision_historica_nap_independiente_y_ensayo_sin_perfil(client, db, admin, auth_admin):
+    from app.models.incorporacion_aplicacion import IncorporacionAplicacion
+    row=IncorporacionAplicacion(**{k:DRAWIO[k] for k in ['identidad_externa','revision_fuente',
+        'comando_sha256','comando_origen','url_origen','nombre','descripcion','categorias','aliases']},
+        origen_clave='historica',creado_por=admin.id)
+    db.add(row);await db.commit()
+    inc={'id':str(row.id),'revision':row.revision};url=f"/biblioteca/incorporaciones/{inc['id']}/definicion"
     body={'revision_esperada':inc['revision'],'codigo':'drawio-curso','version':'1.0.0'}
     first=await client.post(url,json=body,headers=auth_admin|{'Idempotency-Key':'v1'})
     assert first.status_code==201,first.text

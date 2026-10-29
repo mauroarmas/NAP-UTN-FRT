@@ -77,7 +77,11 @@ async def listar_templates(
     if modelo_servicio:
         consulta = consulta.where(RecursoTemplate.modelo_servicio == modelo_servicio.lower())
     result = await db.execute(consulta)
-    templates = await anexar_disponibilidad(db, list(result.scalars().all()))
+    rows = [
+        row for row in result.scalars().all()
+        if not (isinstance(row.config_extra, dict) and row.config_extra.get("archivado"))
+    ]
+    templates = await anexar_disponibilidad(db, rows)
     if current_user.rol != RolUsuario.ADMIN:
         templates = [row for row in templates if row.oferta_disponible]
     return [_presentar(row, current_user) for row in templates]
@@ -276,14 +280,53 @@ async def actualizar_template(
 @router.delete("/{template_id}", response_model=TemplateResponse)
 async def desactivar_template(
     template_id: int,
+    definitivo: bool = False,
     current_user: Usuario = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """Desactiva (soft-delete / retira) una plantilla del catálogo. Solo administradores."""
+    """Desactiva (retira) una plantilla del catálogo o elimina una ya retirada."""
     template = await db.scalar(select(RecursoTemplate).where(RecursoTemplate.id == template_id)
         .with_for_update().execution_options(populate_existing=True))
     if not template:
         raise HTTPException(status_code=404, detail="Template no encontrado")
+
+    if definitivo:
+        if template.activo:
+            raise error(409, 'plantilla_activa', 'Retirá el servicio del catálogo antes de eliminarlo definitivamente')
+        active_order = await db.scalar(
+            select(Pedido.id).where(
+                Pedido.template_id == template_id,
+                Pedido.deleted_at.is_(None),
+                Pedido.estado.notin_([EstadoPedido.CANCELADO, EstadoPedido.RECHAZADO]),
+            ).limit(1)
+        )
+        active_service = await db.scalar(
+            select(Servicio.id).where(
+                Servicio.template_id == template_id,
+                Servicio.deleted_at.is_(None),
+            ).limit(1)
+        )
+        if active_order or active_service:
+            raise error(409, 'plantilla_en_uso', 'No se puede eliminar porque tiene pedidos o servicios activos asociados')
+        await anexar_disponibilidad(db, [template])
+        respuesta = _presentar(template, current_user)
+        respuesta.alcance_del_cambio = await _alcance_del_cambio(db, template_id)
+        closed_orders = list((await db.scalars(select(Pedido).where(Pedido.template_id == template_id))).all())
+        for order in closed_orders:
+            order.template_id = None
+        from app.models.publicacion_oferta import PublicacionOferta
+        has_history_refs = bool(
+            await db.scalar(select(Servicio.id).where(Servicio.template_id == template_id).limit(1))
+            or await db.scalar(select(PublicacionOferta.id).where(PublicacionOferta.template_id == template_id).limit(1))
+        )
+        if has_history_refs:
+            template.nombre = f"{template.nombre[:70]} [archivado-{template.id}]"
+            template.config_extra = {**(template.config_extra or {}), "archivado": True}
+            template.revision += 1
+        else:
+            await db.delete(template)
+        await db.commit()
+        return respuesta
 
     template.activo = False
     template.revision += 1

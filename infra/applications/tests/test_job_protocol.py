@@ -112,3 +112,15 @@ def test_response_error_code_and_read_cursor_bounds(request_identity):
     for text in ['x'*8193, '\x1b[31munsafe', 'a\x00b']:
         response['data']['items'][0]['texto_depurado'] = text
         with pytest.raises(JobError): parse_response(wire(response), request=request_identity)
+
+
+def test_cleanup_is_closed_identity_bound_and_never_accepts_guest_commands():
+    from uuid import uuid4
+    from infra.applications.job.protocol import parse_request,parse_response,canonical,fingerprint,JobError,PROTOCOL
+    request={'protocol':PROTOCOL,'action':'cleanup','cluster_uuid':str(uuid4()),'resource_uuid':str(uuid4()),
+        'node':'proxmox','vmid':101,'nonce':'a'*64}
+    assert parse_request(canonical(request))==request
+    reply={'protocol':PROTOCOL,'ok':True,'action':'cleanup','data':{'released':True,'fingerprint':fingerprint(request)}}
+    assert parse_response(canonical(reply),request=request)==reply
+    with pytest.raises(JobError):parse_request(canonical(request|{'command':'nft flush ruleset'}))
+    with pytest.raises(JobError):parse_response(canonical(reply),request=request|{'nonce':'b'*64})

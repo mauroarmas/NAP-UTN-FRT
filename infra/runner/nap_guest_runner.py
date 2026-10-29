@@ -241,7 +241,7 @@ def handle_application_request(raw, *, runtime_factory=None):
             if root.resolve() != root or info.st_uid != 0 or info.st_mode & 0o022: raise ValueError()
             sys.path.insert(0, str(root))
             from applications.job.protocol import parse_request as parse_job
-        parse_job(raw)  # Reject invalid input before loading profiles or private state.
+        request=parse_job(raw)  # Reject invalid input before loading profiles or private state.
         if runtime_factory is None:
             if __package__:
                 from infra.applications.job.runtime import build_runtime
@@ -249,6 +249,7 @@ def handle_application_request(raw, *, runtime_factory=None):
                 from applications.job.runtime import build_runtime
             runtime_factory = build_runtime
         with runtime_factory() as runtime:
+            if request['action']=='cleanup':return runtime.cleanup(request)
             return runtime.supervisor.handle(raw)
     except Exception as exc:
         allowed = {'INVALID_REQUEST','PROFILE_UNAVAILABLE','IDENTITY_MISMATCH','STALE_CONTROLLER',

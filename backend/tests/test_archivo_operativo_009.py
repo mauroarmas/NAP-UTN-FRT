@@ -20,6 +20,13 @@ def test_private_config_uses_explicit_values_without_reading_dotenv(tmp_path,mon
     assert 'file-private-value' not in repr(config)
 
 
+def test_retired_discovery_settings_are_ignored_without_retaining_credentials(tmp_path):
+    config=settings_from_file(private(tmp_path/'config.json',{
+        'biblioteca_fuente': {'enabled': True, 'token': 'retired-provider-private-token'}}))
+    assert 'biblioteca_fuente' not in config.model_dump()
+    assert 'retired-provider-private-token' not in repr(config)
+
+
 @pytest.mark.parametrize('kind',['permissions','symlink','duplicate','unknown','type','nonfinite'])
 def test_unsafe_or_invalid_private_file_never_prints_its_contents(tmp_path,kind):
     marker='private-value-must-not-appear'

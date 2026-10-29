@@ -97,7 +97,7 @@ def initialize(data):
     if checksum.hexdigest()!=lock['base']['sha256']:raise ValueError('BASE_CHANGED')
     from node_executor import ApplicationNodeExecutor
     node=ApplicationNodeExecutor(profiles=None,cluster_uuid=data['cluster_uuid'])
-    definition={'id':'docker-ubuntu24','revision':1,'origen':'imagen_docker','base':lock['base'],
+    definition={'id':'docker-ubuntu24','revision':data.get('profile_revision',1),'origen':'imagen_docker','base':lock['base'],
         'cluster_uuid':data['cluster_uuid'],'nodes':['proxmox'],'platform':node.platform(),
         'runtime':{**lock['packages'],'storage_driver':lock['storage_driver']},'features':['nesting=1','keyctl=1'],
         'security':{'unprivileged':True,'apparmor':'enforce','seccomp':True},'minimum_resources':lock['minimum_resources'],
@@ -112,13 +112,20 @@ def initialize(data):
     # NAP_ is reserved for applications. A plain declared name exercises the
     # private channel without granting an image an internal control variable.
     document['secretos'][0]['nombre']='APP_PRIVATE_VALUE'
+    if data.get('application')=='mariadb':
+        if data['image']['repositorio']!='docker.io/library/mariadb':raise ValueError('UNEXPECTED_DATABASE')
+        document.update(modelo_servicio='paas',access={'tipo':'tcp','puerto':3306,'politica':'mariadb-tls',
+            'probe':{'tipo':'mariadb_select_1','timeout_segundos':10}},
+            variables={'MARIADB_DATABASE':'catedra','MARIADB_USER':'docente','MARIADB_ROOT_HOST':'localhost'},
+            secretos=[{'nombre':name,'etiqueta':'Prueba privada','modo':'generado'}
+                for name in ('MARIADB_PASSWORD','MARIADB_ROOT_PASSWORD')],persistencia=['/var/lib/mysql'])
     from applications.job.configuration import validate_configuration
     document=validate_configuration(document)
     request={'protocol':'nap-application-job/1','action':'start',
         **{key:str(uuid4()) for key in ('operation_id','operacion_raiz_id','intento_id','execution_id','resource_uuid')},
         'cluster_uuid':data['cluster_uuid'],'node':'proxmox','vmid':VMID,'pool':POOL,'nonce':secrets.token_hex(32),
         'lease_generation':1,'perfil':reference,'configuracion':document,'configuracion_sha256':sha256(encode(document)).hexdigest(),
-        'secreto_referencias':[{'id':str(uuid4()),'nombre':'APP_PRIVATE_VALUE','revision':1}]}
+        'secreto_referencias':[{'id':str(uuid4()),'nombre':s['nombre'],'revision':1} for s in document['secretos']]}
     network=data['network']
     from applications.job.network import NetworkRegistry
     NetworkRegistry({'lab-applications-011':network},cluster_uuid=data['cluster_uuid'],node='proxmox')
@@ -194,7 +201,11 @@ def start(context):
     owned(context)
     context['job_requested']=True;context['phase']='job_requested';save(context)
     with runtime(context) as engine:
-        request={**context['request'],'secretos':{'APP_PRIVATE_VALUE':secrets.token_urlsafe(40)}}
+        private={s['nombre']:secrets.token_urlsafe(40) for s in context['request']['configuracion']['secretos']}
+        # Root-only evidence permits an independent external authenticated
+        # probe. Values never appear in status, events, argv or repo artifacts.
+        context['private_values']=private;save(context)
+        request={**context['request'],'secretos':private}
         response=engine.supervisor.handle(encode(request))
         if not response.get('ok'):raise ValueError('JOB_NOT_CONFIRMED')
         return {'state':response['data']['estado'],'phase':response['data']['fase'],'vmid':VMID,'profiles_enabled':False}
@@ -225,7 +236,6 @@ def cleanup(context):
     from applications.job.state import StateStore
     from applications.job.supervisor import SystemdService
     from node_executor import bounded_command
-    from applications.job.isolation import normalized
     request=context['request'];execution=request['execution_id']
     with StateStore('/var/lib/nap-application-jobs',create=False) as store:
         job=store.read_job(execution)
@@ -243,15 +253,12 @@ def cleanup(context):
         owned(context)
         call(['/usr/sbin/pct','destroy',str(VMID),'--purge','1','--destroy-unreferenced-disks','0'],timeout=90)
     if owned(context) is not None or pve('/nodes/proxmox/storage/local-lvm/content',vmid=VMID):raise ValueError('ABSENCE_NOT_CONFIRMED')
-    table='nap011_'+UUID(request['resource_uuid']).hex
-    rules=bounded_command(['/usr/sbin/nft','-j','list','tables'],timeout=5,limit=2097152)
-    if any(v.get('table',{}).get('name')==table for v in json.loads(rules)['nftables']):
-        with StateStore('/var/lib/nap-application-isolation',create=False) as store:
-            receipt=store.read('credential',request['resource_uuid'])
-        if not receipt or receipt['binding']['nonce_sha256']!=sha256(request['nonce'].encode()).hexdigest():raise ValueError('UNOWNED_TABLE')
-        actual=json.loads(bounded_command(['/usr/sbin/nft','-j','list','table','bridge',table],timeout=5,limit=2097152))
-        if receipt['state']!='applied' or sha256(encode(normalized(actual))).hexdigest()!=receipt['nft_sha256']:raise ValueError('CHANGED_TABLE')
-        call(['/usr/sbin/nft','delete','table','bridge',table])
+    # Exercise the same identity/absence/receipt guards used by portal deletion.
+    with runtime(context) as engine:
+        cleanup_request={'protocol':'nap-application-job/1','action':'cleanup',
+            **{key:request[key] for key in ('cluster_uuid','node','vmid','resource_uuid','nonce')}}
+        response=engine.cleanup(cleanup_request)
+        if response['data']['released'] is not True:raise ValueError('ISOLATION_NOT_RELEASED')
     pools=[p for p in pve('/pools') if p.get('poolid')==POOL]
     if pools:
         detail=pve('/pools/'+POOL)

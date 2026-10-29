@@ -47,10 +47,23 @@ test('avanza por las fases de despliegue OCI (creacion, instalacion, comprobacio
 
   rerender(view({ operacion: { estado: 'en_curso', fase: 'instalacion' } }));
   expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '2');
-  expect(screen.getByText('Iniciando la aplicación…')).toBeVisible();
+  expect(screen.getByText('Descargando la aplicación…')).toBeVisible();
 
   rerender(view({ operacion: { estado: 'en_curso', fase: 'comprobacion' } }));
-  expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '2');
+  expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '3');
+  expect(screen.getByText('Comprobando el acceso…')).toBeVisible();
+});
+
+test('una operación finalizada con fallo no acredita el inicio de la aplicación', () => {
+  render(view({ pedido: { ...pedido, estado: 'error' }, operacion: { estado: 'fallida', fase: 'finalizada' } }));
+  expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0');
+  expect(screen.getByText('El despliegue necesita revisión')).toBeVisible();
+});
+
+test('muestra la fase observada en el nodo aunque la orquestación siga en instalación', () => {
+  render(view({ operacion: { estado: 'en_curso', fase: 'instalacion', fase_aplicacion: 'comprobacion' } }));
+  expect(screen.getByText('Comprobando el acceso…')).toBeVisible();
+  expect(screen.queryByRole('link', { name: 'Revisar servicio' })).not.toBeInTheDocument();
 });
 
 test('explica en lenguaje cotidiano la causa cuando el perfil de aplicación no está disponible', () => {

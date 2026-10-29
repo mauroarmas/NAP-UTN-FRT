@@ -49,6 +49,9 @@ async def reintentar(db, pedido_id, *, actor, clave, motivo=None, pve=None):
                 raise error(404, 'pedido_no_encontrado', 'Pedido no encontrado')
             if request.estado != EstadoPedido.ERROR:
                 raise error(409, 'estado_incompatible', 'Solo se reintenta una operación fallida revisada')
+            if request.configuracion_despliegue_id:
+                from app.services.application_compatibility_service import require_document
+                require_document(request.asignacion_snapshot['configuracion'])
             previous = await session.scalar(select(OperacionInfraestructura).where(OperacionInfraestructura.pedido_id == pedido_id)
                 .order_by(OperacionInfraestructura.creado_at.desc(), OperacionInfraestructura.id.desc()).limit(1))
             if not previous:

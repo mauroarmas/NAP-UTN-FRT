@@ -10,6 +10,7 @@ import signal
 import subprocess
 import tempfile
 import time
+from uuid import UUID
 
 if __package__:
     from app.schemas.guest_runner import RunnerError, canonical, parse_json, safe_result
@@ -380,6 +381,25 @@ class ApplicationNodeExecutor:
         else:
             from applications.job.network import table_name
         return parse_system_json(self._call(['/usr/sbin/nft','-j','list','table','bridge',table_name(policy)]),limit=2097152)
+
+    def assert_absent(self,identity):
+        if identity['node']!=self.local_node or identity['cluster_uuid']!=self.cluster_uuid:
+            raise self.protocol.JobError('IDENTITY_MISMATCH')
+        resources=parse_system_json(self._call(['/usr/bin/pvesh','get','/cluster/resources','--type','vm','--output-format','json']),limit=2097152)
+        if (type(resources)is not list or any(type(row)is not dict or type(row.get('vmid'))is not int for row in resources)):
+            raise self.protocol.JobError('UNCONFIRMED')
+        if any(row['vmid']==identity['vmid'] for row in resources):
+            raise self.protocol.JobError('IDENTITY_MISMATCH')
+
+    def observe_retired_isolation(self,identity):
+        name='nap011_'+UUID(identity['resource_uuid']).hex
+        tables=parse_system_json(self._call(['/usr/sbin/nft','-j','list','tables']),limit=2097152)
+        if not any(v.get('table',{}).get('family')=='bridge' and v['table'].get('name')==name for v in tables['nftables']):return None
+        return parse_system_json(self._call(['/usr/sbin/nft','-j','list','table','bridge',name]),limit=2097152)
+
+    def remove_retired_isolation(self,identity):
+        self.assert_absent(identity)
+        self._call(['/usr/sbin/nft','delete','table','bridge','nap011_'+UUID(identity['resource_uuid']).hex])
 
     def install_isolation(self, identity, policy):
         """Internal driver action, not a new wire action or a guest parameter.

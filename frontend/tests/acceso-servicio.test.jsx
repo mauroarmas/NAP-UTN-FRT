@@ -46,3 +46,19 @@ test('el acceso de administración no requiere documentos ni confirmaciones téc
   expect(api.registrarEvidencia).not.toHaveBeenCalled();
   expect(api.verificarAccesoServicio).not.toHaveBeenCalled();
 });
+
+test('MariaDB muestra conexión nativa y certificado sin copiar la contraseña', async () => {
+  const user = userEvent.setup(); const copy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue();
+  api.getAccesoServicio.mockResolvedValue({ data: { servicio_id: 2, metodo: 'mariadb', producto: 'mariadb',
+    direccion: '172.16.36.81', estado_entrega: 'entregado', puede_revelar_credenciales: true,
+    instrucciones: 'Conectate con TLS desde la red autorizada.' } });
+  api.revelarAccesoServicio.mockResolvedValue({ data: { servicio_id: 2, metodo: 'mariadb',
+    credenciales: { usuario: 'docente', password: 'db-private', host: '172.16.36.81', puerto: 3306, base: 'catedra', ca_pem: 'public-cert' } } });
+  render(<AccesoServicio servicio={{ id: 2 }} user={{ rol: 'catedra_admin' }}/>);
+  await user.click(await screen.findByRole('button', { name: 'Revelar acceso inicial' }));
+  expect(await screen.findByText('catedra')).toBeVisible();
+  expect(screen.getByText('3306')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Descargar certificado CA' })).toBeVisible();
+  expect(screen.queryByRole('link', { name: 'Abrir aplicación' })).not.toBeInTheDocument();
+  expect(copy).not.toHaveBeenCalled();
+});

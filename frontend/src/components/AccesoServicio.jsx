@@ -48,6 +48,12 @@ export default function AccesoServicio({ servicio, user }) {
     catch { setError('No se pudo copiar la contraseña. Podés seleccionarla y copiarla manualmente.'); return; }
     setNotice('Contraseña copiada por tu solicitud.');
   });
+  const downloadCA = () => {
+    const url = URL.createObjectURL(new Blob([revealed.credenciales.ca_pem], { type: 'application/x-pem-file' }));
+    const anchor = document.createElement('a');
+    anchor.href = url; anchor.download = 'nap-ca.crt'; anchor.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
   const instructions = metadata?.acceso_con_nap ? metadata.instrucciones
     : metadata?.estado_entrega === 'solo_validacion' ? 'El servicio se inició. Podés abrirlo y consultar sus datos de acceso.'
     : metadata?.estado_entrega === 'pendiente_verificacion' ? 'El servicio se inició. El acceso todavía no está habilitado.'
@@ -89,11 +95,12 @@ export default function AccesoServicio({ servicio, user }) {
     {revealed && <section className="card" aria-label="Credenciales iniciales reveladas">
       <h3>Acceso inicial</h3>
       <p>Si cambiaste la contraseña dentro del servicio, usá la nueva. Este acceso inicial no se actualiza automáticamente.</p>
-      <dl>{['usuario', 'password', ...(method === 'postgresql' ? ['host', 'puerto', 'base', 'sslmode'] : [])]
+      <dl>{['usuario', 'password', ...(['postgresql', 'mariadb'].includes(method) ? ['host', 'puerto', 'base', 'sslmode', 'tls'] : [])]
         .filter((key) => Object.hasOwn(revealed.credenciales, key)).map((key) => <div key={key}>
-        <dt>{{ usuario: 'Usuario', password: 'Contraseña inicial', host: 'Host', puerto: 'Puerto', base: 'Base', sslmode: 'Modo TLS' }[key] || key}</dt>
+        <dt>{{ usuario: 'Usuario', password: 'Contraseña inicial', host: 'Host', puerto: 'Puerto', base: 'Base', sslmode: 'Modo TLS', tls: 'Seguridad' }[key] || key}</dt>
         <dd><code style={{ overflowWrap: 'anywhere' }}>{String(revealed.credenciales[key])}</code></dd>
       </div>)}</dl>
+      {method === 'mariadb' && revealed.credenciales.ca_pem && <p><button className="btn btn-secondary" onClick={downloadCA}>Descargar certificado CA</button> Configurá este certificado en el cliente y activá la verificación de identidad del servidor.</p>}
       <div className="row wrap gap-2"><button className="btn btn-secondary" onClick={() => setRevealed(null)}>Ocultar acceso inicial</button>
         <button className="btn btn-secondary" disabled={busy} onClick={copyPassword}>Copiar contraseña</button></div>
     </section>}

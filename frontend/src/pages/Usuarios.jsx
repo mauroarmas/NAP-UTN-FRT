@@ -3,7 +3,7 @@ import { useState, useEffect, useId } from 'react';
 import { UserPlus, Pencil, Users, Trash2 } from 'lucide-react';
 import { getUsuarios, createUsuario, updateUsuario, retirarUsuario, getCatedras } from '../services/api';
 import SelectorCatedras from '../components/SelectorCatedras';
-import { PageHead, StatusPill, Empty, Dialog, iniciales } from '../components/ui';
+import { PageHead, StatusPill, Empty, Dialog, ConfirmDialog, AlertDialog, iniciales } from '../components/ui';
 
 const ROL = {
   admin: { label: 'Administrador', kind: 'accent' },
@@ -27,6 +27,8 @@ export default function Usuarios({ user }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [pendiente, setPendiente] = useState(null);
+  const [confirmacion, setConfirmacion] = useState(null);
+  const [avisoModal, setAvisoModal] = useState(null);
   const registrarPendiente = (response) => { if (response.status === 202) setPendiente(response.data.cambio_consola_id); };
 
   const fetchAll = async () => {
@@ -116,30 +118,62 @@ export default function Usuarios({ user }) {
     } catch (err) {
       const d = err.response?.data?.detail;
       if (d?.codigo === 'catedras_sin_responsable') {
-        alert(`No se puede desactivar a "${u.nombre}": quedarían sin responsable las cátedras ${d.catedras.map((c) => c.nombre).join(', ')}.\n\nReasignalas a otra persona o dalas de baja primero.`);
+        setAvisoModal({
+          title: 'Cátedras sin responsable',
+          message: `No se puede desactivar a "${u.nombre}": quedarían sin responsable las cátedras ${d.catedras.map((c) => c.nombre).join(', ')}.`,
+          detail: 'Reasignalas a otra persona o dalas de baja primero.',
+          tone: 'warn',
+        });
       } else {
-        alert(mensajeError(err, 'No se pudo guardar el cambio'));
+        setAvisoModal({
+          title: 'Error al cambiar estado',
+          message: mensajeError(err, 'No se pudo guardar el cambio'),
+          tone: 'bad',
+        });
       }
     }
   };
 
-  const handleEliminar = async (u) => {
-    if (!confirm(`¿Dar de baja a "${u.username}"? Se conservará la identidad del historial. Si tiene acceso nativo, el retiro quedará pendiente de revocación institucional.`)) return;
-    try {
-      const response = await retirarUsuario(u.id, u.revision_admin);
-      registrarPendiente(response);
-      const { data } = response;
-      if (data?.mensaje) alert(data.mensaje);
-      fetchAll();
-    } catch (err) {
-      const d = err.response?.data?.detail;
-      if (d?.codigo === 'catedras_sin_responsable') {
-        const nombres = (d.catedras || []).map((c) => c.nombre).join(', ');
-        alert(`${d.mensaje}\n\nCátedras a cargo: ${nombres}`);
-      } else {
-        alert(typeof d === 'string' ? d : d?.mensaje || 'No se pudo dar de baja la cuenta');
-      }
-    }
+  const handleEliminar = (u) => {
+    setConfirmacion({
+      title: 'Dar de baja usuario',
+      message: `¿Dar de baja a "${u.username}"?`,
+      detail: 'Se conservará la identidad en el historial. Si tiene acceso nativo, el retiro quedará pendiente de revocación institucional.',
+      confirmText: 'Dar de baja',
+      danger: true,
+      onConfirm: async () => {
+        try {
+          const response = await retirarUsuario(u.id, u.revision_admin);
+          registrarPendiente(response);
+          const { data } = response;
+          if (data?.mensaje) {
+            setAvisoModal({
+              title: 'Usuario retirado',
+              message: data.mensaje,
+              tone: 'accent',
+            });
+          }
+          fetchAll();
+        } catch (err) {
+          const d = err.response?.data?.detail;
+          if (d?.codigo === 'catedras_sin_responsable') {
+            const nombres = (d.catedras || []).map((c) => c.nombre).join(', ');
+            setAvisoModal({
+              title: 'Cátedras sin responsable',
+              message: d.mensaje,
+              detail: `Cátedras a cargo: ${nombres}`,
+              tone: 'warn',
+            });
+          } else {
+            setAvisoModal({
+              title: 'Error al retirar usuario',
+              message: typeof d === 'string' ? d : d?.mensaje || 'No se pudo dar de baja la cuenta',
+              tone: 'bad',
+            });
+          }
+        }
+      },
+    });
   };
 
   const catedrasDe = (u) => (u.catedras || []).length > 0 ? u.catedras.map((c) => c.nombre).join(', ') : '—';
@@ -288,6 +322,34 @@ export default function Usuarios({ user }) {
             )}
           </fieldset></form>
         </Dialog>
+      )}
+
+      {confirmacion && (
+        <ConfirmDialog
+          title={confirmacion.title}
+          message={confirmacion.message}
+          detail={confirmacion.detail}
+          confirmText={confirmacion.confirmText || 'Aceptar'}
+          cancelText={confirmacion.cancelText || 'Cancelar'}
+          danger={confirmacion.danger}
+          busy={saving}
+          onClose={() => setConfirmacion(null)}
+          onConfirm={async () => {
+            const fn = confirmacion.onConfirm;
+            setConfirmacion(null);
+            await fn();
+          }}
+        />
+      )}
+
+      {avisoModal && (
+        <AlertDialog
+          title={avisoModal.title}
+          message={avisoModal.message}
+          detail={avisoModal.detail}
+          tone={avisoModal.tone}
+          onClose={() => setAvisoModal(null)}
+        />
       )}
     </div>
   );

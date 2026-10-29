@@ -88,4 +88,25 @@ contraseña. El texto de BookStack sólo corresponde a BookStack. Ver [acceso co
 En **Ver acceso** sólo se muestran el estado y las acciones de uso. No se piden documentos de evidencia,
 UUID ni fechas técnicas. Las comprobaciones automáticas y el historial permanecen internos.
 
-Fuente de categorías: [colección pública de Community Scripts](https://db.community-scripts.org/api/collections/script_categories/records?perPage=500).
+La búsqueda de nuevas imágenes consulta Docker Hub. Las limitaciones de compatibilidad
+se muestran al agregar un servicio; el catálogo comprobado es independiente de los resultados de búsqueda.
+
+## Administrar instancias desplegadas
+
+En **Servicios**, el botón **Detener servicio** apaga el contenedor y conserva sus datos.
+Cuando está detenido aparece **Iniciar servicio**. En **Opciones del servicio** están
+**Reiniciar**, **Estado en Proxmox** y **Dar de baja**. Esta última acción, exclusiva de
+administración, pide confirmación y elimina la instancia y sus datos; conserva el historial
+administrativo. No retira la aplicación del catálogo.
+
+El sistema comprueba cada minuto el estado de los recursos identificados como propios.
+**Estado en Proxmox** permite comprobarlo inmediatamente y actualizar el listado.
+Una consulta fallida conserva el último estado conocido. La fecha de comprobación se muestra
+junto al servicio. Una operación en curso conserva su bloqueo hasta confirmar su resultado.
+
+Detener y dar de baja no requieren completar el nombre histórico ni las fechas académicas;
+sí requieren identidad y asignación registradas, y el ejecutor comprueba la pertenencia real
+antes de actuar. Iniciar y reiniciar conservan las comprobaciones de capacidad y vigencia.
+Si el contenedor ya está detenido, la orden de detención se resuelve sin reenviarla.
+La recuperación de una detención sin identificador de tarea registra explícitamente el
+estado observado, sin afirmar que se recuperó la tarea externa.

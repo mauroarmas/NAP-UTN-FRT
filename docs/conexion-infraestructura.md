@@ -1,95 +1,115 @@
 # Conectar NAP al clúster universitario
 
-Contrato de preparación inicial, 25 de octubre de 2026. Permite preparar el software y archivos de configuración ahora y completar los valores reales con infraestructura. No acredita que existan red, certificados, imágenes o permisos institucionales.
+Guía de cierre académico actualizada el 28/10/2026. El objetivo es gestionar los
+recursos autorizados de las cátedras: conocer capacidad, crear instancias, consultar
+su estado, iniciarlas, detenerlas, reiniciarlas y darlas de baja con historial.
+Las aplicaciones adicionales no son un requisito para conectar el clúster.
+
+El laboratorio local tiene un nodo y comprobaciones propias. La universidad necesita
+sus direcciones, certificados, permisos y verificación real; sus datos todavía no
+están confirmados. Las pruebas automatizadas multinodo no acreditan esa instalación.
 
 ## Información que entrega infraestructura
 
-| Elemento | Información o artefacto que debe comprobarse |
+| Elemento | Datos que hay que comprobar una vez |
 |---|---|
-| PVE | UUID institucional de clúster, versión, nodos, cuenta/token dedicado, privilegios efectivos y CA pública verificada. |
-| Capacidad | Storages con contenido rootdir, identidad compartida/local y márgenes; no confundir disco del host con volumen de servicio. |
-| Red | Bridge/VLAN, DHCP, rutas y rangos autorizados de invitados/clientes; conectividad desde el equipo docente/alumno. |
-| Pool de aplicaciones | UUID nuevos preasignados, FQDN/IP, MAC reservada en DHCP, certificados/clave/CA por identidad y productos permitidos. |
-| Runner | Cuenta dedicada con forced-command, hostkeys verificadas, claves privadas fuera del repositorio, imágenes/bundles y registro root con hashes idénticos al catálogo. |
-| Consola | Identidades individuales/pools, inventario de ACL heredadas y prueba de terminación de sesiones previas. |
-| Operación | SMTP, nombre/certificado HTTPS del portal, destino externo de respaldos, responsables y procedimiento de restauración. |
+| Plataforma | Arquitectura compatible con las plantillas amd64 actuales, versión PVE, identidad del clúster y nombres de los nodos. |
+| API | Dirección y puerto, CA pública verificada y cuenta/token dedicado con permisos para los recursos autorizados. |
+| Capacidad | CPU y RAM utilizable por nodo, margen para Proxmox y otros servicios, y almacenamiento disponible. La estimación inicial de 8 GB totales debe confirmarse. |
+| Storage | Qué almacenamientos son compartidos o locales; cuáles admiten contenedores (`rootdir`) y dónde están las plantillas (`vztmpl`). |
+| Red Linux | Bridge/VLAN, DHCP o direcciones reservadas, gateway y alcance desde los equipos que usarán los servicios. |
+| Acceso | Identidades individuales para la consola nativa, pools de las cátedras y permisos efectivos. |
+| Portal | Equipo que ejecutará NAP, dirección HTTPS, certificado y ubicación privada de configuración, claves y respaldos. |
 
-No se trasladan las credenciales temporales de la VM como valores predeterminados del clúster. La preparación técnica de imágenes/recetas y su validación se hace por versión; los despliegues ordinarios posteriores usan el catálogo.
+Un storage compartido aporta disco al clúster; la CPU y la RAM siguen perteneciendo
+a cada nodo. NAP tiene en cuenta los recursos existentes y los compromisos pendientes
+antes de admitir un despliegue. El catálogo no consume capacidad por sí mismo.
 
-## Pool preautorizado de DNS/TLS/DHCP
+## Preparación del camino IaaS
 
-Infraestructura genera los UUID una vez al preparar el pool y configura en lote DNS, certificados y DHCP. En el `network_profiles` privado del portal, cada entrada de `instances` tiene esta forma ilustrativa:
+1. Preparar la conexión HTTPS a PVE con CA verificada y permisos mínimos. Las credenciales
+   quedan fuera del repositorio y se montan mediante el archivo privado de configuración.
+2. Completar `infrastructure_profile`: identidad del clúster, nodos y storages autorizados,
+   carácter compartido/local y márgenes de capacidad reales.
+3. Descargar una plantilla estándar compatible de Ubuntu 24.04 o Debian 13 en el storage
+   de plantillas configurado. Para el primer ensayo basta un sistema y un nodo.
+4. Preparar la red Linux en `network_profiles` y seleccionar `iaas_network_profile_id`.
+   NAP admite DHCP o la asignación estática preparada; no toma las direcciones del laboratorio
+   como valores de la universidad. Si se usa storage compartido, comprobar su visibilidad
+   y contenido desde cada nodo autorizado.
+5. Abrir Inicio para comprobar nodos y almacenamiento, y Catálogo para actualizar las
+   bases Linux. El saldo útil para un pedido se comprueba al evaluar su aprobación.
 
-```json
-{
-  "11111111-1111-4111-8111-111111111111": {
-    "host": "pg01.example.edu",
-    "address": "10.20.0.10",
-    "mac_address": "02:00:00:00:00:10",
-    "products": ["postgresql"]
-  },
-  "22222222-2222-4222-8222-222222222222": {
-    "host": "libros01.example.edu",
-    "address": "10.20.0.11",
-    "mac_address": "02:00:00:00:00:11",
-    "products": ["bookstack"]
-  }
-}
-```
+Los pools por cátedra se comprueban y se crean cuando corresponde durante el despliegue.
+NAP no adopta recursos ajenos ni concede permisos nativos por el mero hecho de crear un pool.
 
-Son ejemplos; reemplazarlos por identidades y direcciones efectivamente preparadas. El perfil padre incluye `bridge`, `nodes`, `allowed_cidrs`, `client_cidrs` y, si corresponde, `vlan_tag`. FQDN, dirección y MAC no se duplican en los pools configurados. La MAC debe ser local/unicast con prefijo `02`. Preparar al menos dos entradas por producto para su aceptación y suficientes para los despliegues previstos. Un destino preparado no es una cuota de cátedra.
-
-El registro root del runner conserva los mismos UUID/FQDN/IP dentro de `networks[network_profile_id].instances`, y para cada UUID añade `tls_certificate_path`, `tls_private_key_path` y `tls_ca_path` con archivos reales controlados por root. La clave privada conserva permisos restrictivos. No montar esas claves de aplicaciones en el portal ni enviarlas en formularios. Los CIDR del runner usan su campo `subnets` y deben coincidir con los rangos permitidos del portal.
-
-Al reclamar una instancia PostgreSQL/BookStack, NAP toma el lock común, selecciona un UUID del pool que no tenga identidad histórica y persiste UUID, nonce, perfil y snapshot de host/IP/MAC/bridge/CIDR antes del POST a PVE. La MAC se incluye en `net0` para obtener la reserva DHCP prevista. El runner reconoce ese UUID sin actualizar perfiles durante el despliegue. Cada instancia genera sus propias contraseñas; BookStack también genera APP_KEY propia.
-
-Los reintentos conservan UUID, destino y claves. Cambiar el destino preparado después de reclamarlo bloquea la preparación y exige revisión; no se reasigna silenciosamente. Si el pool no tiene una entrada válida/disponible, se rechaza antes de crear, con diagnóstico. Los UUID consumidos no se reutilizan, incluso tras retirar el recurso: ampliar el pool con nuevas identidades y no borrar historia para reciclar certificados. Restaurar el portal exige reconciliar las identidades externas antes de reanudar; no arrancar una copia anterior contra el mismo pool sin ese control.
-
-Linux no requiere este pool de certificados: conserva identidad aleatoria, DHCP en su red autorizada y acceso por consola individual condicionada al gate.
+El camino IaaS utiliza la API de PVE y las plantillas Linux. La instalación del motor
+Docker/OCI y del preparador de aplicaciones corresponde a los servicios que lo necesiten;
+no condiciona la primera demostración de creación y operación de un entorno Linux.
 
 ## Gate de consola por instalación
 
-`console_access_profile` es una declaración institucional privada, no un booleano de habilitación. Ejemplo de estructura, con referencias que deben existir en la DB de esa instalación:
+El acceso del portal y el acceso nativo a Proxmox son identidades distintas. Cada persona
+que use la consola necesita su cuenta individual y los permisos institucionales sobre
+los pools correspondientes. NAP no comparte el token de administración con el navegador.
 
-```json
-{
-  "cluster_uuid": "UUID_REAL_DEL_CLUSTER",
-  "pve_version": "VERSION_COMPROBADA",
-  "gate": {"evidencia_ref": "UUID_EVIDENCIA_REGISTRADA", "sha256": "SHA256_CANONICO"},
-  "identities": {
-    "docente@pve": {
-      "usuario_id": 12,
-      "revision_admin": 3,
-      "referencia_institucional": "ACTA_CONCESION_POOLS",
-      "catedras": {"7": 2}
-    }
-  }
-}
-```
+`console_access_profile` registra la configuración y la comprobación institucional de
+ese acceso. Las concesiones y revocaciones se validan por instalación, incluida la
+terminación de sesiones anteriores. Los cambios de titularidad o rol invalidan las
+comprobaciones que ya no correspondan. Los detalles técnicos están en
+[acceso nativo y revocación](../specs/009-remediar-hallazgos-cierre/contracts/console-access.md)
+y en los contratos de consola de la spec 009.
 
-La evidencia es `revocacion_consola`, real, íntegra y de un trámite completado; su resultado incluye `cluster_uuid` y `pve_version` además de identidad, revisión, scopes y pruebas de sesiones/URL/otros accesos legítimos. Registrarla durante el trámite y confirmarlo por los controles normales. Configurar luego su UUID/hash como prueba del procedimiento de esa instalación.
-
-Cada concesión identifica un usuario NAP inventariado, su revisión administrativa y las revisiones de cátedras cuyos pools se comprobaron en PVE. Los cambios de titularidad/rol invalidan declaraciones viejas y los trámites pendientes bloquean el alcance. La consola verifica además la identidad propia del servicio, clúster, VMID/nodo, pool y vigencia. No se acepta una prueba de otro clúster ni una identidad compartida. No copiar el archivo de staging para abrir la consola.
+En Linux, Ver acceso permite recuperar las credenciales de la instancia una vez
+completada la preparación. La consola nativa sigue requiriendo el acceso individual
+válido a Proxmox; una contraseña del guest no sustituye esa autorización.
 
 ## Comprobaciones de conexión y aceptación
 
-1. Completar archivos privados de configuración, permisos y artefactos según [DOCKER.md](../DOCKER.md).
-2. Ejecutar `python -m scripts.preflight --datos --inventario` desde el entorno configurado; revisar hallazgos sin imprimir secretos.
-3. Construir/ensayar/importar/publicar según [infra/services/README.md](../infra/services/README.md), sin convertir pruebas sintéticas en evidencia real. Las versiones validadas en la VM requieren validación/evidencia para el clúster que las recibirá.
-4. Probar solicitudes y despliegues con ambos roles, falta de saldo, fechas futuras, operación fallida/reintento y revocación nativa. Repetir desde otra computadora en la red prevista.
-5. Probar PostgreSQL con escritura/lectura y persistencia, y BookStack con libro/página, dos lectores individuales, archivos privados y revocación aislada.
-6. Completar SMTP, restore separado de portal+keyring y aplicaciones, comparación de datos y tiempos observados. Registrar responsables/destino externo cuando se acuerden.
+Antes de habilitar la instalación institucional, ejecutar desde su entorno configurado:
 
-Aceptación pendiente: T102, T119, T131 y T133. Las regresiones locales no las marcan completadas. La revisión de manuales por una persona ajena al desarrollo se coordina junto al recorrido de T119.
+```bash
+python -m scripts.preflight --datos --inventario
+```
 
-## Builder y ensayos de biblioteca
+El informe debe indicar los requisitos pendientes sin imprimir secretos. La configuración
+operativa y sus archivos privados se describen en [DOCKER.md](../DOCKER.md). No cambiar
+el entorno de desarrollo del laboratorio a producción sólo para hacer pasar el informe.
 
-El builder 010 usa SSH con hostkeys fijas, cuenta dedicada y `nap-build-runner/1`; su host se mantiene separado de PVE operativo. Instalación, formato del registro y montajes están en [infra/services/README.md](../infra/services/README.md#instalar-el-builder). No habilitar perfiles de ensayo hasta disponer de pool institucional, almacenamiento, dos asignaciones de red/certificados y presupuesto de disco coherente por scope. Community Scripts sólo se consulta para buscar/incorporar; construir y desplegar usan entradas fijadas y artefactos retenidos.
+Recorrido de aceptación:
+
+1. Solicitar un Linux Small con fechas actuales, aprobarlo y desplegarlo. Comprobar el
+   recurso en PVE, su nodo/storage, su propiedad y el estado que muestra NAP.
+2. Consultar Ver acceso y probar la consola con la identidad individual autorizada.
+3. Guardar un archivo de prueba, detener y volver a iniciar; comprobar su contenido.
+   Reiniciar y repetir la comprobación. Detener conserva disco y libera CPU/RAM.
+4. Dar de baja exclusivamente la instancia de prueba. Confirmar ausencia de contenedor
+   y volúmenes antes de dar por liberados los recursos; conservar el historial.
+5. Repetir con otra cátedra y comprobar que no puede operar ni revelar el acceso de la
+   primera. Verificar el reparto entre nodos/storage cuando estén disponibles.
+6. Comprobar falta de capacidad, consulta fallida, resultado incierto y recuperación
+   sin crear una segunda instancia. Distinguir el último estado conocido del actual.
+7. Medir una demostración de 2–3 instancias si hay saldo suficiente y documentar el
+   límite observado, incluyendo el consumo del portal y del hipervisor.
+
+La evidencia debe separar comprobaciones reales, pruebas con dobles y pendientes.
+La lectura de inventario no acredita creación/baja; una instancia encendida no acredita
+el funcionamiento de una aplicación. Ver [evidencia del ciclo local](evidencia/011/administracion-instancias.md).
+
+## Aplicaciones y ampliaciones posteriores
+
+El alcance actual conserva los servicios ya comprobados y las imágenes web propias
+compatibles. Para instalar el motor OCI y preparar su red/TLS, seguir
+[despliegue de aplicaciones](despliegue-aplicaciones.md) y el paquete de infraestructura
+correspondiente. No configurar MariaDB, Memos ni BookStack para completar este cierre:
+son ampliaciones futuras y requieren su propia comprobación.
+
+Los registros antiguos y los mecanismos de recuperación de sus instancias conservan
+su historial. Sus antiguos pasos de construcción y preparación no son el recorrido
+habitual del catálogo actual.
 
 ## Laboratorio local de biblioteca
 
-La preparación de la VM y el constructor separado en esta PC se documentan en
-[laboratorio de biblioteca](laboratorio-biblioteca.md). Es una configuración local, con identidades,
-certificados y acceso desde esta PC; no sustituye la entrega de valores del clúster universitario.
-El perfil local permite IP estática fijada por Proxmox (`ip_mode: static`, `static_cidr`, `gateway`)
-y congela esa configuración al reclamar la identidad. Sin esos campos se conserva DHCP.
+La preparación de la VM y el constructor de esta PC se documentan en
+[laboratorio de biblioteca](laboratorio-biblioteca.md). Sus identidades, certificados y
+acceso local pertenecen al laboratorio; no se trasladan como valores institucionales.

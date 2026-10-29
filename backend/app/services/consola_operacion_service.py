@@ -252,6 +252,8 @@ async def consultar(
     operation = await db.get(OperacionInfraestructura, operation_id)
     if operation is None:
         raise error(404, 'operacion_no_encontrada', 'Operación no encontrada')
+    from app.services.operacion_service import anexar_progreso_aplicacion
+    await anexar_progreso_aplicacion(db, [operation])
 
     root_id = operation.operacion_raiz_id or operation.id
     header = await db.get(ConsolaOperacion, root_id)
@@ -269,7 +271,7 @@ async def consultar(
             'operation_id': operation.id,
             'operacion_raiz_id': root_id,
             'estado': operation.estado,
-            'fase': operation.fase,
+            'fase': getattr(operation, '_fase_aplicacion', None) or operation.fase,
             'intento_efectivo': intento_efectivo,
             'items': [],
             'next_cursor': None,
@@ -373,7 +375,7 @@ async def consultar(
         'operation_id': operation.id,
         'operacion_raiz_id': root_id,
         'estado': operation.estado,
-        'fase': operation.fase,
+        'fase': getattr(operation, '_fase_aplicacion', None) or operation.fase,
         'intento_efectivo': intento_efectivo,
         'items': items,
         'next_cursor': next_cursor,

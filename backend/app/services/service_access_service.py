@@ -97,16 +97,19 @@ async def _application_context(db,actor,service):
     instance=None
     if ready:_,instance=await destination(db,service)
     web=bool(instance and instance['access']['tipo']=='web')
+    database=bool(instance and instance['access']['tipo']=='tcp')
     running=service.estado==EstadoServicio.RUNNING
     may_open=bool(ready and running and covered and web and configurado())
     state='entregado' if ready and running and covered else 'no_disponible' if ready else 'no_preparado'
     instructions=('Abrí la aplicación con tu sesión de NAP. Si tiene su propio login, usá las cuentas de esa aplicación.'
         if may_open else 'El acceso se habilitará al terminar la instalación y las comprobaciones automáticas.'
         if not ready else 'Iniciá el servicio con vigencia autorizada antes de abrirlo.')
-    result={'servicio_id':service.id,'modelo_servicio':service.modelo_servicio,'producto':'aplicacion' if web else None,
+    if database and ready and running and covered:
+        instructions='Conectate desde la red autorizada con un cliente MariaDB. Activá TLS y verificá el certificado con la CA descargable. La base de esta instancia es catedra; el usuario docente administra sólo esa base. Después de iniciar o reiniciar, la base puede tardar unos segundos en aceptar conexiones.'
+    result={'servicio_id':service.id,'modelo_servicio':service.modelo_servicio,'producto':'aplicacion' if web else 'mariadb' if database else None,
         'disponibilidad':service.disponibilidad_aplicacion,'verificado_at':service.acceso_red_verificado_at,
-        'metodo':'https' if web else None,'direccion':origen(service.id) if may_open else None,
-        'puerto':instance['port'] if instance else None,'puede_revelar_credenciales':False,
+        'metodo':'https' if web else 'mariadb' if database else None,'direccion':origen(service.id) if may_open else instance['address'] if database else None,
+        'puerto':instance['port'] if instance else None,'puede_revelar_credenciales':bool(database and ready and running and covered),
         'estado_entrega':state,'instrucciones':instructions,'acceso_con_nap':bool(web and configurado()),
         'puede_abrir_con_nap':may_open}
     return actor,service,result
@@ -120,6 +123,27 @@ async def revelar(db, *, actor, servicio_id):
     actor, service, result = await _context(db, actor, servicio_id)
     if not result['puede_revelar_credenciales']:
         raise error(409, 'acceso_no_preparado', 'El acceso inicial no está habilitado para este estado y usuario')
+    if result['producto']=='mariadb':
+        from pathlib import Path
+        from app.config import get_settings
+        from app.services.secreto_despliegue_service import revelar_acceso
+        values=await revelar_acceso(db,service.id,usuario=actor)
+        # Only the database user's password is returned; root is never a
+        # credential delivered to the cátedra (or the administrator's UI).
+        password=values['MARIADB_PASSWORD'];values.clear()
+        try:
+            with Path(get_settings().application_gateway_ca_file).open() as source:ca=source.read(65537)
+        except (OSError,UnicodeError):
+            raise error(409,'acceso_no_preparado','No se pudo recuperar el certificado de conexión') from None
+        if len(ca)>65536 or 'PRIVATE KEY' in ca or '-----BEGIN CERTIFICATE-----' not in ca:
+            raise error(409,'acceso_no_preparado','No se pudo recuperar el certificado de conexión')
+        db.add(EventoSeguridad(actor_usuario_id=actor.id,accion='revelar_acceso_servicio',resultado='completado',
+            referencia=f'servicio:{service.id}',motivo=result['estado_entrega']))
+        await db.flush()
+        return {'servicio_id':service.id,'estado_entrega':result['estado_entrega'],'metodo':'mariadb',
+            'direccion':result['direccion'],'instrucciones':result['instrucciones'],
+            'credenciales':{'usuario':'docente','password':password,'host':result['direccion'],'puerto':3306,
+                'base':'catedra','tls':'Verificar certificado e identidad del servidor','ca_pem':ca}}
     try:
         values = configured_keyring().decrypt(service.credenciales_encrypted, context=f'servicio:{service.id}:secretos')
         field = {'linux': 'guest_password', 'postgresql': 'database_password', 'bookstack': 'teacher_password', 'drawio': 'access_password'}[result['producto']]

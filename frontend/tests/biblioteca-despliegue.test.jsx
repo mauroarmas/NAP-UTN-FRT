@@ -51,8 +51,11 @@ test('Docker Hub como biblioteca: busca por nombre, muestra procedencia y distin
   render(<AgregarServicioModal onClose={vi.fn()} onGuardado={vi.fn()} />);
 
   // Verificar pestañas de origen
-  expect(screen.getByRole('button', { name: 'Docker Hub' })).toHaveAttribute('aria-pressed', 'true');
-  expect(screen.getByRole('button', { name: 'Imagen propia' })).toHaveAttribute('aria-pressed', 'false');
+  expect(screen.getByRole('button', { name: 'Imagen propia' })).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByRole('button', { name: 'Docker Hub' })).toHaveAttribute('aria-pressed', 'false');
+  expect(screen.getByLabelText('Imagen Docker')).toBeVisible();
+  await user.click(screen.getByRole('button', { name: 'Docker Hub' }));
+  expect(screen.getByText('Encontrar una imagen no garantiza que NAP pueda instalarla.')).toBeVisible();
 
   // No debe existir preparación, publicación manual ni "Guardadas"
   expect(screen.queryByText(/Guardadas|Preparar|Publicar/)).not.toBeInTheDocument();
@@ -76,6 +79,7 @@ test('selección de resultado precarga formulario OCI común y permite agregar s
 
   const onGuardado = vi.fn();
   render(<AgregarServicioModal onClose={vi.fn()} onGuardado={onGuardado} />);
+  await user.click(screen.getByRole('button', { name: 'Docker Hub' }));
 
   await user.type(screen.getByLabelText('Nombre de aplicación'), 'whoami');
   await user.click(screen.getByRole('button', { name: 'Buscar' }));
@@ -88,6 +92,7 @@ test('selección de resultado precarga formulario OCI común y permite agregar s
   expect(screen.getByLabelText('Nombre del servicio')).toHaveValue('whoami');
 
   // Completar el puerto y enviar
+  await user.clear(screen.getByLabelText('Puerto de la aplicación'));
   await user.type(screen.getByLabelText('Puerto de la aplicación'), '80');
   await user.click(screen.getByRole('button', { name: 'Agregar al catálogo' }));
 
@@ -112,6 +117,7 @@ test('fallo de búsqueda ofrece reintento y alternativa de ingresar referencia m
   });
 
   render(<AgregarServicioModal onClose={vi.fn()} onGuardado={vi.fn()} />);
+  await user.click(screen.getByRole('button', { name: 'Docker Hub' }));
 
   await user.type(screen.getByLabelText('Nombre de aplicación'), 'whoami');
   await user.click(screen.getByRole('button', { name: 'Buscar' }));

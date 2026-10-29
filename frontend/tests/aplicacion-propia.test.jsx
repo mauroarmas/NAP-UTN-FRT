@@ -8,6 +8,7 @@ beforeEach(() => vi.clearAllMocks());
 async function fill(user) {
   await user.type(screen.getByLabelText('Nombre del servicio'), 'Campus de prácticas');
   await user.type(screen.getByLabelText('Imagen Docker'), 'universidad/campus:curso');
+  await user.clear(screen.getByLabelText('Puerto de la aplicación'));
   await user.type(screen.getByLabelText('Puerto de la aplicación'), '8080');
 }
 test('alta breve sin hardware, preparación ni publicación; muestra progreso hasta confirmar', async () => {
@@ -51,4 +52,14 @@ test('opciones declaran persistencia y secretos sin pedir valores privados al ag
   await user.type(screen.getByLabelText('Etiqueta del dato privado 1'), 'Contraseña inicial');
   await user.click(screen.getByRole('button', { name: 'Agregar al catálogo' }));
   await waitFor(() => expect(api.agregarAplicacionPropia).toHaveBeenCalledWith(expect.objectContaining({ persistencia: ['/data', '/uploads'], secretos: [{ nombre: 'APP_PASSWORD', etiqueta: 'Contraseña inicial', modo: 'generado' }] }), expect.any(String)));
+});
+
+test('MariaDB usa una configuración PaaS preparada sin pedir opciones web', async () => {
+  const user = userEvent.setup(); api.agregarAplicacionPropia.mockResolvedValue({ data: { id: 9 } });
+  render(<AplicacionPropiaForm initialValues={{ nombre: 'MariaDB', imagen: 'mariadb:11.4' }}/>);
+  expect(screen.getByText(/una base, un usuario y una contraseña por instancia/)).toBeVisible();
+  expect(screen.queryByLabelText('Puerto de la aplicación')).not.toBeInTheDocument();
+  expect(screen.queryByText('Opciones de la aplicación')).not.toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'Agregar al catálogo' }));
+  expect(api.agregarAplicacionPropia).toHaveBeenCalledWith(expect.objectContaining({ modelo_servicio: 'paas', puerto: 3306, imagen: 'mariadb:11.4' }), expect.any(String));
 });

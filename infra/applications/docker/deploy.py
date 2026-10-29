@@ -10,7 +10,9 @@ def deploy(context):
     if node is None or context.network is None or context.tls is None:raise JobError('PROFILE_UNAVAILABLE')
     config,profile=node._configuration(context.identity)
     lock=validate_profile(profile)
-    if context.configuration['access']['tipo']!='web' or context.configuration['access']['upstream']!='http':
+    access=context.configuration['access']
+    if (access['tipo']=='web' and access['upstream']!='http'
+            or access['tipo']=='tcp' and context.configuration['imagen']['repositorio']!='docker.io/library/mariadb'):
         raise JobError('PROFILE_UNAVAILABLE')
     payload={'configuration':context.configuration,'runtime':profile['runtime'],'edge':lock['edge'],
         'network':context.network,'resources':{'vcpus':config['cores'],'ram_mb':config['memory'],

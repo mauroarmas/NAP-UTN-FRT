@@ -32,7 +32,7 @@ class DrawRunner:
 
 
 async def test_dos_instancias_independientes_sin_fuente_y_sin_autoentrega(client,db,engine,admin,auth_admin,auth_catedra,catedra,usuario_catedra,perfil_capacidad,proxmox,monkeypatch):
-    from app.services import catalogo_service,biblioteca_service
+    from app.services import catalogo_service
     from app.worker import procesar_una
     _,definition,template=await oferta(db,admin)
     profile=get_settings()
@@ -44,8 +44,6 @@ async def test_dos_instancias_independientes_sin_fuente_y_sin_autoentrega(client
         'allowed_cidrs':['10.50.0.0/24'],'client_cidrs':['10.50.0.0/24'],'instances':instances}})
     monkeypatch.setattr(profile,'service_artifacts',{'drawio-trial:1.0.0':{'nodes':['pve1'],'network_profile_id':'test-network'}})
     monkeypatch.setattr(catalogo_service,'comprobar_disponibilidad',AsyncMock())
-    def no_source():raise AssertionError('Un despliegue no debe consultar Community Scripts')
-    monkeypatch.setattr(biblioteca_service,'get_fuente',no_source)
     other_user=await factories.crear_usuario(db,'otra-catedra-drawio')
     other=await factories.crear_catedra(db,nombre='Otra Drawio',titular_id=other_user.id);await db.commit()
     other_id=other.id;cat_id=catedra.id;tid=template.id;did=definition.id

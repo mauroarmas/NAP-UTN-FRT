@@ -8,13 +8,14 @@ export default function AplicacionPropiaForm({ onAdded, onBusyChange, initialVal
   const [form, setForm] = useState({
     nombre: initialValues?.nombre || '',
     imagen: initialValues?.imagen || '',
-    puerto: initialValues?.puerto ? String(initialValues.puerto) : '',
+    puerto: initialValues?.puerto ? String(initialValues.puerto) : '8080',
     descripcion: initialValues?.descripcion || '',
     modelo_servicio: initialValues?.modelo_servicio || 'saas',
     persistencia: initialValues?.persistencia ? (Array.isArray(initialValues.persistencia) ? initialValues.persistencia.join('\n') : initialValues.persistencia) : '',
     ruta_salud: initialValues?.ruta_salud || '/',
     websocket: initialValues?.websocket || false,
   });
+  const database = /^(?:(?:docker\.io\/)?library\/|docker\.io\/)?mariadb(?::|@|$)/.test(form.imagen.trim());
   const [variables, setVariables] = useState([]);
   const [secrets, setSecrets] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -30,8 +31,8 @@ export default function AplicacionPropiaForm({ onAdded, onBusyChange, initialVal
     if (pending.current) return;
     const names = [...variables.map((row) => row.name.trim()), ...secrets.map((row) => row.name.trim())];
     if (new Set(names).size !== names.length) { setError('Los nombres de variables y datos privados no pueden repetirse.'); return; }
-    const payload = { origen: 'imagen_docker', nombre: form.nombre.trim(), imagen: form.imagen.trim(), puerto: Number(form.puerto),
-      descripcion: form.descripcion.trim() || null, modelo_servicio: form.modelo_servicio,
+    const payload = { origen: 'imagen_docker', nombre: form.nombre.trim(), imagen: form.imagen.trim(), puerto: database ? 3306 : Number(form.puerto),
+      descripcion: form.descripcion.trim() || null, modelo_servicio: database ? 'paas' : form.modelo_servicio,
       variables: Object.fromEntries(variables.map((row) => [row.name.trim(), row.value])),
       secretos: secrets.map((row) => ({ nombre: row.name.trim(), etiqueta: row.label.trim(), modo: row.mode })),
       persistencia: form.persistencia.split('\n').map((p) => p.trim()).filter(Boolean), ruta_salud: form.ruta_salud.trim() || '/', websocket: form.websocket };
@@ -43,14 +44,16 @@ export default function AplicacionPropiaForm({ onAdded, onBusyChange, initialVal
     finally { pending.current = false; setBusy(false); onBusyChange?.(false); }
   };
   return <form className="own-application-form" onSubmit={submit} aria-busy={busy}>
-    <div className="own-application-intro"><Box size={24}/><div><h3>{initialValues ? 'Configurar aplicación' : 'Aplicación propia'}</h3><p>{initialValues ? 'Configurá la aplicación seleccionada de Docker Hub.' : 'Usá una imagen Docker de tu cátedra o de un registro compatible.'}</p></div></div>
+    <div className="own-application-intro"><Box size={24}/><div><h3>{initialValues ? 'Configurar aplicación' : 'Usar una imagen publicada'}</h3><p>{initialValues ? 'Configurá la aplicación seleccionada de Docker Hub.' : 'Pegá la referencia de la imagen que preparó tu cátedra. NAP la descargará automáticamente.'}</p></div></div>
     {error && <div className="callout bad" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}
+    {database ? <p className="callout">MariaDB 11.4 para prácticas de bases de datos. NAP prepara una base, un usuario y una contraseña por instancia, conexión TLS y almacenamiento persistente. Tipo PaaS, puerto 3306. Usá mariadb:11.4.</p> : <p className="card-meta">Para aplicaciones web que arrancan solas y funcionan en un contenedor. Si tenés un Dockerfile, código fuente o un archivo de imagen, primero publicá la imagen en un registro autorizado. NAP todavía no construye ni recibe esos archivos.</p>}
     <fieldset disabled={busy}>
       <div className="field"><label htmlFor={`${id}-name`}>Nombre del servicio</label><input className="input" id={`${id}-name`} required maxLength={100} value={form.nombre} onChange={(e) => update('nombre', e.target.value)} placeholder="Ej. Campus de prácticas"/></div>
       <div className="own-application-main-fields">
         <div className="field"><label htmlFor={`${id}-image`}>Imagen Docker</label><input className="input" id={`${id}-image`} required maxLength={512} value={form.imagen} onChange={(e) => update('imagen', e.target.value)} placeholder="universidad/mi-aplicacion:curso" autoCapitalize="none" spellCheck={false}/></div>
-        <div className="field"><label htmlFor={`${id}-port`}>Puerto de la aplicación</label><input className="input" id={`${id}-port`} type="number" min={1} max={65535} required value={form.puerto} onChange={(e) => update('puerto', e.target.value)} placeholder="8080"/></div>
+        {!database && <div className="field"><label htmlFor={`${id}-port`}>Puerto de la aplicación</label><input className="input" id={`${id}-port`} type="number" min={1} max={65535} required value={form.puerto} onChange={(e) => update('puerto', e.target.value)} placeholder="8080"/></div>}
       </div>
+      {!database && <><p className="card-meta">Ejemplo: universidad/campus:curso. El puerto es el que escucha la aplicación dentro del contenedor; suele figurar en sus instrucciones. El nombre y esta configuración se reutilizan en futuros pedidos.</p>
       <details className="own-application-options"><summary>Opciones de la aplicación</summary><div className="own-application-option-fields">
         <div className="field"><label htmlFor={`${id}-description`}>Descripción</label><textarea className="input" id={`${id}-description`} maxLength={2000} rows={2} value={form.descripcion} onChange={(e) => update('descripcion', e.target.value)}/></div>
         <div className="own-application-main-fields">
@@ -76,7 +79,7 @@ export default function AplicacionPropiaForm({ onAdded, onBusyChange, initialVal
           </div>)}
           <button type="button" className="btn btn-secondary" disabled={variables.length + secrets.length >= 20} onClick={() => setSecrets((rows) => [...rows, { id: crypto.randomUUID(), name: '', label: '', mode: 'generado' }])}><Plus size={15}/>Agregar dato privado</button>
         </section>
-      </div></details>
+      </div></details></>}
     </fieldset>
     <div className="own-application-submit"><p className="card-meta">Se agrega al catálogo. Se instalará al desplegar un pedido aprobado.</p><button type="submit" className="btn btn-primary" disabled={busy}>{busy ? <><LoaderCircle className="spin" size={16}/>Verificando imagen…</> : <><Plus size={16}/>Agregar al catálogo</>}</button></div>
     {busy && <p role="status" className="callout">Verificando la imagen y su compatibilidad. Puede tardar unos segundos.</p>}

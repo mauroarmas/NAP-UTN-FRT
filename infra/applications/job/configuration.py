@@ -60,6 +60,13 @@ def validate_configuration(value):
             image = value['imagen']
             if ((base['os'], base['version']) != ('ubuntu', '24.04')
                     or image['arquitectura'] != base['arquitectura']): raise ValueError()
+            if access['tipo']=='tcp' and (image['repositorio']!='docker.io/library/mariadb'
+                    or value['modelo_servicio']!='paas' or access['puerto']!=3306
+                    or value['persistencia']!=['/var/lib/mysql']
+                    or value['variables']!={'MARIADB_DATABASE':'catedra','MARIADB_USER':'docente','MARIADB_ROOT_HOST':'localhost'}
+                    or {s['nombre'] for s in value['secretos']}!={'MARIADB_PASSWORD','MARIADB_ROOT_PASSWORD'}
+                    or any(s['modo']!='generado' for s in value['secretos'])):
+                raise ValueError()
         else:
             source = value['community']; slug = source['slug']
             allowed = {'mariadb': ('mariadb-tls', {'phpmyadmin': 'no'}), 'caddy': ('caddy-web', {'xcaddy': 'no'})}

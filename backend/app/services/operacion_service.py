@@ -110,6 +110,7 @@ async def obtener(db, identity, *, usuario):
             raise error(403, 'sin_permisos', 'No tenés acceso a esta operación')
     elif category not in await catedras_visibles(db, usuario):
         raise error(403, 'sin_permisos', 'No tenés acceso a esta operación')
+    await anexar_progreso_aplicacion(db, [entry])
     return entry
 
 
@@ -145,6 +146,7 @@ async def listar(db, *, usuario, pedido_id=None, servicio_id=None, abiertas=Fals
     entries = list((await db.scalars(query.order_by(OperacionInfraestructura.id).limit(limit + 1))).all())
     more = len(entries) > limit
     entries = entries[:limit]
+    await anexar_progreso_aplicacion(db, entries)
     return {'items': [presentar(entry) for entry in entries],
         'next_cursor': base64.urlsafe_b64encode(str(entries[-1].id).encode()).decode().rstrip('=') if more else None}
 
@@ -172,6 +174,16 @@ async def anexar_pedidos(db, pedidos):
     entries = list((await db.execute(select(OperacionInfraestructura.pedido_id, OperacionInfraestructura.id).where(
         OperacionInfraestructura.pedido_id.in_([p.id for p in pedidos]), OperacionInfraestructura.estado.in_(OPEN)))).all())
     active = dict(entries)
+    service_ids = [p.servicio_id for p in pedidos if p.servicio_id]
+    retired_services = set((await db.scalars(select(Servicio.id).where(
+        Servicio.id.in_(service_ids), Servicio.deleted_at.is_not(None)))).all()) if service_ids else set()
+    from sqlalchemy import func
+    recent = select(OperacionInfraestructura.pedido_id, OperacionInfraestructura.id,
+        func.row_number().over(partition_by=OperacionInfraestructura.pedido_id,
+            order_by=(OperacionInfraestructura.creado_at.desc(), OperacionInfraestructura.id.desc())).label('position')
+        ).where(OperacionInfraestructura.pedido_id.in_([p.id for p in pedidos]),
+            OperacionInfraestructura.tipo.in_(['desplegar', 'reparar'])).subquery()
+    latest = dict((await db.execute(select(recent.c.pedido_id, recent.c.id).where(recent.c.position == 1))).all())
     from app.models.vigencia import VigenciaAutorizada
     periods = list((await db.scalars(select(VigenciaAutorizada).where(
         VigenciaAutorizada.pedido_id.in_([p.id for p in pedidos]),
@@ -181,6 +193,8 @@ async def anexar_pedidos(db, pedidos):
         CompromisoCapacidad.pedido_id.in_([p.id for p in pedidos]),CompromisoCapacidad.liberado_at.is_(None)))).all()}
     for request in pedidos:
         request.operation_id = active.get(request.id)
+        request.servicio_dado_de_baja = request.servicio_id in retired_services
+        request.ultima_operacion_id = latest.get(request.id) if request.estado.value == 'error' else None
         period = by_revision.get((request.id, request.revision_decision))
         ledger = ledgers.get(request.id)
         request.compromiso_capacidad = ({key:getattr(ledger,key) for key in
@@ -197,6 +211,31 @@ async def anexar_pedidos(db, pedidos):
     return pedidos
 
 
+async def anexar_progreso_aplicacion(db, entries):
+    """Read the latest captured phase of this attempt, including historical jobs.
+
+    Keep the orchestration phase separate: it is also the durable dispatch state.
+    No writes, guest commands or reconstruction of successful stages on reads.
+    """
+    from sqlalchemy import func
+    from app.models.consola_operacion import ConsolaFragmento
+    from app.models.intento_despliegue import IntentoDespliegue
+    if not entries:
+        return
+    latest = select(IntentoDespliegue.operacion_id.label('operation_id'), ConsolaFragmento.fase, ConsolaFragmento.captured_at,
+        func.row_number().over(partition_by=IntentoDespliegue.operacion_id,
+            order_by=ConsolaFragmento.seq.desc()).label('position')).join(
+        ConsolaFragmento, ConsolaFragmento.intento_id == IntentoDespliegue.id).where(
+        IntentoDespliegue.operacion_id.in_([entry.id for entry in entries]),
+        ConsolaFragmento.source == 'runner', ConsolaFragmento.fase != 'finalizada').subquery()
+    phases = {row.operation_id: row for row in (await db.execute(select(latest)
+        .where(latest.c.position == 1))).all()}
+    for entry in entries:
+        progress = phases.get(entry.id)
+        entry._fase_aplicacion = progress.fase if progress else None
+        entry._actividad_aplicacion_at = progress.captured_at if progress else None
+
+
 def presentar(entry):
     fields = ['tipo', 'estado', 'fase', 'pedido_id', 'servicio_id', 'intento', 'error_codigo',
               'error_detalle_seguro', 'creado_at', 'updated_at', 'confirmada_at', 'next_poll_at']
@@ -206,6 +245,24 @@ def presentar(entry):
     for key in fields:
         value = getattr(entry, key)
         result[key] = db_utc(value).isoformat().replace('+00:00', 'Z') if value is not None and key.endswith('_at') else value
+    phase = getattr(entry, '_fase_aplicacion', None)
+    result['fase_aplicacion'] = phase
+    activity = getattr(entry, '_actividad_aplicacion_at', None)
+    result['actividad_aplicacion_at'] = db_utc(activity).isoformat().replace('+00:00', 'Z') if activity else None
+    if entry.estado == 'fallida' and entry.error_codigo == 'DEPENDENCY_UNAVAILABLE' and phase == 'comprobacion':
+        result['error_codigo'] = 'acceso_aplicacion_no_disponible'
+        result['error_detalle_seguro'] = 'La aplicación no respondió correctamente a la comprobación de acceso. Revisá su configuración y compatibilidad antes de reintentar.'
+    elif entry.estado == 'fallida' and entry.error_codigo == 'DEPENDENCY_UNAVAILABLE' and phase == 'instalacion':
+        result['error_codigo'] = 'fuente_no_disponible'
+    document = (entry.contexto_seguro.get('asignacion') or {}).get('configuracion')
+    if document and document.get('origen') == 'imagen_docker':
+        from fastapi import HTTPException
+        from app.services.application_compatibility_service import require_document
+        try:
+            require_document(document)
+        except HTTPException as exc:
+            result['reintento_disponible'] = False
+            result['motivo_compatibilidad'] = exc.detail['mensaje']
     return result
 
 

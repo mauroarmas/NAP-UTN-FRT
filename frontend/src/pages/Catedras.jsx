@@ -2,7 +2,7 @@ import { mensajeError } from '../utils/errors.js';
 import { useState, useEffect, useId, useRef } from 'react';
 import { Send, Pencil, Building2, ShieldCheck } from 'lucide-react';
 import { getCatedras, createCatedra, updateCatedra, getCatedra, getUsuarios, verificarInfraCatedra } from '../services/api';
-import { PageHead, StatusPill, Empty, Dialog } from '../components/ui';
+import { PageHead, StatusPill, Empty, Dialog, ConfirmDialog } from '../components/ui';
 
 /**
  * Administración de cátedras. La pantalla giraba alrededor de las cuotas; eso
@@ -21,6 +21,7 @@ export default function Catedras() {
   const [editando, setEditando] = useState(null);
   const [form, setForm] = useState(FORM_INICIAL);
   const [saving, setSaving] = useState(false);
+  const [confirmacion, setConfirmacion] = useState(null);
   const [error, setError] = useState('');
   const [uso, setUso] = useState(null);
   const [revision, setRevision] = useState(null);
@@ -108,15 +109,25 @@ export default function Catedras() {
     } catch (err) {
       const d = err.response?.data?.detail;
       if (d?.codigo === 'servicios_vigentes') {
-        if (confirm(`${d.mensaje}\n\nLos servicios no se eliminan, pero la cátedra deja de figurar como activa.\n¿Continuar igual?`)) {
-          try {
-            registrarPendiente(await guardar(true));
-            cerrarForm();
-            fetchTodo();
-          } catch (e2) {
-            setError(mensajeError(e2, 'Error al dar de baja la cátedra'));
-          }
-        }
+        setConfirmacion({
+          title: 'Servicios vigentes en la cátedra',
+          message: d.mensaje,
+          detail: 'Los servicios no se eliminan, pero la cátedra dejará de figurar como activa. ¿Deseás continuar igual?',
+          confirmText: 'Continuar de todos modos',
+          danger: true,
+          onConfirm: async () => {
+            setSaving(true);
+            try {
+              registrarPendiente(await guardar(true));
+              cerrarForm();
+              fetchTodo();
+            } catch (e2) {
+              setError(mensajeError(e2, 'Error al dar de baja la cátedra'));
+            } finally {
+              setSaving(false);
+            }
+          },
+        });
       } else {
         setError(mensajeError(err, 'Error al guardar la cátedra'));
       }
@@ -250,6 +261,24 @@ export default function Catedras() {
             )}
           </fieldset></form>
         </Dialog>
+      )}
+
+      {confirmacion && (
+        <ConfirmDialog
+          title={confirmacion.title}
+          message={confirmacion.message}
+          detail={confirmacion.detail}
+          confirmText={confirmacion.confirmText || 'Aceptar'}
+          cancelText={confirmacion.cancelText || 'Cancelar'}
+          danger={confirmacion.danger}
+          busy={saving}
+          onClose={() => setConfirmacion(null)}
+          onConfirm={async () => {
+            const fn = confirmacion.onConfirm;
+            setConfirmacion(null);
+            await fn();
+          }}
+        />
       )}
     </div>
   );
