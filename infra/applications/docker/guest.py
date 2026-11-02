@@ -189,12 +189,22 @@ https://:8443 {
         environment={**self.configuration['variables'],**values}
         if any(type(v)is not str or '\x00'in v for v in environment.values()):raise InstallError()
         args=application_arguments(self.identity,self.configuration,self.request['resources'],tls_directory=str(self.directory/'database-tls'))
+        self.retire_owned(self.name)
         self.docker(args,environment=environment)
         if self.configuration['access']['tipo']=='web':self.start_edge()
         self.verify_started()
 
+    def retire_owned(self,name):
+        """Una reparación reutiliza el nombre: se retira sólo un contenedor de ESTA instancia, nunca sus volúmenes."""
+        listed=self.docker(['container','ls','--all','--format','{{json .Names}}'],capture=True).decode().splitlines()
+        if name not in [json.loads(v) for v in listed if v.strip()]:return
+        labels=self.inspect('container',name)['Config'].get('Labels') or {}
+        if labels.get('nap.resource_uuid')!=self.identity['resource_uuid']:raise InstallError('IDENTITY_MISMATCH')
+        self.docker(['container','rm','--force',name])
+
     def start_edge(self):
         edge=self.request['edge'];edge_dir=self.directory/'edge'
+        self.retire_owned(self.edge_name)
         self.docker(['run','-d','--name',self.edge_name,'--pull=never','--restart=unless-stopped',
             '--network=host','--read-only','--cap-drop=ALL','--cap-add=NET_BIND_SERVICE','--security-opt=no-new-privileges:true',
             '--log-driver=none','--no-healthcheck','--pids-limit=64','--memory=128m','--memory-swap=128m',

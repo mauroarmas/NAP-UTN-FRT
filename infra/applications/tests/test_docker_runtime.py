@@ -179,3 +179,52 @@ def test_guest_ready_window_is_bounded_and_defaults_per_kind(application, tmp_pa
     for bad in (0, 29, 601, True, '300', None, 10**9):
         with pytest.raises(InstallError):
             DockerGuest({**request, 'espera_segundos': bad}, root=tmp_path).ready_window(300)
+
+
+def _launch_request(app):
+    return {'identity':app.identity,'configuration':app.configuration,'resources':{'vcpus':2,'ram_mb':1024,'disk_gb':8},
+        'edge':app.lock['edge'],'private_values':{'APP_PASSWORD':'fixture-private'},'action':'start'}
+
+
+def _repair_run(app,*,existing,label,calls):
+    name='nap-'+__import__('uuid').UUID(app.identity['resource_uuid']).hex
+    mounts=[{'Destination':p,'Type':'volume','Name':volume_name(app.identity['resource_uuid'],p)} for p in app.configuration['persistencia']]
+    def run(args,**kwargs):
+        calls.append(args)
+        if 'ls' in args and '--all' in args:return (json.dumps(name)+'\n').encode() if existing else b''
+        if 'inspect' in args:
+            if args[-1]==name and existing and 'rm' not in args:
+                labels={'nap.resource_uuid':label}
+                return json.dumps([{'State':{'Running':True},'Image':app.configuration['imagen']['config_digest'],
+                    'Config':{'Labels':labels,'Healthcheck':{'Test':['NONE']}},'HostConfig':{'LogConfig':{'Type':'none'}},
+                    'AppArmorProfile':'docker-default','Mounts':mounts}]).encode()
+        return b''
+    return run,name
+
+
+def test_repair_start_replaces_only_its_own_previous_container_and_keeps_volumes(application,tmp_path):
+    app=application;calls=[]
+    run,name=_repair_run(app,existing=True,label=app.identity['resource_uuid'],calls=calls)
+    guest=DockerGuest(_launch_request(app),root=tmp_path,run=run);guest.verify_started=lambda:None
+    guest.start()
+    removal=[a for a in calls if 'rm' in a]
+    assert len(removal)==1 and removal[0][-4:]==['container','rm','--force',name]
+    assert not any('volume' in a and 'rm' in a for a in calls) and not any('-v' in a for a in removal)
+    order=[('rm' if 'rm' in a else 'run' if '--network=bridge' in a else '') for a in calls]
+    assert order.index('rm')<order.index('run')
+
+
+def test_repair_start_refuses_a_container_labelled_for_another_identity_without_touching_it(application,tmp_path):
+    app=application;calls=[]
+    run,name=_repair_run(app,existing=True,label=str(uuid4()),calls=calls)
+    guest=DockerGuest(_launch_request(app),root=tmp_path,run=run)
+    with pytest.raises(InstallError):guest.start()
+    assert not any('rm' in a for a in calls) and not any('--network=bridge' in a for a in calls)
+
+
+def test_first_start_without_a_previous_container_removes_nothing(application,tmp_path):
+    app=application;calls=[]
+    run,name=_repair_run(app,existing=False,label=app.identity['resource_uuid'],calls=calls)
+    guest=DockerGuest(_launch_request(app),root=tmp_path,run=run);guest.verify_started=lambda:None
+    guest.start()
+    assert not any('rm' in a for a in calls)
