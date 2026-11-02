@@ -13,6 +13,10 @@ from app.services.idempotencia_service import ejecutar, ResultadoDecision, safe_
 from app.utils.clock import clock, db_utc
 from app.utils.errors import error
 
+# Estado propio del intento anterior: un intento nuevo no hereda su solicitud, huella ni resultado.
+VOLATILE_JOB_CONTEXT = {'job_fingerprint', 'application_job_requested', 'application_job_estado', 'application_console_ack_pending',
+    'consola_job_final', 'consola_hitos', 'accion_externa', 'sin_cambios', 'resultado_por_observacion', 'detencion_fuera_cobertura'}
+
 TASK_TYPES = {'crear': 'vzcreate', 'iniciar': 'vzstart', 'detener': 'vzstop', 'reiniciar': 'vzreboot', 'eliminar': 'vzdestroy'}
 
 
@@ -69,13 +73,27 @@ async def reintentar(db, pedido_id, *, actor, clave, motivo=None, pve=None):
             observation = await identities.observar(identity, pve=pve)
             if observation.estado != 'propia':
                 raise error(409, 'reconciliacion_pendiente', 'La identidad debe reconciliarse antes de reintentar')
-            if observation.status != 'running':
-                raise error(409, 'requiere_inicio', 'El recurso detenido requiere admisión de capacidad antes de reparar')
+            oci = bool(request.configuracion_despliegue_id)
+            root = None
+            if oci:
+                # Reparación OCI: un intento nuevo y separado sobre el mismo recurso. Sólo si el intento anterior
+                # terminó fallido y confirmado en el nodo (el nodo rechaza otro intento si no); nunca recrea ni
+                # reinstala a ciegas. El recurso puede estar encendido o detenido: el ejecutor lo detiene antes.
+                from app.models.intento_despliegue import IntentoDespliegue
+                last = await session.scalar(select(IntentoDespliegue).where(IntentoDespliegue.operacion_id == previous.id))
+                if last is None or last.estado != 'fallido' or previous.servicio_id is None:
+                    raise error(409, 'reconciliacion_pendiente', 'El intento anterior debe terminar fallido y confirmado antes de reparar')
+                root = last.operacion_raiz_id
+                context = {k: v for k, v in previous.contexto_seguro.items() if k not in VOLATILE_JOB_CONTEXT}
+            else:
+                if observation.status != 'running':
+                    raise error(409, 'requiere_inicio', 'El recurso detenido requiere admisión de capacidad antes de reparar')
+                context = {**previous.contexto_seguro, 'accion_externa': 'bootstrap'}
             operation = OperacionInfraestructura(tipo='reparar', pedido_id=pedido_id, servicio_id=previous.servicio_id,
                 identidad_infraestructura_id=identity.id, actor_usuario_id=actor.id, actor_tipo='usuario',
-                actor_id_normalizado=str(actor.id), idempotency_key=clave,
+                actor_id_normalizado=str(actor.id), idempotency_key=clave, operacion_raiz_id=root,
                 request_hash=hashlib.sha256(safe_json({'motivo': motivo}).encode()).hexdigest(), motivo=motivo,
-                estado='pendiente', fase='preparacion', contexto_seguro={**previous.contexto_seguro, 'accion_externa': 'bootstrap'},
+                estado='pendiente', fase='preparacion', contexto_seguro=context,
                 next_poll_at=clock.now(), creado_at=clock.now(), updated_at=clock.now())
             session.add(operation)
             await session.flush()

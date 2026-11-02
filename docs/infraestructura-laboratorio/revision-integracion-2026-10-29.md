@@ -41,7 +41,7 @@ no es el servicio #23 de nuestra prueba local.
 | 2. nginx oficial y capacidades | El contrato genérico sólo agrega NET_BIND_SERVICE a cap-drop=ALL. La biblioteca todavía no detecta esta incompatibilidad. El fallo de nginx y el éxito de nginxinc/nginx-unprivileged:8080 son resultados **informados por el compañero**, no una reproducción nueva aquí. | Conservar las restricciones generales. Tratar nginx-unprivileged como el caso que validaron y mejorar la explicación de compatibilidad; no afirmar que todas las imágenes de nginx o todos sus tags funcionan. |
 | 3. Reglas huérfanas al dar de baja | **Resuelto localmente.** La baja OCI llama a cleanup antes de liberar identidad/capacidad. El nodo exige VMID ausente, identidad privada, recibo y reglas exactas; la repetición es segura. También se corrigió la liberación de dirección. | Mantenerlo en el motor. El compañero todavía necesita recibir esos cambios y comprobar la baja/reutilización en su laboratorio. No sustituirlo por borrado heurístico por hostname. |
 | 4. Nodos offline impiden confirmar ausencia | **Vigente e intencionalmente conservador.** `observar` exige todos los nodos online, disponibilidad global del VMID y ausencia de volúmenes. | Conservar reservas y reconciliar cuando se recupere visibilidad. Una mejora para bajas con nodos offline requiere comprobar fencing, pertenencia y almacenamiento; no basta ignorar el nodo. Quitar miembros del clúster no es una solución automática del portal. |
-| 5. Reintento Docker y acciones deshabilitadas | **Parcial.** El reintento crea reparar y conserva contexto del intento anterior; el ejecutor aún conduce ese caso al bootstrap histórico. La UI actual, en cambio, usa acciones_habilitadas: permite la baja administrativa con identidad incierta si no existe otra operación abierta. | Prioridad alta para reparación OCI: nuevo intento separado, secretos estables, identidad y estado previo reconciliados; nunca recreación/reinstalación ciega. Conservar los bloqueos cuando haya una operación abierta. |
+| 5. Reintento Docker y acciones deshabilitadas | **Reparación resuelta el 02/11/2026** (ver nota 5). Antes: **parcial.** El reintento crea reparar y conserva contexto del intento anterior; el ejecutor aún conduce ese caso al bootstrap histórico. La UI actual, en cambio, usa acciones_habilitadas: permite la baja administrativa con identidad incierta si no existe otra operación abierta. | Prioridad alta para reparación OCI: nuevo intento separado, secretos estables, identidad y estado previo reconciliados; nunca recreación/reinstalación ciega. Conservar los bloqueos cuando haya una operación abierta. |
 | 6. CA del portal / bucle de comprobación | **Resuelto el 02/11/2026** (ver nota 6 y 7). Antes: la confianza en la CA **se configuró y comprobó localmente**; se conservó la CA anterior para Draw.io. Está documentada en la [guía de MariaDB](../mariadb-paas.md). La falta de CA aún puede terminar en un diagnóstico genérico durante verificación. | Validar esa configuración antes y dar un diagnóstico claro. En su portal deben confiar en la CA pública emisora de cada nodo que autoricen; nunca copiar ca.key al portal. |
 | 7. Excepciones sin detalle | **Resuelto el 02/11/2026** (ver nota 6 y 7). Antes: **vigente.** Los bloques generales del worker usan logger.error sin traza. | Mejorar diagnóstico interno con tipo y ubicación de la excepción. Revisar redacción antes de habilitar exc_info=True global: el mensaje de una excepción puede contener valores privados. La consola del usuario debe seguir depurada. |
 | 8. Mínimo de dos vCPU | **Documentado y conservado.** El perfil actual sólo valida Medium: 2 vCPU, 1024 MB RAM, 8 GB disco. | Respetar capacidad por nodo y los recursos efectivos de la VM que aloja PVE. No rebajar el mínimo ni considerar Small validado por este informe. |
@@ -132,3 +132,26 @@ No se activó `exc_info` global. La consola del usuario no cambia.
 
 Pruebas: `backend/tests/test_diagnostico_ca_011.py` (automatizado; no es validación Proxmox real).
 Suite completa del backend: 1120 pasan, 136 omitidas (PostgreSQL), 0 fallos.
+
+## Nota 02/11/2026 — hallazgo 5: reparación de un despliegue Docker fallido
+
+`POST /pedidos/{id}/reintentar` (y `/operaciones/{id}/reintentar`) sobre un pedido OCI en `ERROR` ya no manda
+la operación `reparar` al bootstrap histórico de IaaS. Ahora es un **intento nuevo y separado sobre el mismo recurso**:
+
+- **Condiciones:** el intento anterior debe estar `fallido` y confirmado en el nodo, el servicio ya materializado y la
+  identidad propia; si no, 409 `reconciliacion_pendiente` (nunca se repara sobre un resultado incierto). El LXC puede
+  estar encendido o detenido.
+- **Qué hace:** hereda identidad, red, reserva de capacidad y la configuración aprobada, pero **no** el estado del job
+  anterior (solicitud, huella, resultado, hitos de consola). Reutiliza el `operacion_raiz_id`, que es la condición con
+  la que el nodo admite un job nuevo sobre uno fallido, y crea el intento nº+1 con ids propios. Si el LXC está
+  encendido lo detiene primero (el nodo exige guest detenido para iniciar); luego envía un `start` nuevo.
+- **Qué no hace:** no crea otro LXC, no regenera contraseñas (los secretos salen de la base, mismas revisiones), no
+  reinstala a ciegas ni inicia el recurso desde el portal. Si el perfil con el que se aprobó dejó de estar habilitado
+  en el nodo, falla con un mensaje claro y la salida sigue siendo la baja y un pedido nuevo.
+- **Consola:** nuevo hito `reintento_solicitado`.
+
+Cubierto por `backend/tests/test_reparacion_oci_011.py` (LXC encendido, detenido y rechazo con intento incierto) y por
+los tests de reintento existentes, ajustados para marcar el intento como `fallido`. Automatizado con dobles; **sin
+validación Proxmox real todavía**. Suite del backend: 1123 pasan, 136 omitidas, 0 fallos; PostgreSQL aislado: 135
+pasan y 1 falla preexistente (`test_renovacion_conserva_snapshot_y_una_unica_reserva`, `vigencia_solapada`, también
+falla sin estos cambios).

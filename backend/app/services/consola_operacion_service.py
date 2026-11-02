@@ -22,6 +22,7 @@ RETENTION_DAYS=30
 EVENTS={
     'preparando':('preparacion','Preparando el despliegue.'),
     'creando_recurso':('creacion','Creando el recurso de la aplicación.'),
+    'reintento_solicitado':('preparacion','Reintento solicitado: se vuelve a instalar sobre el recurso existente, conservando las credenciales.'),
     'recurso_creado':('creacion','Recurso creado.'),
     'recurso_para_instalar':('entorno','Recurso listo para instalar la aplicación.'),
     'esperando_instalacion':('entorno','Esperando turno para instalar la aplicación.'),
