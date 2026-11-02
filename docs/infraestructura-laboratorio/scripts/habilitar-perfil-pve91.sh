@@ -116,5 +116,4 @@ open(path, 'w').write('\n'.join(lines))
 PY
 cd "$REPO" && docker compose -p nap-handoff -f docker-compose.handoff.yml -f "$PRIV/compose-api-lab.yml" -f "$PRIV/compose-api-011.yml" up -d --force-recreate api worker \
   || die "falló la recreación de api/worker"
-ssh -o ControlPath=$CTL -O exit root@$GATE_NODE 2>/dev/null
 echo "Listo: perfil habilitado en nodos y portal. Probar desde el portal."

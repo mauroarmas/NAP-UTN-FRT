@@ -122,6 +122,5 @@ cp -p /etc/nap/applications-011/runner.json /root/runner-$name.antes.json
 install -o root -g root -m 0600 /root/runner-$name.nuevo.json /etc/nap/applications-011/runner.json
 rm -f /root/runner-$name.nuevo.json
 REMOTE
-  ssh -o ControlPath=$CTL -O exit "$host" 2>/dev/null
 done
 echo "Listo. Pendiente: pegar $OUT/APPLICATION_PROFILES.env en backend/.env y reiniciar la API."
