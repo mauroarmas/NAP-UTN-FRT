@@ -213,3 +213,35 @@ Con el pedido #49 se completó también la validación con los pendientes 1, 6 y
 runner comprobado y CA configurada). No se probó con una CA ausente ni con un `known_hosts` inválido en el laboratorio real.
 
 Sin probar: pull privado, uso funcional de secretos, dos cátedras a la vez, `frt`, varios nodos, host reiniciado, carga de un curso.
+
+## Segundo nodo (`frt`) y dos cátedras a la vez (03/11/2026)
+
+**Preparación de `frt`** (apagado ordenado de su VM; pve91 perdió quórum mientras tanto y no había nada corriendo; no se tocó el quórum):
+2 vCPU (antes 1), CA propia creada en el nodo con `crear-ca-nodo.sh` (la clave `ca.key` no sale de `frt`; el script se niega a sobrescribir una PKI existente),
+y el portal pasó a confiar en las dos CA **públicas** (conjunto de 2 certificados en `application_gateway_ca_file`; sin claves).
+El perfil `docker-ubuntu24:7` (sha256 `7934d314b0aaaf3c52403db0597375724fc7f9e67f2dea4efe14659dce086921`, `nodes=[frt, pve91]`) se habilitó
+**sólo después de un gate completo en cada nodo** (job confirmado, persistencia y cinco rechazos de MariaDB en `frt` y en `pve91`, con la misma definición).
+Los scripts ahora validan un perfil con varios nodos y exigen la evidencia de cada uno.
+
+**Capacidad.** Con CT 100 y 101 (servicios anteriores, preservados) y una instancia nueva, el almacenamiento compartido no alcanzaba para una segunda
+(libre 6 GB, hacían falta 8). Se amplió el disco de datos del TrueNAS de 30 a 60 GB (VDI dinámico; apagado ordenado de la VM, ampliación del pool en su interfaz tras
+`sgdisk -e /dev/sdb`, porque la copia de respaldo de la tabla GPT quedaba en el final del disco viejo). El almacenamiento `truenas` pasó a ~57 GB y el portal lo vio sin cambios de configuración.
+
+**Dos cátedras a la vez** (servicio #30, cátedra 3, en `pve91`; servicio #31, cátedra sintética de laboratorio, en `frt`; ambos `RUNNING` / `utilizable` simultáneamente):
+
+| Comprobación | Resultado |
+|---|---|
+| Autorización | Cada docente revela sólo su servicio; el cruce da 403 en ambos sentidos |
+| Credenciales | Cada clave abre sólo su base; la clave cruzada da error 1045 en ambos sentidos |
+| TLS | Cada servidor presenta un certificado de la CA de **su** nodo (pve91 / frt); ambos verificados con el conjunto del portal, TLS 1.3 |
+| Datos | Cada base guarda su propia marca y no ve la de la otra; cada docente ve sólo `catedra` e `information_schema` |
+| Red, salida | Desde cada instancia: **bloqueado** el otro servicio, ambos nodos (SSH y 8006), el TrueNAS (NFS) y el portal; **alcanza** sólo el DNS permitido |
+| Baja | Ambas `confirmada` a la vez, una por nodo; sin tablas `nap011_*`, direcciones liberadas, CT 100 y 101 intactos |
+
+**Límite encontrado (configuración del laboratorio, no del motor).** Los nodos **sí** pueden conectarse al puerto 3306 de las instancias (sigue exigiendo TLS y contraseña):
+la cadena de entrada de cada instancia acepta `192.168.100.0/24`, que en este laboratorio es la red de clientes y **incluye** a los nodos (subred plana). Mauro documentó un rechazo
+desde el nodo con otra configuración de red. En la universidad, `client_cidrs` debe excluir las direcciones de gestión de los nodos. Tampoco se probó la separación a nivel de
+cátedras con el mismo docente en ambas ni con más de dos instancias.
+
+**Datos de prueba.** Se creó una cátedra (#25) y un usuario (#11) **sintéticos** (`lab-aislamiento-b@lab.invalid`, sin contraseña utilizable) y se desactivaron al terminar. Los pedidos #50 y #51
+y los servicios #30 y #31 quedan como historia.
