@@ -50,19 +50,28 @@ def require_profile(reference, *, settings=None, **context):
 
 
 async def verify_node_profile(reference, *, node, runner=None, settings=None):
-    """Consulta el estado real del perfil en el nodo antes de reservar o desplegar."""
+    """Consulta el estado real del perfil en el nodo antes de reservar o desplegar.
+
+    Sólo se omite cuando no hay ningún transporte configurado (pruebas y desarrollo con dobles).
+    Con runners configurados, un nodo sin entrada o con un transporte inválido (p. ej. permisos de
+    known_hosts) no se puede comprobar y la aprobación o el despliegue se rechaza: no se aprueba a ciegas.
+    """
     cfg = settings or get_settings()
-    if runner is None and not (isinstance(cfg.runner_nodes, dict) and node in cfg.runner_nodes):
+    configured = isinstance(cfg.runner_nodes, dict) and bool(cfg.runner_nodes)
+    if runner is None and not configured:
         return
     from app.services.application_job_client import ApplicationJobClient
     from app.services.guest_runner_client import RunnerError
     from infra.applications.job.protocol import PROTOCOL, JobError, canonical, parse_response
+    unverifiable = error(409, 'perfil_aplicacion_no_disponible', 'No se pudo verificar el perfil de aplicaciones en el nodo seleccionado')
+    if runner is None and node not in cfg.runner_nodes:
+        raise unverifiable
     client = runner if runner is not None else ApplicationJobClient(config=cfg.runner_nodes, timeout_seconds=5, query_retries=0)
     if runner is None:
         try:
             client.validar_destino(node)
         except RunnerError:
-            return
+            raise unverifiable from None
     request = {'protocol': PROTOCOL, 'action': 'profiles'}
     try:
         raw_reply = await client.execute(request, node=node)

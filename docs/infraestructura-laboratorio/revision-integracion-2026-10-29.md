@@ -37,7 +37,7 @@ no es el servicio #23 de nuestra prueba local.
 
 | Nº | Estado observado en nuestro código actual | Decisión / siguiente trabajo |
 |---|---|---|
-| 1. Runner inválido deja aprobar | **Vigente.** `verify_node_profile` retorna ante `RunnerError`; también omite la consulta si falta la entrada del nodo. | Prioridad alta: distinguir pruebas sin transporte de una instalación real y rechazar una aprobación/despliegue que no pudo comprobar el runner. Probar permisos inválidos de known_hosts sin enviar trabajos ni reservar capacidad. |
+| 1. Runner inválido deja aprobar | **Resuelto el 02/11/2026** (ver nota al pie). Antes: **vigente.** `verify_node_profile` retorna ante `RunnerError`; también omite la consulta si falta la entrada del nodo. | Prioridad alta: distinguir pruebas sin transporte de una instalación real y rechazar una aprobación/despliegue que no pudo comprobar el runner. Probar permisos inválidos de known_hosts sin enviar trabajos ni reservar capacidad. |
 | 2. nginx oficial y capacidades | El contrato genérico sólo agrega NET_BIND_SERVICE a cap-drop=ALL. La biblioteca todavía no detecta esta incompatibilidad. El fallo de nginx y el éxito de nginxinc/nginx-unprivileged:8080 son resultados **informados por el compañero**, no una reproducción nueva aquí. | Conservar las restricciones generales. Tratar nginx-unprivileged como el caso que validaron y mejorar la explicación de compatibilidad; no afirmar que todas las imágenes de nginx o todos sus tags funcionan. |
 | 3. Reglas huérfanas al dar de baja | **Resuelto localmente.** La baja OCI llama a cleanup antes de liberar identidad/capacidad. El nodo exige VMID ausente, identidad privada, recibo y reglas exactas; la repetición es segura. También se corrigió la liberación de dirección. | Mantenerlo en el motor. El compañero todavía necesita recibir esos cambios y comprobar la baja/reutilización en su laboratorio. No sustituirlo por borrado heurístico por hostname. |
 | 4. Nodos offline impiden confirmar ausencia | **Vigente e intencionalmente conservador.** `observar` exige todos los nodos online, disponibilidad global del VMID y ausencia de volúmenes. | Conservar reservas y reconciliar cuando se recupere visibilidad. Una mejora para bajas con nodos offline requiere comprobar fencing, pertenencia y almacenamiento; no basta ignorar el nodo. Quitar miembros del clúster no es una solución automática del portal. |
@@ -104,3 +104,14 @@ recorrido habitual del administrador.
 
 Las comprobaciones locales de salud son de lectura y no sustituyen las pruebas
 de despliegue del compañero ni las pruebas de MariaDB ya documentadas.
+
+## Nota 02/11/2026 — hallazgo 1 resuelto
+
+`verify_node_profile` ya no omite la consulta cuando hay runners configurados: un nodo sin entrada en
+`runner_nodes` o un transporte inválido (por ejemplo `known_hosts` con escritura de grupo u otros) rechaza la
+evaluación/aprobación con 409 `perfil_aplicacion_no_disponible`, sin abrir SSH, enviar trabajos ni reservar
+capacidad. Sólo se omite cuando no hay **ningún** transporte configurado (pruebas y desarrollo con dobles).
+Límite: si en una instalación real se olvida configurar `RUNNER_NODES` por completo, la comprobación sigue
+omitiéndose; cerrarlo del todo cambiaría el comportamiento de muchas pruebas. Cubierto por
+`backend/tests/test_verificacion_runner_011.py` (automatizado; no es una validación Proxmox real).
+Suite completa del backend tras el cambio: 1108 pasan, 136 omitidas (las de PostgreSQL), 0 fallos.
