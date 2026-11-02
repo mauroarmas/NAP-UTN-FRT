@@ -93,10 +93,7 @@ operación del botón "Actualizar aplicación"):
 | Reiniciar | `confirmada`; la fila se recuperó |
 | Baja | `confirmada`; sin CT, discos ni tablas `nap011_*`; dirección liberada |
 
-**Estado resultante de `pve91`:** corre el paquete **experimental** (plazo 300 s) con `docker-ubuntu24:3`
-habilitado; `:1` y `:2` quedan bloqueados por el runner (su digest ya no coincide con el paquete). Para volver
-al motor publicado: reinstalar `HEAD` con `actualizar-nodos-011.sh` y volver a habilitar la revisión
-correspondiente (hoy `:2`) con su gate; no se hizo. El cambio real en el motor lo decide el backend.
+(Estado superado por la validación con el motor publicado, más abajo.)
 
 ## Operación incierta resuelta con aprobación
 
@@ -116,7 +113,7 @@ unidad systemd, tablas y pool, y con aprobación explícita, se movió **sólo e
 ## No probado
 
 - Pull privado, uso funcional de secretos por una aplicación, dos cátedras simultáneas.
-- La validación del portal con el **motor publicado** (`0510c1a`, plazo 120 s) en este laboratorio: sólo con el plazo ampliado, en copia local.
+- El motor `0510c1a` con plazo fijo de 120 s no se validó de punta a punta en este laboratorio: falló dos veces por el plazo (ver hallazgo 2). Se validó el motor posterior con espera configurable.
 - `frt`, migración, HA, varios nodos, carga de un curso, reinicio del host Proxmox.
 
 ## Pendientes de backend (identificados en la revisión, sin implementar aquí)
@@ -149,4 +146,28 @@ configurable por nodo (`infra/applications/docker/probes.py`, `guest.py`):
 - No cambia el esquema de la configuración ni `runner.json`. Sí cambia el `policy_digest`
   (`99279fd45cd2e0ffa243598f5adfbd6d87dc77940b623ee089f4d72fbd4fd25c`): requiere una revisión nueva de perfil y su gate.
 - Automatizado: `test_ready_wait.py` y las pruebas del guest (defectos, ajuste por nodo, límites, archivo inválido,
-  enlace simbólico). **Sin validación Proxmox real todavía** con este paquete exacto.
+  enlace simbólico). La validación Proxmox real de este paquete exacto está en la sección siguiente.
+
+## Validación del motor publicado con espera configurable (revisión 4)
+
+Paquete de `main` instalado en `frt` y `pve91` (`code_sha256`
+`3fb8fed35536444089f0f8641508373be7cd5987e5f299330e1e76930b972c5d`, `policy_digest`
+`99279fd45cd2e0ffa243598f5adfbd6d87dc77940b623ee089f4d72fbd4fd25c`). Perfil `docker-ubuntu24:4`
+(sha256 `1f596b638a88d46f4ec719b3fad9db5c8ac350d4195ca2b1e07e6e075b9b6ec8`) habilitado **sólo para `pve91`**;
+`frt` lo rechaza. Sin `limits.json` en los nodos: rigen los valores por defecto (300 s / 90 s).
+Las revisiones 1 a 3 se conservan como historia y el runner las muestra `bloqueado` (su digest ya no coincide).
+
+| Comprobación | Resultado |
+|---|---|
+| Gate MariaDB (revisión 4) | Job `confirmado`; persistencia (17 s) y los cinco rechazos como antes; baja limpia |
+| Inicialización de MariaDB en ese gate | 119 s: al borde del plazo viejo de 120 s |
+| Portal, pedido #47 / servicio #27 | `confirmada`, `RUNNING` / `utilizable`; revelado sin root; TLS 1.3 verificando la CA desde la PC; fila escrita |
+| Detener / revelado | `confirmada`, `STOPPED`; revelado bloqueado (`acceso_no_preparado`) |
+| Iniciar / reiniciar | `confirmada` ambos; fila recuperada tras cada uno |
+| Baja | `confirmada`; sin CT, discos ni tablas `nap011_*`; dirección liberada |
+
+El compose de traspaso monta ahora `infra/` de sólo lectura en api y worker, para que el contrato del
+backend coincida siempre con el código del repositorio.
+
+Siguen sin probarse: pull privado, uso funcional de secretos por una aplicación, dos cátedras simultáneas,
+`frt`, varios nodos, un host Proxmox reiniciado, y carga de un curso.
