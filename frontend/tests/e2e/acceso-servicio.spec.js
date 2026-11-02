@@ -50,13 +50,14 @@ test('el docente consulta acceso sin carga de secretos o entrega anticipada', as
   expect(counts.reads).toBe(0);
   await access.click();
   const region = page.getByRole('region', { name: 'Acceso al servicio', exact: true });
-  await expect(region.getByText('Falta comprobar acceso desde la red prevista.')).toBeVisible();
+  // En estado pendiente la interfaz muestra su propio texto; no el del backend.
+  await expect(region.getByText('El servicio se inició. El acceso todavía no está habilitado.')).toBeVisible();
   await expect(region.getByRole('button', { name: /Revelar/ })).toHaveCount(0);
   await expect(region.getByRole('link', { name: 'Abrir aplicación', exact: true })).toHaveCount(0);
   expect(counts.reveals).toBe(0);
 });
 
-test('administración revela sin copiar e importa antes de confirmar una entrega', async ({ page }) => {
+test('administración revela el acceso inicial sin copiarlo ni mostrar otros secretos', async ({ page }) => {
   await page.addInitScript(() => {
     window.napClipboardWrites = 0;
     Object.defineProperty(navigator, 'clipboard', { configurable: true, get: () => ({
@@ -72,13 +73,10 @@ test('administración revela sin copiar e importa antes de confirmar una entrega
   await expect(region.getByText('must-not-be-rendered', { exact: true })).toHaveCount(0);
   await expect(region.getByText('must-not-be-rendered-db', { exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => window.napClipboardWrites)).toBe(0);
-  await region.getByLabel('Documento de evidencia').fill('{"tipo":"acceso_instancia","observado_at":"2026-10-20T20:00:00Z"}');
-  await region.getByRole('button', { name: 'Registrar evidencia', exact: true }).click();
-  await expect(region.getByLabel('Referencia UUID de evidencia registrada')).toHaveValue('11111111-1111-4111-8111-111111111111');
-  expect(counts.verifies).toBe(0);
-  await region.getByRole('button', { name: 'Confirmar verificación de acceso' }).click();
-  await expect(region.getByText('Acceso verificado. La entrega quedó registrada.')).toBeVisible();
+  // La verificación del acceso es automática: la interfaz ya no pide cargar ni confirmar evidencia a mano.
+  await expect(region.getByLabel('Documento de evidencia')).toHaveCount(0);
+  await region.getByRole('button', { name: 'Ocultar acceso inicial' }).click();
   await expect(region.getByText('test-only-initial-password', { exact: true })).toHaveCount(0);
-  expect(counts.reveals).toBe(1); expect(counts.imports).toBe(1); expect(counts.verifies).toBe(1);
+  expect(counts.reveals).toBe(1); expect(counts.imports).toBe(0); expect(counts.verifies).toBe(0);
   await page.screenshot({ path: '/tmp/nap009-access-ui.png', fullPage: true });
 });

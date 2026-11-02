@@ -32,6 +32,15 @@ async function mockAdmin(page) {
     }
     return route.fulfill({ json: offers });
   });
+  await page.route('**/api/v1/templates/aplicaciones', (route) => {
+    const data = route.request().postDataJSON();
+    const row = { id: 3, nombre: data.nombre, tipo: 'lxc', modelo_servicio: 'saas', activo: true, oferta_disponible: true,
+      configuracion_despliegue_id: 'fixture-config', tamanos_permitidos: ['medium'], tamano_recomendado: 'medium' };
+    offers.push(row);
+    return route.fulfill({ status: 201, json: row });
+  });
+  // La página sincroniza las bases Linux al cargar; se registra después porque gana la ruta más reciente.
+  await page.route('**/api/v1/templates/sincronizar-iaas', (route) => route.fulfill({ json: { disponibles: 2 } }));
 }
 
 for (const layout of ['oscuro', 'claro', 'movil']) {
@@ -57,15 +66,17 @@ for (const layout of ['oscuro', 'claro', 'movil']) {
     if (layout !== 'movil') expect(tops[0]).toBe(tops[1]);
     await page.screenshot({ path: `/tmp/nap-servicios-${layout}.png`, fullPage: true });
     await page.getByRole('button', { name: 'Agregar servicio', exact: true }).click();
-    await page.getByLabel('Aplicación preparada').selectOption('pg-def');
-    await expect(page.getByRole('radio', { name: /^Small/ })).toBeDisabled();
-    await expect(page.getByRole('radio', { name: /^Medium/ })).toBeChecked();
-    await expect(page.getByRole('spinbutton')).toHaveCount(0);
+    // El diálogo vigente agrega una imagen (Docker Hub o propia); el tamaño lo elige administración al aprobar.
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByLabel('Nombre del servicio')).toBeVisible();
+    await expect(dialog.getByRole('spinbutton').first()).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.screenshot({ path: `/tmp/nap-servicio-editor-${layout}.png`, fullPage: true });
-    await page.getByLabel('Nombre del servicio').fill('Base de datos para prácticas');
-    await page.getByLabel('Descripción para la cátedra').fill('Consultas SQL y ejercicios de modelado.');
-    await page.getByRole('button', { name: 'Agregar servicio', exact: true }).click();
+    await dialog.getByLabel('Nombre del servicio').fill('Base de datos para prácticas');
+    await dialog.getByLabel('Imagen Docker').fill('postgres:16');
+    await dialog.getByLabel('Puerto de la aplicación').fill('5432');
+    await dialog.getByRole('button', { name: 'Agregar al catálogo' }).click();
+    await expect(dialog).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Base de datos para prácticas' })).toBeVisible();
     const card = page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Base de datos para prácticas' }) });
     await card.getByRole('button', { name: 'Retirar', exact: true }).click();
