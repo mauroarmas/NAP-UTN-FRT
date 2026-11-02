@@ -3,12 +3,13 @@
 # laboratorio (infra/laboratorio/011/validar_motor_docker_lab.py) con traefik/whoami (Docker Hub).
 # No habilita perfiles: solo prueba que el motor funciona. Habilitar es un paso aparte.
 #
-# Uso: APLICACION=whoami|mariadb [PERFIL_REV=2] gate-docker-pve91.sh preparar | iniciar | estado | evidencia | persistencia | limpiar
+# Uso: APLICACION=whoami|mariadb [PERFIL_REV=2] gate-docker-pve91.sh preparar | iniciar | estado | evidencia | persistencia | rechazos | limpiar
 #   preparar  copia el gate al nodo y sella el candidato (no crea el invitado)
 #   iniciar   crea el LXC de prueba (VMID 900011, slot .119) y lanza el despliegue de whoami
 #   estado    consulta fase, invitado y resultado (sólo lectura)
 #   evidencia guarda en $OUT el estado SIN secretos (job confirmado + comprobaciones) para habilitar-perfil
 #   persistencia (sólo mariadb) escribe una fila, reinicia el LXC de prueba y verifica que se recupere
+#   rechazos  (sólo mariadb) contraseña errónea, CA no confiable, sin TLS, root remoto y lectura de mysql.user
 #   limpiar   destruye el invitado de prueba, su disco y su pool; las reglas nftables las retira la
 #             misma acción cleanup del motor (identidad + ausencia + recibo), no un borrado heurístico
 # Whoami con /data (PERSISTENCIA='["/data"]') sólo prueba que el volumen se monta: NO acredita
@@ -126,6 +127,37 @@ res = {'escrito': r1 == 0 and r2 == 0 and antes == marca, 'recuperado_tras_reini
 print(json.dumps(res)); sys.exit(0 if res['escrito'] and res['recuperado_tras_reinicio'] else 1)
 PY
     cat "$F" ;;
+  rechazos)
+    [ "$APLICACION" = mariadb ] || die "los rechazos se prueban con APLICACION=mariadb"
+    mkdir -p "$OUT"; F="$OUT/rechazos-mariadb-rev$PERFIL_REV.json"
+    # Control positivo primero: sin él un rechazo no significa nada. Secretos por stdin, nunca en argv/salida.
+    remote "python3 -I - " > "$F" <<'PY' || die "algún rechazo NO se produjo o el control positivo falló (ver $F)"
+import json, re, subprocess, sys
+from uuid import UUID
+c = json.load(open('/root/nap011-final-docker-gate/context.json'))
+pv = c['private_values']; name = 'nap-' + UUID(c['request']['resource_uuid']).hex
+addr = c['slot']['address']; vmid = str(c['request']['vmid'])
+def run(user, password, sql, ssl_args):
+    sh = ('read -r MYSQL_PWD; export MYSQL_PWD; exec docker exec --env MYSQL_PWD %s mariadb --no-defaults --protocol=tcp '
+          '--host=%s --port=3306 --user=%s --connect-timeout=5 %s --batch --skip-column-names --execute="%s"') % (name, addr, user, ssl_args, sql)
+    r = subprocess.run(['/usr/sbin/pct', 'exec', vmid, '--', 'sh', '-c', sh], input=(password + '\n').encode(), capture_output=True, timeout=60)
+    err = r.stderr.decode(errors='replace')
+    for v in pv.values(): err = err.replace(v, '***')
+    m = re.search(r'ERROR (\d+)', err)
+    return r.returncode, (m.group(1) if m else None), r.stdout.decode().strip()
+good = '--ssl-ca=/run/nap-tls/ca.crt --ssl-verify-server-cert'
+pw = pv['MARIADB_PASSWORD']
+cases = {}
+rc, code, out = run('docente', pw, 'SELECT 1', good); cases['control_positivo_tls_ok'] = (rc == 0 and out == '1', code)
+rc, code, _ = run('docente', pw + 'x', 'SELECT 1', good); cases['contrasena_incorrecta'] = (rc != 0 and code == '1045', code)
+rc, code, _ = run('docente', pw, 'SELECT 1', '--ssl-ca=/etc/ssl/certs/ca-certificates.crt --ssl-verify-server-cert'); cases['ca_no_confiable'] = (rc != 0 and code in ('2026', '2002', '2013'), code)
+rc, code, _ = run('docente', pw, 'SELECT 1', '--skip-ssl'); cases['sin_tls'] = (rc != 0 and code in ('1045', '3159', '2026', '4141'), code)
+rc, code, _ = run('root', pv['MARIADB_ROOT_PASSWORD'], 'SELECT 1', good); cases['root_remoto'] = (rc != 0 and code == '1045', code)
+rc, code, _ = run('docente', pw, 'SELECT COUNT(*) FROM mysql.user', good + ' --database=catedra'); cases['docente_no_lee_mysql_user'] = (rc != 0 and code in ('1142', '1044', '1045'), code)
+res = {k: {'ok': v[0], 'codigo_mariadb': v[1]} for k, v in cases.items()}
+print(json.dumps(res, sort_keys=True)); sys.exit(0 if all(v[0] for v in cases.values()) else 1)
+PY
+    cat "$F" ;;
   limpiar)  remote "python3 -I $GATE --cleanup" ;;
-  *) die "uso: $0 preparar | iniciar | estado | evidencia | persistencia | limpiar" ;;
+  *) die "uso: $0 preparar | iniciar | estado | evidencia | persistencia | rechazos | limpiar" ;;
 esac

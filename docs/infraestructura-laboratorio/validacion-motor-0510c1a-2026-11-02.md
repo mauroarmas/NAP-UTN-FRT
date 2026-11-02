@@ -22,6 +22,7 @@ Sin secretos: contraseñas, claves y el valor de la fila de prueba no se publica
 |---|---|
 | Gate MariaDB `11.4` (manifiesto `sha256:d9fc0297…a9521`, amd64), revisión 2 | Job `confirmado`: `aislamiento`, `runtime`, `salud`, `autenticacion_tcp` (TLS verificado con la CA + `SELECT 1`) |
 | Persistencia | Fila escrita, LXC reiniciado (`pct reboot`), misma fila recuperada; consulta aceptada a los 19 s |
+| Rechazos MariaDB (gate nuevo, con control positivo) | Contraseña incorrecta: error 1045. CA no confiable: 2026. Sin TLS: 3159. Root remoto: 1045. `docente` sin lectura de `mysql.user`: 1142 |
 | Baja del invitado | Sin LXC, discos, pool ni tablas `nap011_*` |
 | Reutilización del VMID 900011 | Gate whoami inmediato: `confirmado` (`aislamiento`, `runtime`, `salud`, `acceso_web`); luego baja sin tablas residuales |
 | Servicio previo (#23, CT 101 nginx-unprivileged) | No se tocó (detenido durante la prueba) |
@@ -47,7 +48,6 @@ unidad systemd, tablas y pool, y con aprobación explícita, se movió **sólo e
 ## No probado
 
 - Recorrido de pedido MariaDB desde el portal y acceso TLS desde el portal en este laboratorio.
-- Rechazos negativos de MariaDB (contraseña incorrecta, CA no confiable, sin TLS, root remoto) en este clúster.
 - Pull privado, uso funcional de secretos por una aplicación, dos cátedras simultáneas.
 - `frt`, migración, HA, varios nodos, carga de un curso, reinicio del host Proxmox.
 
