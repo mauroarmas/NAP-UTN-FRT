@@ -3,6 +3,10 @@
 Validación: 28–29/10/2026. Proxmox local `172.16.36.100`, PVE 9.2.2,
 kernel `7.0.2-6-pve`, arquitectura amd64. No acredita el clúster universitario.
 
+> **Evidencia histórica del paquete `4ebb0a71…` (`0510c1a`).** El motor vigente (`policy_digest` `77d26a9f…`) agrega
+> una espera de arranque configurable y la reparación de despliegues fallidos; su validación en otro laboratorio está en
+> [validacion-motor-0510c1a-2026-11-02.md](../../infraestructura-laboratorio/validacion-motor-0510c1a-2026-11-02.md).
+
 ## Combinación comprobada
 
 - LXC Ubuntu 24.04 no privilegiado, AppArmor/seccomp activos, Docker anidado.

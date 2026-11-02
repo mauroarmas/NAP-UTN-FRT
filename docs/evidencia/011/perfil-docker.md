@@ -39,7 +39,9 @@ Artefactos del repositorio:
 `infra/applications/docker/runtime.py::policy_digest()` calcula el digest SHA-256 canónico de todos los módulos del motor (`job/*.py`, `docker/*.py`, `profiles/docker/ubuntu24.json`, `schemas/nap-deployment-1.json`, `runner/node_executor.py` y `profiles/profile_contract.py`).
 
 - **Digest inicial (revisión 1, histórico)**: `73e804b60ce027506da11c9b8ad549c0b361de8df397b8214d5f0bd4a8eab2c2`.
-- **Digest actual (revisión 3, MariaDB nativa y web)**: `4ebb0a71e161fd3d20c89a4c29ec60c1e735ac1cfe3cc0d7dcf732e133c18ac0`.
+- **Digest de la revisión 3 (MariaDB nativa y web, laboratorio de Mauro, 29/10/2026; histórico)**: `4ebb0a71e161fd3d20c89a4c29ec60c1e735ac1cfe3cc0d7dcf732e133c18ac0`.
+- **Digest vigente en `main` (02/11/2026)**: `77d26a9ffef574d3db9ee97b69aa38039c2e095db85278e37013f15b5b74aadd`. Cambia con cada
+  cambio del motor; recalcular con `policy_digest()`. Cada digest exige una revisión de perfil nueva y su compuerta real.
 
 ---
 
