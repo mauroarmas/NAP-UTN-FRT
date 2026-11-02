@@ -1,4 +1,7 @@
 #!/bin/bash
+# ADVERTENCIA: intervención de INFRAESTRUCTURA independiente de NAP, no una reparación automática.
+# Ejecuta `pvecm delnode` con --aplicar: cambia la membresía y el quórum del clúster. No usarlo desde
+# un flujo de recuperación del portal ni sin confirmación explícita del responsable del clúster.
 # EN LA PC DEL OPERADOR. Saca del cluster Proxmox los nodos que ya no se usan (pve92, pve93).
 #
 # Por qué: el portal sólo confirma que un contenedor "ya no existe" si TODOS los nodos del
