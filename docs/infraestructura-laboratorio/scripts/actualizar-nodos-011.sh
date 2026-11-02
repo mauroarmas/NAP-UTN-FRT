@@ -24,7 +24,8 @@ TPL=ubuntu-24.04-standard_24.04-2_amd64.tar.zst
 TPL_SHA=75a827c4ea4b2bef42e0521f51ed869e398f56b0e6b131c3cd5d284a2e0e08b5
 # Digest del paquete vigente (MariaDB PaaS + cleanup nftables). El anterior, 73e804b6… (78af40e), queda
 # como revisión histórica 1 y no se vuelve a usar.
-DIGEST_ESPERADO=4ebb0a71e161fd3d20c89a4c29ec60c1e735ac1cfe3cc0d7dcf732e133c18ac0
+# Sólo para paquetes EXPERIMENTALES locales: DIGEST_ESPERADO=<hex> con REPO apuntando al worktree.
+DIGEST_ESPERADO=${DIGEST_ESPERADO:-4ebb0a71e161fd3d20c89a4c29ec60c1e735ac1cfe3cc0d7dcf732e133c18ac0}
 PROFILE_NODES=${PROFILE_NODES:-pve91}
 PERFIL_REV=${PERFIL_REV:-2}
 CTL=${NAP_SSH_CTL:-/tmp/nap-lab-ssh-%h}

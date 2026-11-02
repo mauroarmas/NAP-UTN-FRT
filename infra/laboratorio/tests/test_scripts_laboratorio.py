@@ -26,7 +26,7 @@ def test_expected_digest_follows_current_engine():
     sys.path.insert(0, str(ROOT))
     from infra.applications.docker.runtime import policy_digest
     text = (SCRIPTS/'actualizar-nodos-011.sh').read_text()
-    assert re.search(r'^DIGEST_ESPERADO=([0-9a-f]{64})$', text, flags=re.M).group(1) == policy_digest()
+    assert re.search(r'^DIGEST_ESPERADO=\$\{DIGEST_ESPERADO:-([0-9a-f]{64})\}$', text, flags=re.M).group(1) == policy_digest()
 
 
 def test_orphan_table_script_no_longer_deletes_anything():
