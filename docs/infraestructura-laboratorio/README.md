@@ -1,5 +1,7 @@
 # Infraestructura de laboratorio: cluster Proxmox + TrueNAS + portal
 
+> **Operar el portal sin navegador** (pedidos, bajas, reparación, revelado de acceso y pruebas entre cátedras): [scripts/portal/README.md](scripts/portal/README.md).
+>
 > **Actualización 29/10/2026:** esta guía conserva el estado histórico del 27/10.
 > La integración de los scripts posteriores, el contraste con nuestro motor actual y
 > los límites de la validación están en [la revisión de integración](revision-integracion-2026-10-29.md).
