@@ -221,9 +221,15 @@ https://:8443 {
         for path,mount in mounts.items():
             if mount.get('Type')!='volume' or mount.get('Name')!=volume_name(self.identity['resource_uuid'],path):raise InstallError()
 
+    def ready_window(self,default):
+        # El host fija la espera (acotada); sin ese dato rige el valor por defecto de cada tipo.
+        value=self.request.get('espera_segundos',default)
+        if type(value) is not int or not 30<=value<=600:raise InstallError()
+        return value
+
     def probe(self):
         if self.configuration['access']['tipo']=='tcp':return self.probe_database()
-        probe=self.configuration['access']['probe'];deadline=time.monotonic()+90
+        probe=self.configuration['access']['probe'];deadline=time.monotonic()+self.ready_window(90)
         context=ssl.create_default_context(cadata=self.request['tls']['ca_pem'])
         while time.monotonic()<deadline:
             connection=None
@@ -241,7 +247,7 @@ https://:8443 {
         raise InstallError('DEPENDENCY_UNAVAILABLE')
 
     def probe_database(self):
-        deadline=time.monotonic()+120
+        deadline=time.monotonic()+self.ready_window(300)
         password=self.request['private_values']['MARIADB_PASSWORD']
         while time.monotonic()<deadline:
             try:

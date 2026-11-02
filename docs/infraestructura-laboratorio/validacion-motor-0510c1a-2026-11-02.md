@@ -130,3 +130,23 @@ unidad systemd, tablas y pool, y con aprobación explícita, se movió **sólo e
 (`APLICACION=mariadb`, `evidencia`, `persistencia`), `habilitar-perfil-pve91.sh` (exige job confirmado
 y persistencia; fusiona perfiles), `limpiar-tablas-huerfanas-pve91.sh` (ya sólo lectura). Los
 sockets SSH se comparten con `NAP_SSH_CTL`.
+
+## Espera de arranque configurable (cambio del motor, 02/11/2026)
+
+A partir de la prueba anterior se incorporó al motor, en `main`, una espera de arranque más larga y
+configurable por nodo (`infra/applications/docker/probes.py`, `guest.py`):
+
+- Por defecto la comprobación de **bases de datos espera 300 s** (antes 120 s) y la **web 90 s** (sin cambio).
+- Ajuste opcional por nodo en `/etc/nap/applications-011/limits.json` (root, modo sin escritura de grupo/otros,
+  sin enlaces ni duplicados, ≤ 4 KiB):
+
+  ```json
+  {"schema_version": "nap-application-limits/1", "espera_base_datos_segundos": 450, "espera_web_segundos": 90}
+  ```
+
+  `espera_base_datos_segundos` admite 60–600 y `espera_web_segundos` 30–600 (el proceso hijo del nodo corta a los 900 s).
+  Un archivo inválido **falla cerrado** (`PROFILE_UNAVAILABLE`); no se usan los valores por defecto en silencio.
+- No cambia el esquema de la configuración ni `runner.json`. Sí cambia el `policy_digest`
+  (`99279fd45cd2e0ffa243598f5adfbd6d87dc77940b623ee089f4d72fbd4fd25c`): requiere una revisión nueva de perfil y su gate.
+- Automatizado: `test_ready_wait.py` y las pruebas del guest (defectos, ajuste por nodo, límites, archivo inválido,
+  enlace simbólico). **Sin validación Proxmox real todavía** con este paquete exacto.

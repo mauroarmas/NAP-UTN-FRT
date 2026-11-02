@@ -9,7 +9,8 @@ import pytest
 
 from infra.applications.docker.runtime import policy,policy_digest,validate_profile,application_arguments,volume_name
 from infra.applications.docker.guest import DockerGuest,InstallError
-from infra.applications.docker import deploy as strategy
+from infra.applications.docker import deploy as strategy, probes
+from pathlib import Path
 from infra.applications.job.protocol import canonical,JobError
 from infra.applications.tests.test_job_supervisor import rig
 
@@ -51,6 +52,7 @@ def test_profile_is_bound_to_exact_runtime_and_current_code_bundle(application):
 @pytest.mark.parametrize('failure',[None,'pull','probe'])
 def test_one_guest_strategy_has_real_stages_and_never_passes_pull_auth_to_application(application,monkeypatch,failure):
     app=application;events=[];commands=[];phase=[];sensitive=[]
+    monkeypatch.setattr(probes,'LIMITS_PATH',Path('/nonexistent/nap-limits.json'))
     class Node:
         def _configuration(self,owner):return {'cores':2,'memory':1024},app.profile
         def start_guest(self,owner):events.append('guest-start')
@@ -77,7 +79,7 @@ def test_one_guest_strategy_has_real_stages_and_never_passes_pull_auth_to_applic
     for action,payload in commands:
         assert ('registry'in payload)==(action=='pull')
         assert ('private_values'in payload)==(action=='start')
-        if action=='probe':assert set(payload['tls'])=={'ca_pem'}
+        if action=='probe':assert set(payload['tls'])=={'ca_pem'} and payload['espera_segundos']==90
     assert 'fixture-pull-private'in sensitive
 
 
@@ -167,3 +169,13 @@ def test_database_probe_uses_bounded_tls_sql_and_password_only_in_environment(ap
     assert '--ssl-verify-server-cert' in args and '--execute=SELECT 1' in args
     assert '--host=172.16.36.81' in args and 'fixture-db-private' not in repr(args)
     assert options['environment']=={'MYSQL_PWD':'fixture-db-private'}
+
+
+def test_guest_ready_window_is_bounded_and_defaults_per_kind(application, tmp_path):
+    app = application
+    request = {'identity': app.identity, 'configuration': app.configuration, 'action': 'probe'}
+    assert DockerGuest(request, root=tmp_path).ready_window(300) == 300
+    assert DockerGuest({**request, 'espera_segundos': 450}, root=tmp_path).ready_window(300) == 450
+    for bad in (0, 29, 601, True, '300', None, 10**9):
+        with pytest.raises(InstallError):
+            DockerGuest({**request, 'espera_segundos': bad}, root=tmp_path).ready_window(300)

@@ -22,10 +22,10 @@ NODES=${NODES:-"frt=192.168.100.90 pve91=192.168.100.91"}
 OUT=${OUT:-$HOME/runnerjson}
 TPL=ubuntu-24.04-standard_24.04-2_amd64.tar.zst
 TPL_SHA=75a827c4ea4b2bef42e0521f51ed869e398f56b0e6b131c3cd5d284a2e0e08b5
-# Digest del paquete vigente (MariaDB PaaS + cleanup nftables). El anterior, 73e804b6… (78af40e), queda
-# como revisión histórica 1 y no se vuelve a usar.
+# Digest del paquete vigente (espera de arranque configurable). Anteriores: 4ebb0a71… (0510c1a, plazo fijo
+# de 120 s) y 73e804b6… (78af40e). Cada digest distinto es una revisión de perfil distinta.
 # Sólo para paquetes EXPERIMENTALES locales: DIGEST_ESPERADO=<hex> con REPO apuntando al worktree.
-DIGEST_ESPERADO=${DIGEST_ESPERADO:-4ebb0a71e161fd3d20c89a4c29ec60c1e735ac1cfe3cc0d7dcf732e133c18ac0}
+DIGEST_ESPERADO=${DIGEST_ESPERADO:-99279fd45cd2e0ffa243598f5adfbd6d87dc77940b623ee089f4d72fbd4fd25c}
 PROFILE_NODES=${PROFILE_NODES:-pve91}
 PERFIL_REV=${PERFIL_REV:-2}
 CTL=${NAP_SSH_CTL:-/tmp/nap-lab-ssh-%h}
