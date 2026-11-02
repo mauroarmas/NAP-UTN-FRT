@@ -190,9 +190,33 @@ https://:8443 {
         if any(type(v)is not str or '\x00'in v for v in environment.values()):raise InstallError()
         args=application_arguments(self.identity,self.configuration,self.request['resources'],tls_directory=str(self.directory/'database-tls'))
         self.retire_owned(self.name)
+        self.reset_incomplete_database()
         self.docker(args,environment=environment)
         if self.configuration['access']['tipo']=='web':self.start_edge()
         self.verify_started()
+
+    def reset_incomplete_database(self):
+        """Un intento interrumpido durante la primera inicialización deja datos a medias que la entrada oficial
+        de MariaDB da por inicializados: no vuelve a crear la base ni el usuario y el acceso nunca funciona.
+        Sin la base de la aplicación todavía no puede haber datos de usuario, así que sólo entonces se reinicia
+        el volumen propio de esta instancia. Una base completa nunca se toca."""
+        if self.configuration['access']['tipo']!='tcp' or '/var/lib/mysql' not in self.configuration['persistencia']:return
+        database=self.configuration['variables'].get('MARIADB_DATABASE','')
+        if not re.fullmatch(r'[A-Za-z0-9_]{1,64}',database):raise InstallError()
+        volume=volume_name(self.identity['resource_uuid'],'/var/lib/mysql')
+        names=[json.loads(v) for v in self.docker(['volume','ls','--format','{{json .Name}}'],capture=True).decode().splitlines() if v.strip()]
+        if volume not in names:return
+        details=self.inspect('volume',volume)
+        if details['Driver']!='local' or details.get('Options') or details['Labels'].get('nap.resource_uuid')!=self.identity['resource_uuid']:
+            raise InstallError('IDENTITY_MISMATCH')
+        image=self.configuration['imagen']
+        check='if [ -d /var/lib/mysql/mysql ] && [ ! -d /var/lib/mysql/%s ]; then echo incompleta; else echo completa; fi'%database
+        answer=self.docker(['run','--rm','--pull=never','--network=none','--cap-drop=ALL','--security-opt=no-new-privileges:true',
+            '--log-driver=none','--entrypoint','/bin/sh','--mount','type=volume,source='+volume+',target=/var/lib/mysql,readonly',
+            image['repositorio']+'@'+image['manifest_digest'],'-c',check],capture=True).decode().strip()
+        if answer!='incompleta':return
+        self.docker(['volume','rm',volume])
+        self.configure_volumes()
 
     def retire_owned(self,name):
         """Una reparación reutiliza el nombre: se retira sólo un contenedor de ESTA instancia, nunca sus volúmenes."""

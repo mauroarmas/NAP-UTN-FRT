@@ -228,3 +228,58 @@ def test_first_start_without_a_previous_container_removes_nothing(application,tm
     guest=DockerGuest(_launch_request(app),root=tmp_path,run=run);guest.verify_started=lambda:None
     guest.start()
     assert not any('rm' in a for a in calls)
+
+
+def _database_run(app,*,volume_exists,answer,label=None):
+    calls=[];state={'exists':volume_exists}
+    volume=volume_name(app.identity['resource_uuid'],'/var/lib/mysql')
+    def run(args,**kwargs):
+        calls.append(args)
+        if 'volume' in args and 'rm' in args:state['exists']=False
+        if 'volume' in args and 'create' in args:state['exists']=True
+        if 'volume' in args and 'ls' in args:
+            return (json.dumps(volume)+'\n').encode() if state['exists'] else b''
+        if 'volume' in args and 'inspect' in args:
+            return json.dumps([{'Driver':'local','Labels':{'nap.resource_uuid':label or app.identity['resource_uuid']}}]).encode()
+        if '--entrypoint' in args:return (answer+'\n').encode()
+        return b''
+    return run,calls,volume
+
+
+def _database_guest(app,tmp_path,run):
+    app.configuration.update(access={'tipo':'tcp','puerto':3306,'politica':'mariadb-tls','probe':{'tipo':'mariadb_select_1','timeout_segundos':10}},
+        persistencia=['/var/lib/mysql'],variables={'MARIADB_DATABASE':'catedra','MARIADB_USER':'docente','MARIADB_ROOT_HOST':'localhost'},
+        secretos=[{'nombre':n,'etiqueta':'x','modo':'generado'} for n in ('MARIADB_PASSWORD','MARIADB_ROOT_PASSWORD')])
+    app.configuration['imagen']['repositorio']='docker.io/library/mariadb'
+    request=_launch_request(app);request['private_values']={s['nombre']:'fixture' for s in app.configuration['secretos']}
+    guest=DockerGuest(request,root=tmp_path,run=run);guest.verify_started=lambda:None
+    return guest
+
+
+def test_half_initialized_database_volume_is_reset_before_the_new_container_starts(application,tmp_path):
+    run,calls,volume=_database_run(application,volume_exists=True,answer='incompleta')
+    _database_guest(application,tmp_path,run).start()
+    flat=[' '.join(a) for a in calls]
+    removed=[i for i,c in enumerate(flat) if 'volume rm '+volume in c]
+    created=[i for i,c in enumerate(flat) if 'volume create' in c and volume in c]
+    started=[i for i,c in enumerate(flat) if '--network=bridge' in c]
+    assert len(removed)==1 and len(created)==1 and removed[0]<created[0]<started[0]
+    assert any('--entrypoint /bin/sh' in c and 'readonly' in c and '--network=none' in c for c in flat)
+
+
+def test_complete_database_volume_is_never_touched(application,tmp_path):
+    run,calls,volume=_database_run(application,volume_exists=True,answer='completa')
+    _database_guest(application,tmp_path,run).start()
+    assert not any('volume rm' in ' '.join(a) for a in calls) and any('--network=bridge' in ' '.join(a) for a in calls)
+
+
+def test_first_start_without_a_volume_does_not_probe_or_remove(application,tmp_path):
+    run,calls,volume=_database_run(application,volume_exists=False,answer='incompleta')
+    _database_guest(application,tmp_path,run).start()
+    assert not any('--entrypoint' in a for a in calls) and not any('volume rm' in ' '.join(a) for a in calls)
+
+
+def test_volume_with_another_owner_label_is_never_reset(application,tmp_path):
+    run,calls,volume=_database_run(application,volume_exists=True,answer='incompleta',label=str(uuid4()))
+    with pytest.raises(InstallError):_database_guest(application,tmp_path,run).start()
+    assert not any('volume rm' in ' '.join(a) for a in calls)
