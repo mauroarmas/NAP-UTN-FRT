@@ -30,6 +30,43 @@ Sin secretos: contraseñas, claves y el valor de la fila de prueba no se publica
 La limpieza del gate usa la misma acción `cleanup` del runtime que la baja del portal
 (identidad, ausencia del VMID y recibo de reglas).
 
+## Recorrido de MariaDB por el portal (pedidos #44 y #45)
+
+Hecho con los servicios del backend (`catalog.change`, `solicitud_service`, `evaluacion_service`,
+`admision_service`, `admitir_orden`), no con clics ni con el login de una persona. La oferta se
+agregó con `MARIADB_APPLICATION_VALIDATION` apuntando a `docker-ubuntu24:2` y al manifiesto probado.
+La cuenta semilla `admin@utn.frt.edu.ar` estaba inactiva: con autorización explícita se la activó
+sólo para esto (`UPDATE` puntual) y se la dejó otra vez inactiva. No se usó la cuenta de otra persona.
+El pedido salió con la cátedra visible para Ivan (`Catedra Ajena T091`); es dato de prueba.
+
+| Paso | Resultado |
+|---|---|
+| Oferta MariaDB, evaluación (Medium, `pve91`/`truenas`) y aprobación | Correctos; configuración congelada con el perfil `:2` |
+| Creación del LXC y arranque de MariaDB (Docker) | Correctos en ambos pedidos |
+| Comprobación SQL/TLS del job | **Falló dos veces** con `DEPENDENCY_UNAVAILABLE` (#44 y #45) |
+| Baja del servicio #24 (con imagen vieja del portal) | Quedó `incierta` (`resultado_no_confirmado`); el CT y los discos sí se destruyeron |
+| Baja del servicio #24 tras reconstruir la imagen | `confirmada`; sin tablas `nap011_*`, dirección liberada |
+| Baja del servicio #25 | `confirmada` a la primera; sin CT, discos ni tablas |
+| Reutilización del VMID 102 (pedido #45 tras la baja de #44) | El CT recibió red y llegó a instalar MariaDB: no heredó reglas |
+
+### Hallazgos
+
+1. **Imagen del portal desactualizada (entorno, resuelto).** La imagen `nap-handoff-api` era del 28/10 y
+   sólo copia `protocol.py` y `configuration.py` de `infra/`; el backend se monta fresco desde el repo.
+   El portal armaba la petición `cleanup` y su propio `parse_request` viejo la rechazaba
+   (`INVALID_REQUEST`), de modo que nunca abría SSH y la baja quedaba `incierta`. Se resolvió con
+   `docker compose build api worker` y recreando ambos. **Hay que reconstruir las imágenes tras cada pull.**
+   Conviene coordinar con Mauro que el compose de traspaso lo advierta o monte `infra/`.
+2. **Plazo de la comprobación frente a la primera inicialización (límite, sin resolver).** En este
+   laboratorio (NFS en TrueNAS, 2 vCPU, ~4 GB) MariaDB terminó de inicializar ~145 s después de `docker run`
+   (#44: 17:29:10→17:31:35; #45: 17:49:51→17:52:16) y el job falló 4 s después, porque `probe_database`
+   espera 120 s. Los dos gates directos del mismo día sí pasaron; no se midió su tiempo de inicialización.
+   No se tocó el motor. Propuesta para el backend (sin implementar): hacer configurable o ampliar ese plazo,
+   y mostrar un diagnóstico específico en vez de `DEPENDENCY_UNAVAILABLE`. Pendiente de backend relacionado: 7.
+3. Reservas de red abiertas de servicios históricos (`app-100`…`app-103`) se dejaron como estaban.
+
+Los pedidos #44/#45 y los servicios #24/#25 permanecen como historia en la base del laboratorio.
+
 ## Operación incierta resuelta con aprobación
 
 La instalación en `pve91` se detuvo con `ACTIVE_OR_UNKNOWN_JOB` por un job histórico `incierto`
@@ -43,11 +80,11 @@ unidad systemd, tablas y pool, y con aprobación explícita, se movió **sólo e
 - Automatizado (sin Proxmox): pruebas del gate y de los scripts en `infra/laboratorio`
   (169 pasan, 8 omitidas). Falla `test_registry_probe.py::test_diagnostic_cli_never_applies_node_configuration`,
   que también falla en `0510c1a` sin estos cambios (preexistente).
-- Real: la tabla anterior.
+- Real: las tablas anteriores y el recorrido por el portal.
 
 ## No probado
 
-- Recorrido de pedido MariaDB desde el portal y acceso TLS desde el portal en este laboratorio.
+- **Acceso TLS desde el portal y revelado de credenciales de MariaDB**: el servicio nunca llegó a `utilizable` (ver abajo), así que no se probó la consulta del portal ni la persistencia a través del portal.
 - Pull privado, uso funcional de secretos por una aplicación, dos cátedras simultáneas.
 - `frt`, migración, HA, varios nodos, carga de un curso, reinicio del host Proxmox.
 
