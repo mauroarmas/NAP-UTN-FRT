@@ -171,3 +171,45 @@ backend coincida siempre con el código del repositorio.
 
 Siguen sin probarse: pull privado, uso funcional de secretos por una aplicación, dos cátedras simultáneas,
 `frt`, varios nodos, un host Proxmox reiniciado, y carga de un curso.
+
+## Validación real de la reparación OCI (hallazgo 5) — revisiones 5 y 6
+
+Método: falla controlada con `limits.json` de 60 s (mínimo permitido) en `pve91`, de modo que el job falle
+durante la primera inicialización de MariaDB; luego se retira ese archivo (vuelven los 300 s) y se repara con
+`reintentar_despliegue` (la misma operación del botón). Pedidos de prueba #48 (revisión 5) y #49 (revisión 6).
+
+| Paso | Resultado |
+|---|---|
+| Falla controlada | Operación `fallida` (`DEPENDENCY_UNAVAILABLE`), pedido `ERROR`, intento 1 `fallido` |
+| Reparación admitida | 202; operación `reparar` con el mismo `operacion_raiz_id`; el LXC se detiene y se envía un job nuevo |
+| Resultado final (#49) | Operación `confirmada`, pedido `ACTIVO`, servicio `RUNNING` / `utilizable`; intentos 1 `fallido` + 2 `confirmado` |
+| Recurso e identidad | Un solo LXC y una sola identidad; contraseñas sin cambios (revisión 1 de ambos secretos) |
+| Acceso y datos | TLS 1.3 verificando la CA desde la PC; fila escrita; recuperada tras detener e iniciar por el portal |
+| Baja posterior | `confirmada`; sin CT, discos ni tablas `nap011_*`; dirección liberada |
+
+### Dos defectos que sólo apareció al reparar de verdad
+
+1. **Nombre de contenedor en uso (corregido).** El `start` del guest hacía `docker run --name nap-…` y en una reparación ese
+   contenedor ya existe. Ahora se retira antes, sólo si lleva la etiqueta `nap.resource_uuid` de esa instancia (otro dueño
+   falla sin tocarlo) y nunca se borran los volúmenes. Con la revisión 5 el contenedor se reemplazó correctamente.
+2. **Base a medio inicializar (corregido).** Si el intento muere durante la primera inicialización (nuestro caso: el job
+   falla y el paro del LXC mata `mariadbd`), el volumen queda con `mysql/` pero sin la base de la aplicación y la entrada
+   oficial lo da por inicializado: nunca crea la base ni el usuario y el acceso no funciona (la reparación del #48 falló
+   así a los 300 s). Ahora, y sólo en ese caso, se reinicia el volumen propio de la instancia: sin la base de la aplicación
+   todavía no puede haber datos de usuario. Una base completa nunca se toca. La reparación del #49 lo comprobó.
+
+Límite conocido: si la interrupción cae entre la creación de la base y la del usuario, el directorio `catedra/` existe y no
+se reinicia; esa reparación fallaría y la salida es la baja y un pedido nuevo.
+
+### Paquete vigente y revisiones
+
+Paquete de `main` en `frt` y `pve91`: `code_sha256` `19c864b15c7d5ffa89e2311d06540a62e44d7d70e2a008dec00c060d7c1ef679`,
+`policy_digest` `77d26a9ffef574d3db9ee97b69aa38039c2e095db85278e37013f15b5b74aadd`. Perfil `docker-ubuntu24:6`
+(sha256 `e153541ae163b306aa1c237136e5852d05fbd2421586cc0f505c7abae53f9f96`) habilitado sólo para `pve91`; las revisiones 1 a 5 son
+historia (bloqueadas por el runner). Un pedido aprobado con una revisión anterior no se puede reparar tras actualizar el
+paquete: el portal lo rechaza con `perfil_aplicacion_no_disponible` y la salida es la baja y un pedido nuevo.
+
+Con el pedido #49 se completó también la validación con los pendientes 1, 6 y 7 cargados en el portal (aprobación con
+runner comprobado y CA configurada). No se probó con una CA ausente ni con un `known_hosts` inválido en el laboratorio real.
+
+Sin probar: pull privado, uso funcional de secretos, dos cátedras a la vez, `frt`, varios nodos, host reiniciado, carga de un curso.

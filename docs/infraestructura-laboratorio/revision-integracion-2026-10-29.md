@@ -151,7 +151,8 @@ la operación `reparar` al bootstrap histórico de IaaS. Ahora es un **intento n
 - **Consola:** nuevo hito `reintento_solicitado`.
 
 Cubierto por `backend/tests/test_reparacion_oci_011.py` (LXC encendido, detenido y rechazo con intento incierto) y por
-los tests de reintento existentes, ajustados para marcar el intento como `fallido`. Automatizado con dobles; **sin
-validación Proxmox real todavía**. Suite del backend: 1123 pasan, 136 omitidas, 0 fallos; PostgreSQL aislado: 135
+los tests de reintento existentes, ajustados para marcar el intento como `fallido`. **Validado además en el laboratorio
+real (pve91)**; esa validación encontró y corrigió dos defectos del guest, ver
+[validación](validacion-motor-0510c1a-2026-11-02.md). Suite del backend: 1123 pasan, 136 omitidas, 0 fallos; PostgreSQL aislado: 135
 pasan y 1 falla preexistente (`test_renovacion_conserva_snapshot_y_una_unica_reserva`, `vigencia_solapada`, también
 falla sin estos cambios).

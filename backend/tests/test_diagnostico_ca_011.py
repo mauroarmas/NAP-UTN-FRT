@@ -148,3 +148,19 @@ async def test_final_verification_stops_with_a_specific_code_before_touching_the
     with pytest.raises(ca.CaPortalNoDisponible) as error:
         await verify(None, None)
     assert error.value.codigo_seguro == 'ca_portal_no_configurada'
+
+
+def test_container_mount_prefix_is_not_duplicated():
+    from app.utils import diagnostico
+    class Marco:
+        filename = '/app/app/services/x.py'; lineno = 7; name = 'f'
+    original = diagnostico.traceback.extract_tb
+    diagnostico.traceback.extract_tb = lambda tb: [Marco()]
+    try:
+        try:
+            raise ValueError(SECRETO)
+        except ValueError as capturado:
+            error = capturado
+        assert diagnostico.resumen_excepcion(error) == 'ValueError en app/services/x.py:7 f'
+    finally:
+        diagnostico.traceback.extract_tb = original

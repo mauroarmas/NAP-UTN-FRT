@@ -26,7 +26,10 @@ def _ubicacion(exc):
     if marco is None:
         return 'sin traza'
     ruta = _RUTA.search(marco.filename.replace('\\', '/'))
-    return f"{ruta.group(1) if ruta else marco.filename.rsplit('/', 1)[-1]}:{marco.lineno} {marco.name}"
+    nombre = ruta.group(1) if ruta else marco.filename.rsplit('/', 1)[-1]
+    if nombre.startswith('app/app/'):  # el contenedor monta el código en /app/app
+        nombre = nombre[4:]
+    return f"{nombre}:{marco.lineno} {marco.name}"
 
 
 def resumen_excepcion(exc):
