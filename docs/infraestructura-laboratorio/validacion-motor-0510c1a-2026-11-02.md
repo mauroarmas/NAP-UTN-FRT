@@ -57,7 +57,7 @@ El pedido salió con la cátedra visible para Ivan (`Catedra Ajena T091`); es da
    (`INVALID_REQUEST`), de modo que nunca abría SSH y la baja quedaba `incierta`. Se resolvió con
    `docker compose build api worker` y recreando ambos. **Hay que reconstruir las imágenes tras cada pull.**
    Conviene coordinar con Mauro que el compose de traspaso lo advierta o monte `infra/`.
-2. **Plazo de la comprobación frente a la primera inicialización (límite, sin resolver).** En este
+2. **Plazo de la comprobación frente a la primera inicialización (límite; confirmado con un paquete experimental, ver abajo).** En este
    laboratorio (NFS en TrueNAS, 2 vCPU, ~4 GB) MariaDB terminó de inicializar ~145 s después de `docker run`
    (#44: 17:29:10→17:31:35; #45: 17:49:51→17:52:16) y el job falló 4 s después, porque `probe_database`
    espera 120 s. Los dos gates directos del mismo día sí pasaron; no se midió su tiempo de inicialización.
@@ -66,6 +66,37 @@ El pedido salió con la cátedra visible para Ivan (`Catedra Ajena T091`); es da
 3. Reservas de red abiertas de servicios históricos (`app-100`…`app-103`) se dejaron como estaban.
 
 Los pedidos #44/#45 y los servicios #24/#25 permanecen como historia en la base del laboratorio.
+
+## Prueba con el plazo ampliado (paquete experimental local)
+
+Para comprobar la causa del hallazgo 2 se hizo una copia **local y no publicada** del motor
+(rama local `exp/plazo-probe`, sin push): `docker/guest.py` con el plazo de `probe_database`
+en 300 s en lugar de 120 s. Como `guest.py` entra en el `policy_digest`, el paquete es otro:
+digest `8447e73978c4d196c597c85ad5742691e025bb97ed3ff7ce62798d059797499a`, `code_sha256` instalado en `pve91`
+`47b759b926f1050831c32a7720db03ca02718b00feabb703f982f45df6a02828`, y perfil nuevo `docker-ubuntu24:3`
+(sha256 `207edd86875b7f977c2470cf89343cb9691bcc0bbeb93f7fbdaa5ba094668dec`, sólo `pve91`) validado con su propio gate:
+job `confirmado`, persistencia (18 s) y los mismos cinco rechazos. `frt` conserva el paquete de `0510c1a`.
+
+En ese gate la inicialización de MariaDB tardó **131 s** (18:02:55→18:05:06): habría superado igualmente
+los 120 s originales y con 300 s el job se confirmó. Respalda que la causa era el plazo.
+
+Recorrido completo por el portal con el perfil `:3` (pedido #46, servicio #26; oferta actualizada con la misma
+operación del botón "Actualizar aplicación"):
+
+| Paso | Resultado |
+|---|---|
+| Despliegue y verificación del portal | `confirmada`; servicio `RUNNING` / `utilizable` (el portal repitió `SELECT 1` con TLS desde su red) |
+| Revelado de acceso (cuenta de la cátedra) | Dirección, puerto 3306, base, usuario, contraseña y CA pública; sin root |
+| Conexión desde la PC del portal | TLS 1.3 verificando la CA entregada y la identidad del servidor; escritura de una fila |
+| Detener | `confirmada`; servicio `STOPPED`; el revelado quedó bloqueado (`acceso_no_preparado`) |
+| Iniciar | `confirmada`; la fila se recuperó con las mismas credenciales |
+| Reiniciar | `confirmada`; la fila se recuperó |
+| Baja | `confirmada`; sin CT, discos ni tablas `nap011_*`; dirección liberada |
+
+**Estado resultante de `pve91`:** corre el paquete **experimental** (plazo 300 s) con `docker-ubuntu24:3`
+habilitado; `:1` y `:2` quedan bloqueados por el runner (su digest ya no coincide con el paquete). Para volver
+al motor publicado: reinstalar `HEAD` con `actualizar-nodos-011.sh` y volver a habilitar la revisión
+correspondiente (hoy `:2`) con su gate; no se hizo. El cambio real en el motor lo decide el backend.
 
 ## Operación incierta resuelta con aprobación
 
@@ -84,8 +115,8 @@ unidad systemd, tablas y pool, y con aprobación explícita, se movió **sólo e
 
 ## No probado
 
-- **Acceso TLS desde el portal y revelado de credenciales de MariaDB**: el servicio nunca llegó a `utilizable` (ver abajo), así que no se probó la consulta del portal ni la persistencia a través del portal.
 - Pull privado, uso funcional de secretos por una aplicación, dos cátedras simultáneas.
+- La validación del portal con el **motor publicado** (`0510c1a`, plazo 120 s) en este laboratorio: sólo con el plazo ampliado, en copia local.
 - `frt`, migración, HA, varios nodos, carga de un curso, reinicio del host Proxmox.
 
 ## Pendientes de backend (identificados en la revisión, sin implementar aquí)
