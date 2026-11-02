@@ -72,6 +72,9 @@ async def verify_node_profile(reference, *, node, runner=None, settings=None):
             client.validar_destino(node)
         except RunnerError:
             raise unverifiable from None
+        # Sin la CA pública de los nodos el portal no podría verificar el TLS de la instancia después.
+        from app.services.ca_portal_service import exigir_ca_portal
+        exigir_ca_portal(getattr(cfg, 'application_gateway_ca_file', ''))
     request = {'protocol': PROTOCOL, 'action': 'profiles'}
     try:
         raw_reply = await client.execute(request, node=node)

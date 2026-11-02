@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from app.database import AsyncSessionLocal
 from app.services import operacion_service, scheduler
+from app.utils.diagnostico import resumen_excepcion
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +19,8 @@ async def _heartbeat(sessions, lease):
                 if not await operacion_service.heartbeat(db, lease):
                     return
                 await db.commit()
-        except Exception:
-            logger.error('Heartbeat de operación no confirmado')
+        except Exception as exc:
+            logger.error('Heartbeat de operación no confirmado: %s', resumen_excepcion(exc))
             return
 
 
@@ -35,11 +36,12 @@ async def procesar_una(sessions=AsyncSessionLocal, *, owner=None, pve=None, runn
     try:
         from app.services.orquestacion_service import procesar_lease
         await procesar_lease(sessions, lease, pve=pve, runner=runner, after_dispatch=after_dispatch)
-    except Exception:
-        logger.error('Operación pendiente de reconciliación por fallo del ejecutor')
+    except Exception as exc:
+        logger.error('Operación pendiente de reconciliación por fallo del ejecutor: %s', resumen_excepcion(exc))
         async with sessions() as db:
             await operacion_service.ceder(db, lease, incierta=True, segundos=30,
-                error_codigo='ejecucion_no_confirmada', error_detalle_seguro='No se confirmó el resultado; la capacidad permanece comprometida')
+                error_codigo=getattr(exc, 'codigo_seguro', 'ejecucion_no_confirmada'),
+                error_detalle_seguro=getattr(exc, 'detalle_seguro', 'No se confirmó el resultado; la capacidad permanece comprometida'))
             await db.commit()
     finally:
         # CancelledError/corte de proceso conservan el lease hasta takeover.
@@ -122,11 +124,12 @@ async def procesar_ingesta_una(sessions=AsyncSessionLocal,*,owner=None,runner=No
     try:
         from app.services.application_execution_service import ingerir_trabajo
         await ingerir_trabajo(sessions,lease,runner=runner,pve=pve,probe=probe)
-    except Exception:
-        logger.error('Consulta de consola no confirmada; el instalador conserva su estado')
+    except Exception as exc:
+        logger.error('Consulta de consola no confirmada; el instalador conserva su estado: %s',resumen_excepcion(exc))
         async with sessions() as db:
             await operacion_service.ceder(db,lease,incierta=True,segundos=2,
-                error_codigo='consola_no_confirmada',error_detalle_seguro='No se pudo actualizar el seguimiento; no se volvió a ejecutar el instalador')
+                error_codigo=getattr(exc,'codigo_seguro','consola_no_confirmada'),
+                error_detalle_seguro=getattr(exc,'detalle_seguro','No se pudo actualizar el seguimiento; no se volvió a ejecutar el instalador'))
             await db.commit()
     finally:
         heartbeat.cancel()

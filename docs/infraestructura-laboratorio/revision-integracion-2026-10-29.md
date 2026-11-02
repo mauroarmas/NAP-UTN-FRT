@@ -42,8 +42,8 @@ no es el servicio #23 de nuestra prueba local.
 | 3. Reglas huérfanas al dar de baja | **Resuelto localmente.** La baja OCI llama a cleanup antes de liberar identidad/capacidad. El nodo exige VMID ausente, identidad privada, recibo y reglas exactas; la repetición es segura. También se corrigió la liberación de dirección. | Mantenerlo en el motor. El compañero todavía necesita recibir esos cambios y comprobar la baja/reutilización en su laboratorio. No sustituirlo por borrado heurístico por hostname. |
 | 4. Nodos offline impiden confirmar ausencia | **Vigente e intencionalmente conservador.** `observar` exige todos los nodos online, disponibilidad global del VMID y ausencia de volúmenes. | Conservar reservas y reconciliar cuando se recupere visibilidad. Una mejora para bajas con nodos offline requiere comprobar fencing, pertenencia y almacenamiento; no basta ignorar el nodo. Quitar miembros del clúster no es una solución automática del portal. |
 | 5. Reintento Docker y acciones deshabilitadas | **Parcial.** El reintento crea reparar y conserva contexto del intento anterior; el ejecutor aún conduce ese caso al bootstrap histórico. La UI actual, en cambio, usa acciones_habilitadas: permite la baja administrativa con identidad incierta si no existe otra operación abierta. | Prioridad alta para reparación OCI: nuevo intento separado, secretos estables, identidad y estado previo reconciliados; nunca recreación/reinstalación ciega. Conservar los bloqueos cuando haya una operación abierta. |
-| 6. CA del portal / bucle de comprobación | La confianza en la CA **se configuró y comprobó localmente**; se conservó la CA anterior para Draw.io. Está documentada en la [guía de MariaDB](../mariadb-paas.md). La falta de CA aún puede terminar en un diagnóstico genérico durante verificación. | Validar esa configuración antes y dar un diagnóstico claro. En su portal deben confiar en la CA pública emisora de cada nodo que autoricen; nunca copiar ca.key al portal. |
-| 7. Excepciones sin detalle | **Vigente.** Los bloques generales del worker usan logger.error sin traza. | Mejorar diagnóstico interno con tipo y ubicación de la excepción. Revisar redacción antes de habilitar exc_info=True global: el mensaje de una excepción puede contener valores privados. La consola del usuario debe seguir depurada. |
+| 6. CA del portal / bucle de comprobación | **Resuelto el 02/11/2026** (ver nota 6 y 7). Antes: la confianza en la CA **se configuró y comprobó localmente**; se conservó la CA anterior para Draw.io. Está documentada en la [guía de MariaDB](../mariadb-paas.md). La falta de CA aún puede terminar en un diagnóstico genérico durante verificación. | Validar esa configuración antes y dar un diagnóstico claro. En su portal deben confiar en la CA pública emisora de cada nodo que autoricen; nunca copiar ca.key al portal. |
+| 7. Excepciones sin detalle | **Resuelto el 02/11/2026** (ver nota 6 y 7). Antes: **vigente.** Los bloques generales del worker usan logger.error sin traza. | Mejorar diagnóstico interno con tipo y ubicación de la excepción. Revisar redacción antes de habilitar exc_info=True global: el mensaje de una excepción puede contener valores privados. La consola del usuario debe seguir depurada. |
 | 8. Mínimo de dos vCPU | **Documentado y conservado.** El perfil actual sólo valida Medium: 2 vCPU, 1024 MB RAM, 8 GB disco. | Respetar capacidad por nodo y los recursos efectivos de la VM que aloja PVE. No rebajar el mínimo ni considerar Small validado por este informe. |
 | 9. Creación de CA del nodo | Su commit aporta `crear-ca-nodo.sh`: genera la clave en el nodo, se niega a sobrescribir PKI y comprueba InstanceTLS.from_node. Nuestra CA ya estaba creada y fue comprobada en el laboratorio. | Aprovecharlo como herramienta de ese laboratorio. Completar además la confianza pública del portal; crear una CA no configura automáticamente el acceso de los clientes. No ejecutar sobre nuestra PKI existente. |
 
@@ -115,3 +115,20 @@ Límite: si en una instalación real se olvida configurar `RUNNER_NODES` por com
 omitiéndose; cerrarlo del todo cambiaría el comportamiento de muchas pruebas. Cubierto por
 `backend/tests/test_verificacion_runner_011.py` (automatizado; no es una validación Proxmox real).
 Suite completa del backend tras el cambio: 1108 pasan, 136 omitidas (las de PostgreSQL), 0 fallos.
+
+## Nota 02/11/2026 — hallazgos 6 y 7 resueltos
+
+**6. CA del portal.** Nuevo `backend/app/services/ca_portal_service.py`: distingue CA no configurada,
+ilegible e inválida (también rechaza una clave privada puesta por error). Con runners configurados,
+`verify_node_profile` rechaza evaluar/aprobar con 409 (`ca_portal_no_configurada`, `ca_portal_ilegible`,
+`ca_portal_invalida`) antes de abrir SSH o reservar capacidad. Si la CA falla después, la verificación final
+queda con ese código y un texto fijo en la operación, en lugar del genérico `consola_no_confirmada`.
+Con un doble de la comprobación (pruebas) no se evalúa.
+
+**7. Excepciones.** Nuevo `backend/app/utils/diagnostico.py`: registra tipos (con causas) y archivo:línea:función;
+**nunca** el mensaje, argumentos ni variables. Se usa en los tres manejadores generales del worker, en
+`infraestructura_io.ejecutar` (que descartaba la causa con `from None`) y en las comprobaciones web y SQL.
+No se activó `exc_info` global. La consola del usuario no cambia.
+
+Pruebas: `backend/tests/test_diagnostico_ca_011.py` (automatizado; no es validación Proxmox real).
+Suite completa del backend: 1120 pasan, 136 omitidas (PostgreSQL), 0 fallos.

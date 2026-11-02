@@ -1,9 +1,13 @@
 """I/O síncrono acotado; vencer la espera no cancela un efecto externo."""
 import asyncio
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from app.utils.diagnostico import resumen_excepcion
+
+logger = logging.getLogger(__name__)
 _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix='nap-infra')
 READ_TIMEOUT = 5
 WRITE_TIMEOUT = 10
@@ -31,7 +35,8 @@ async def ejecutar(function, *args, timeout=READ_TIMEOUT, incierto=False, **kwar
     future = _executor.submit(function, *args, **kwargs)
     try:
         return await asyncio.wait_for(asyncio.wrap_future(future), timeout)
-    except Exception:
+    except Exception as exc:
+        logger.warning('Operación de infraestructura no confirmada: %s', resumen_excepcion(exc))
         raise InfraNoVerificable(incierto=incierto) from None
 
 
