@@ -25,7 +25,7 @@ OUT=${OUT:-$HOME/runnerjson}
 RUNNER_JSON=${RUNNER_JSON:-$HOME/runnerjson/runner-pve91.json}
 DEST=/root/nap011-gate-lab
 GATE=$DEST/validar_motor_docker_lab.py
-CTL=/tmp/nap-gate-ssh-%h
+CTL=${NAP_SSH_CTL:-/tmp/nap-lab-ssh-%h}
 SSH_OPTS="-o ControlMaster=auto -o ControlPath=$CTL -o ControlPersist=600 -o SendEnv=-LC_*"
 die() { echo "ERROR: $*" >&2; exit 1; }
 remote() { ssh $SSH_OPTS root@$NODE_IP "$@"; }

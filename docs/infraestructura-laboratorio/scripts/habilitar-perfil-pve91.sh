@@ -29,7 +29,7 @@ GATE_NODOS=${GATE_NODOS:-pve91}
 NODES=${NODES:-"frt=192.168.100.90 pve91=192.168.100.91"}
 OUT=${OUT:-$HOME/runnerjson}
 PRIV=${PRIV:-$HOME/.local/share/nap009}
-CTL=/tmp/nap-habilitar-ssh-%h
+CTL=${NAP_SSH_CTL:-/tmp/nap-lab-ssh-%h}
 SSH_OPTS="-o ControlMaster=auto -o ControlPath=$CTL -o ControlPersist=300 -o SendEnv=-LC_*"
 die() { echo "ERROR: $*" >&2; exit 1; }
 mkdir -p "$OUT"

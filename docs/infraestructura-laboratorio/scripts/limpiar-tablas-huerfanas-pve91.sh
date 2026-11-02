@@ -15,7 +15,7 @@
 set -u
 NODE_IP=${NODE_IP:-192.168.100.91}
 [ $# -eq 0 ] || { echo "este script ya no acepta argumentos (no elimina nada); ver la cabecera" >&2; exit 2; }
-ssh -o SendEnv=-LC_* root@$NODE_IP 'bash -s' <<'REMOTE'
+ssh -o ControlPath=${NAP_SSH_CTL:-/tmp/nap-lab-ssh-%h} -o SendEnv=-LC_* root@$NODE_IP 'bash -s' <<'REMOTE'
 echo "contenedores del nodo:"; pct list
 echo; echo "tablas bridge nap011_* presentes (sólo informativo):"
 nft -j list tables | python3 -c "

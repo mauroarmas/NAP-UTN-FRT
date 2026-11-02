@@ -27,7 +27,7 @@ TPL_SHA=75a827c4ea4b2bef42e0521f51ed869e398f56b0e6b131c3cd5d284a2e0e08b5
 DIGEST_ESPERADO=4ebb0a71e161fd3d20c89a4c29ec60c1e735ac1cfe3cc0d7dcf732e133c18ac0
 PROFILE_NODES=${PROFILE_NODES:-pve91}
 PERFIL_REV=${PERFIL_REV:-2}
-CTL=/tmp/nap-actualizar-ssh-%h
+CTL=${NAP_SSH_CTL:-/tmp/nap-lab-ssh-%h}
 SSH_OPTS="-o ControlMaster=auto -o ControlPath=$CTL -o ControlPersist=300"
 die() { echo "ERROR: $*" >&2; exit 1; }
 
