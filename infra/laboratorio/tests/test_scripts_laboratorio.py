@@ -102,3 +102,80 @@ def test_enable_script_requires_persistence_and_confirmed_job_evidence():
 def test_gate_launcher_does_not_treat_data_mount_as_persistence():
     text = (SCRIPTS/'gate-docker-pve91.sh').read_text()
     assert 'NO acredita' in text and 'persistencia)' in text
+
+
+# ---------- habilitación de un perfil con varios nodos ----------
+
+def _enable(tmp_path, monkeypatch, *, nodes=('frt', 'pve91'), skip_evidence=(), different_definition=None):
+    """Ejecuta en proceso el validador de habilitar-perfil-pve91.sh con los archivos que dejaría la corrida real."""
+    from hashlib import sha256 as digest
+    sys.path.insert(0, str(ROOT))
+    from backend.app.schemas.application_profiles import canonical
+    definition = {'id': 'docker-ubuntu24', 'revision': 7, 'origen': 'imagen_docker',
+        'base': {'os': 'ubuntu', 'version': '24.04', 'arquitectura': 'amd64',
+                 'volumen_lxc': 'local:vztmpl/ubuntu-24.04.tar.zst', 'sha256': 'b'*64},
+        'cluster_uuid': '0d69119f-054a-40b3-b3c1-4b1b2c707917', 'nodes': sorted(nodes),
+        'platform': {'pve': '9.2.2', 'kernel': '7.0.2-6-pve', 'arquitectura': 'amd64'},
+        'runtime': {'docker': '29.1.3', 'containerd': '2.2.1', 'runc': '1.3.4', 'storage_driver': 'overlayfs'},
+        'features': ['nesting=1', 'keyctl=1'], 'security': {'unprivileged': True, 'apparmor': 'enforce', 'seccomp': True},
+        'minimum_resources': {'vcpus': 2, 'ram_mb': 1024, 'disk_gb': 8},
+        'network_profile_id': 'lab-applications-011', 'policy_bundle_sha256': 'c'*64,
+        'install_timeout_seconds': 2700, 'max_active_jobs_per_node': 2}
+    sha = digest(canonical(definition)).hexdigest()
+    for name in nodes:
+        profile, reference = definition, {'id': 'docker-ubuntu24', 'revision': 7, 'sha256': sha}
+        if different_definition == name:
+            profile = {**definition, 'policy_bundle_sha256': 'd'*64}
+        (tmp_path/('gate-validado-%s.json' % name)).write_text(json.dumps({'phase': 'cleaned', 'profile': profile, 'perfil': reference}))
+        if name not in skip_evidence:
+            (tmp_path/('evidencia-mariadb-rev7-%s.json' % name)).write_text(json.dumps({'job_state': 'confirmado', 'perfil_revision': 7,
+                'comprobaciones': ['aislamiento', 'runtime', 'salud', 'autenticacion_tcp']}))
+            (tmp_path/('persistencia-mariadb-rev7-%s.json' % name)).write_text(json.dumps({'escrito': True, 'recuperado_tras_reinicio': True}))
+    for name in ('frt', 'pve91'):
+        pending = {'definition': {**definition, 'nodes': ['pve91']}, 'sha256': 'x', 'estado': 'pendiente_validacion',
+                   'motivo_codigo': 'VALIDATION_REQUIRED', 'validacion': None}
+        (tmp_path/('runner-%s.actual.json' % name)).write_text(json.dumps({'node': name, 'profiles': {'docker-ubuntu24:7': pending}, 'networks': {}}))
+    monkeypatch.setenv('PERFIL_REV', '7'); monkeypatch.setenv('GATE_NODOS', ' '.join(nodes))
+    code = heredoc_python('habilitar-perfil-pve91.sh', 0)
+    saved = sys.argv; sys.argv = ['-', str(ROOT), str(tmp_path), 'frt=192.0.2.1', 'pve91=192.0.2.2']
+    try:
+        exec(compile(code, 'habilitar-perfil-pve91.sh:PY', 'exec'), {'__name__': '__main__'})
+        return 0, ''
+    except SystemExit as exc:
+        return 1, str(exc.code)
+    finally:
+        sys.argv = saved
+
+
+def test_enable_with_two_nodes_requires_a_validated_gate_for_each_one(tmp_path, monkeypatch):
+    code, message = _enable(tmp_path, monkeypatch)
+    assert code == 0, message
+    entry = json.loads((tmp_path/'APPLICATION_PROFILES.habilitado.json').read_text())['docker-ubuntu24:7']
+    assert entry['estado'] == 'habilitado' and entry['definition']['nodes'] == ['frt', 'pve91']
+    for name in ('frt', 'pve91'):   # el mismo perfil, ya habilitado, queda en el runner.json de cada nodo
+        assert json.loads((tmp_path/('runner-%s.json' % name)).read_text())['profiles']['docker-ubuntu24:7'] == entry
+
+
+def test_enable_refuses_a_node_without_its_own_evidence(tmp_path, monkeypatch):
+    code, message = _enable(tmp_path, monkeypatch, skip_evidence=('frt',))
+    assert code == 1 and 'evidencia-mariadb-rev7-frt.json' in message and 'no se habilita' in message
+    assert not (tmp_path/'APPLICATION_PROFILES.habilitado.json').exists()
+
+
+def test_enable_refuses_gates_that_validated_different_definitions(tmp_path, monkeypatch):
+    code, message = _enable(tmp_path, monkeypatch, different_definition='frt')
+    assert code == 1 and 'otra definición' in message
+
+
+def test_enable_refuses_nodes_that_were_not_checked(tmp_path, monkeypatch):
+    # El gate validó un perfil que declara ambos nodos, pero sólo se pide habilitar pve91: no coincide.
+    code, message = _enable(tmp_path, monkeypatch, nodes=('frt', 'pve91'))
+    assert code == 0
+    monkeypatch.setenv('GATE_NODOS', 'pve91')
+    saved = sys.argv; sys.argv = ['-', str(ROOT), str(tmp_path), 'frt=192.0.2.1', 'pve91=192.0.2.2']
+    try:
+        with pytest.raises(SystemExit) as stop:
+            exec(compile(heredoc_python('habilitar-perfil-pve91.sh', 0), 'x', 'exec'), {'__name__': '__main__'})
+        assert 'sólo se habilitan los nodos comprobados' in str(stop.value)
+    finally:
+        sys.argv = saved

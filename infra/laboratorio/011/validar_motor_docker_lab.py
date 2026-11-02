@@ -22,6 +22,7 @@ import re
 from pathlib import Path
 import secrets
 import shlex
+import socket
 import subprocess
 import sys
 from uuid import UUID,uuid4
@@ -29,7 +30,7 @@ from uuid import UUID,uuid4
 BASE=Path('/root/nap011-final-docker-gate')
 VMID=900011
 # Entorno del laboratorio (el original fija proxmox / local-lvm / 172.16.36.x).
-NODE='pve91'
+NODE=socket.gethostname()   # el gate corre EN el nodo
 STORAGE='truenas'
 SLOT_ADDRESS='192.168.100.119'   # último slot de lab-applications-011; el portal reserva desde .100
 GATEWAY='192.168.100.1'
@@ -112,7 +113,7 @@ def initialize(data):
     from node_executor import ApplicationNodeExecutor
     node=ApplicationNodeExecutor(profiles=None,cluster_uuid=data['cluster_uuid'])
     definition={'id':'docker-ubuntu24','revision':data.get('profile_revision',1),'origen':'imagen_docker','base':lock['base'],
-        'cluster_uuid':data['cluster_uuid'],'nodes':[NODE],'platform':node.platform(),
+        'cluster_uuid':data['cluster_uuid'],'nodes':sorted(set(data.get('nodes') or [NODE])|{NODE}),'platform':node.platform(),
         'runtime':{**lock['packages'],'storage_driver':lock['storage_driver']},'features':['nesting=1','keyctl=1'],
         'security':{'unprivileged':True,'apparmor':'enforce','seccomp':True},'minimum_resources':lock['minimum_resources'],
         'network_profile_id':'lab-applications-011','policy_bundle_sha256':bundle,'install_timeout_seconds':2700,'max_active_jobs_per_node':2}

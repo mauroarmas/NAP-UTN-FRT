@@ -3,7 +3,7 @@
 # laboratorio (infra/laboratorio/011/validar_motor_docker_lab.py) con traefik/whoami (Docker Hub).
 # No habilita perfiles: solo prueba que el motor funciona. Habilitar es un paso aparte.
 #
-# Uso: APLICACION=whoami|mariadb [PERFIL_REV=2] gate-docker-pve91.sh preparar | iniciar | estado | evidencia | persistencia | rechazos | limpiar
+# Uso: APLICACION=whoami|mariadb [PERFIL_REV=2] [NODO=pve91 NODE_IP=192.168.100.91 NODOS_PERFIL="frt pve91"] gate-docker-pve91.sh preparar | iniciar | estado | evidencia | persistencia | rechazos | limpiar
 #   preparar  copia el gate al nodo y sella el candidato (no crea el invitado)
 #   iniciar   crea el LXC de prueba (VMID 900011, slot .119) y lanza el despliegue de whoami
 #   estado    consulta fase, invitado y resultado (sólo lectura)
@@ -19,11 +19,13 @@
 # El candidato vence a la hora de 'preparar'; si venció, 'limpiar' y volver a 'preparar'.
 set -u
 REPO=${REPO:-$HOME/Escritorio/NAP-UTN-FRT}
+NODO=${NODO:-pve91}                       # nodo donde corre el gate (hostname de Proxmox)
 NODE_IP=${NODE_IP:-192.168.100.91}
+NODOS_PERFIL=${NODOS_PERFIL:-$NODO}       # nodos que declara el perfil validado (p. ej. "frt pve91")
 APLICACION=${APLICACION:-whoami}
 PERFIL_REV=${PERFIL_REV:-2}
 OUT=${OUT:-$HOME/runnerjson}
-RUNNER_JSON=${RUNNER_JSON:-$HOME/runnerjson/runner-pve91.json}
+RUNNER_JSON=${RUNNER_JSON:-$HOME/runnerjson/runner-$NODO.json}
 DEST=/root/nap011-gate-lab
 GATE=$DEST/validar_motor_docker_lab.py
 CTL=${NAP_SSH_CTL:-/tmp/nap-lab-ssh-%h}
@@ -40,11 +42,11 @@ quorum() {
 case "${1:-}" in
   preparar)
     [ -f "$RUNNER_JSON" ] || die "no existe $RUNNER_JSON (corré actualizar-nodos-011.sh primero)"
-    DATA=$(APLICACION=$APLICACION PERFIL_REV=$PERFIL_REV python3 -I - "$RUNNER_JSON" <<'PY'
+    DATA=$(APLICACION=$APLICACION PERFIL_REV=$PERFIL_REV NODO=$NODO NODOS_PERFIL="$NODOS_PERFIL" python3 -I - "$RUNNER_JSON" <<'PY'
 import json, os, sys
 cfg = json.load(open(sys.argv[1]))
 net = json.loads(json.dumps(cfg['networks']['lab-applications-011']))
-net['nodes'] = ['pve91']
+net['nodes'] = [os.environ['NODO']]
 net['slots'] = {'app-119': net['slots']['app-119']}   # el gate usa un solo slot reservado
 app = os.environ['APLICACION']
 if app == 'mariadb':
@@ -66,6 +68,7 @@ elif app == 'whoami':
 else:
     sys.exit('APLICACION debe ser whoami o mariadb')
 print(json.dumps({'cluster_uuid': cfg['cluster_uuid'], 'profile_revision': int(os.environ['PERFIL_REV']),
+                  'nodes': sorted(os.environ['NODOS_PERFIL'].split()),
                   'persistencia': json.loads(os.environ.get('PERSISTENCIA', '[]')), 'image': image, 'network': net, **extra}))
 PY
     ) || die "no pude armar la entrada del gate"
@@ -81,7 +84,7 @@ PY
   iniciar)  quorum; remote "python3 -I $GATE --start" ;;
   estado)   remote "python3 -I $GATE --status" ;;
   evidencia)
-    mkdir -p "$OUT"; F="$OUT/evidencia-$APLICACION-rev$PERFIL_REV.json"
+    mkdir -p "$OUT"; F="$OUT/evidencia-$APLICACION-rev$PERFIL_REV-$NODO.json"
     remote "python3 -I $GATE --status" > "$F.tmp" || die "no pude leer el estado"
     python3 -I - "$F.tmp" "$F" "$APLICACION" "$PERFIL_REV" <<'PY' || die "el job no está confirmado; no se guardó evidencia"
 import json, sys
@@ -96,7 +99,7 @@ PY
     rm -f "$F.tmp" ;;
   persistencia)
     [ "$APLICACION" = mariadb ] || die "la persistencia se acredita con APLICACION=mariadb"
-    mkdir -p "$OUT"; F="$OUT/persistencia-mariadb-rev$PERFIL_REV.json"
+    mkdir -p "$OUT"; F="$OUT/persistencia-mariadb-rev$PERFIL_REV-$NODO.json"
     # Corre en el nodo como root; la contraseña sale del contexto root-only y viaja por stdin, nunca por argv ni salida.
     remote "python3 -I - " > "$F" <<'PY' || die "falló la prueba de persistencia (ver salida parcial en $F)"
 import json, secrets, subprocess, sys, time
@@ -129,7 +132,7 @@ PY
     cat "$F" ;;
   rechazos)
     [ "$APLICACION" = mariadb ] || die "los rechazos se prueban con APLICACION=mariadb"
-    mkdir -p "$OUT"; F="$OUT/rechazos-mariadb-rev$PERFIL_REV.json"
+    mkdir -p "$OUT"; F="$OUT/rechazos-mariadb-rev$PERFIL_REV-$NODO.json"
     # Control positivo primero: sin él un rechazo no significa nada. Secretos por stdin, nunca en argv/salida.
     remote "python3 -I - " > "$F" <<'PY' || die "algún rechazo NO se produjo o el control positivo falló (ver $F)"
 import json, re, subprocess, sys

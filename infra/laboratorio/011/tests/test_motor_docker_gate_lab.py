@@ -39,7 +39,9 @@ def test_existing_vmid_prevents_initialization_before_assets_or_external_command
 
 
 def test_lab_constants_replace_the_original_environment(gate):
-    assert (gate.NODE,gate.STORAGE,gate.SLOT_ADDRESS) == ('pve91','truenas','192.168.100.119')
+    import socket
+    # El gate corre en el nodo: su nombre sale del hostname (pve91, frt, ...), no de una constante.
+    assert (gate.NODE,gate.STORAGE,gate.SLOT_ADDRESS) == (socket.gethostname(),'truenas','192.168.100.119')
     assert 'proxmox' not in Path(gate.__file__).read_text().split('POOL=',1)[1].replace('original fija proxmox','')
 
 
@@ -47,7 +49,7 @@ def _normalized(text,lab):
     """Cuerpo ejecutable sin el encabezado documental ni el bloque de constantes de entorno."""
     body=text.split("\nPOOL=",1)[1]
     if lab:
-        for old,new in [("'/nodes/'+NODE+'/storage/'+STORAGE+'/content'","'/nodes/proxmox/storage/local-lvm/content'"),
+        for old,new in [("'nodes':sorted(set(data.get('nodes') or [NODE])|{NODE})","'nodes':['proxmox']"),("'/nodes/'+NODE+'/storage/'+STORAGE+'/content'","'/nodes/proxmox/storage/local-lvm/content'"),
             ("'/nodes/'+NODE+'/lxc/'","'/nodes/proxmox/lxc/'"),("[NODE]","['proxmox']"),
             ("'node':NODE","'node':'proxmox'"),("node=NODE","node='proxmox'"),("('node',NODE)","('node','proxmox')"),
             ("node=NODE;","node='proxmox';"),("SLOT_ADDRESS","'172.16.36.81'"),("STORAGE+':8'","'local-lvm:8'"),
