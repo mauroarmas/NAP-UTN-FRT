@@ -25,7 +25,8 @@ async def test_cli_plan_is_read_only_and_apply_requires_explicit_copy_and_refere
     monkeypatch.setattr('app.database.AsyncSessionLocal', pg_sessions)
     from os import environ
     monkeypatch.setattr(settings, 'database_url', environ['TEST_DATABASE_URL'])
-    args = SimpleNamespace(base_copia='nap_test_009', referencia='corte-cli', operador=None, aplicar=False,
+    base_copia = environ['TEST_DATABASE_URL'].rsplit('/', 1)[-1]  # el CI usa nap_test_ci; el README local, nap_test_009
+    args = SimpleNamespace(base_copia=base_copia, referencia='corte-cli', operador=None, aplicar=False,
         evaluar=False, habilitar=False, reemitir_inicial=None, salida=None)
     user_id, version, password = admin.id, admin.auth_version, admin.password_hash
     assert await execute(args) == 0

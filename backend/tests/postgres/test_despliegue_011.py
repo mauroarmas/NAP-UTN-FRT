@@ -6,6 +6,7 @@
 """
 import asyncio
 from copy import deepcopy
+from datetime import date, timedelta
 from uuid import uuid4
 
 from fastapi import HTTPException
@@ -182,10 +183,12 @@ async def test_renovacion_conserva_snapshot_y_una_unica_reserva(
     await db.commit()
 
     body_renov = deepcopy(app.body)
+    # Contigua y posterior al período vigente, sea cual sea la fecha de ejecución (antes estaba fija a fines de octubre).
+    base_hasta = date.fromisoformat(app.body["vigencia"]["hasta"])
     body_renov["vigencia"] = {
         "tipo": "personalizado",
-        "desde": "2026-11-28",
-        "hasta": "2026-12-27",
+        "desde": (base_hasta + timedelta(days=1)).isoformat(),
+        "hasta": (base_hasta + timedelta(days=30)).isoformat(),
     }
 
     # Evaluar renovación
