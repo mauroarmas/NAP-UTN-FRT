@@ -73,6 +73,11 @@ async def test_only_final_job_and_matching_tls_probe_deliver_once(db,admin,usuar
         identity,target=await destination(db,service)
         assert target['address']==calls[0]['address']
         settings=get_settings()
+        await db.refresh(usuario_catedra)
+        from app.services.service_access_service import metadatos as metadatos_sin_gateway
+        sin_gateway=await metadatos_sin_gateway(db,actor=usuario_catedra,servicio_id=service.id)
+        assert not sin_gateway['puede_abrir_con_nap'] and sin_gateway['direccion'] is None
+        assert 'falta configurar el acceso' in sin_gateway['instrucciones'].lower() and 'vigencia' not in sin_gateway['instrucciones']
         monkeypatch.setattr(settings,'application_gateway_domain','apps.example.edu')
         monkeypatch.setattr(settings,'application_gateway_ca_file','/test/ca.crt')
         await db.refresh(usuario_catedra)

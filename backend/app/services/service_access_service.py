@@ -103,7 +103,8 @@ async def _application_context(db,actor,service):
     state='entregado' if ready and running and covered else 'no_disponible' if ready else 'no_preparado'
     instructions=('Abrí la aplicación con tu sesión de NAP. Si tiene su propio login, usá las cuentas de esa aplicación.'
         if may_open else 'El acceso se habilitará al terminar la instalación y las comprobaciones automáticas.'
-        if not ready else 'Iniciá el servicio con vigencia autorizada antes de abrirlo.')
+        if not ready else 'La aplicación está lista, pero falta configurar el acceso a las aplicaciones con NAP. Avisá a administración.'
+        if web and running and covered and not configurado() else 'Iniciá el servicio con vigencia autorizada antes de abrirlo.')
     if database and ready and running and covered:
         instructions='Conectate desde la red autorizada con un cliente MariaDB. Activá TLS y verificá el certificado con la CA descargable. La base de esta instancia es catedra; el usuario docente administra sólo esa base. Después de iniciar o reiniciar, la base puede tardar unos segundos en aceptar conexiones.'
     result={'servicio_id':service.id,'modelo_servicio':service.modelo_servicio,'producto':'aplicacion' if web else 'mariadb' if database else None,
