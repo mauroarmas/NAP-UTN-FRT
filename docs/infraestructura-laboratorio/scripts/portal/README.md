@@ -25,7 +25,7 @@ que terminan en `@lab.invalid`, nunca la cuenta de otra persona. Hágalo con per
 ```bash
 cd docs/infraestructura-laboratorio/scripts/portal
 ./portal.sh cuenta --activar
-./portal.sh oferta --clave oferta-rev7                              # al cambiar el perfil vigente
+./portal.sh oferta --clave oferta-rev7                              # al cambiar el perfil vigente (MariaDB)
 ./portal.sh pedido --usuario docente@example.edu --catedra 3 --nodo pve91 --clave demo-a
 ./consulta-sql.sh "select id||' '||estado||'/'||disponibilidad_aplicacion from servicios order by id desc limit 3"
 ./portal.sh revelar --servicio 30 --usuario docente@example.edu --salida /tmp/acceso-a.json
@@ -65,3 +65,19 @@ almacenamiento compartido llegó a no alcanzar para la segunda y se amplió el T
 - `portal_ops.py` importa el backend: corre únicamente dentro del contenedor `api` y necesita que ese contenedor tenga el código actual
   (recrear api y worker tras cada actualización del repositorio).
 - No hay llamadas a Proxmox directas: todo pasa por el portal.
+
+## Servicio web de prueba (nginx)
+
+`oferta` y `pedido` aceptan `--aplicacion mariadb` (por defecto, plantilla 23, PaaS) o `--aplicacion nginx` (plantilla 22, SaaS,
+`nginxinc/nginx-unprivileged`, puerto 8080 hacia dentro). Sin contraseñas ni secretos: no hay nada que revelar.
+
+```bash
+./portal.sh cuenta --activar
+./portal.sh oferta --aplicacion nginx --clave oferta-nginx-rev8      # al cambiar el perfil vigente
+./portal.sh pedido --aplicacion nginx --usuario <titular> --catedra 3 --nodo pve91 --clave nginx-a
+./consulta-sql.sh "select acceso_metadata->>'endpoint' from servicios order by id desc limit 1"   # https://nap-app-NNN:8443
+```
+
+El servicio se entrega por HTTPS en el puerto **8443** de la instancia, con un certificado de la CA del nodo (válido por nombre y por IP). El 8080 interno no se
+expone. Verificado desde otra máquina de la red (03/11/2026): responde `200` con la CA del nodo; los nodos quedan bloqueados.
+
