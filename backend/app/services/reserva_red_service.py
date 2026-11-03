@@ -32,7 +32,7 @@ def validar_red_aplicacion(network_id, *, cluster_uuid, node, settings=None):
     try:
         profiles = settings.application_network_profiles
         if type(profiles) is not dict or not 1 <= len(profiles) <= 50 or network_id not in profiles: raise ValueError()
-        seen, management = set(), set()
+        seen, management, client_networks = set(), set(), []
         try: management.add(str(ipaddress.ip_address(settings.proxmox_host)))
         except ValueError: pass  # Los hosts por DNS requieren sus IP declaradas abajo.
         for name, profile in profiles.items():
@@ -54,6 +54,7 @@ def validar_red_aplicacion(network_id, *, cluster_uuid, node, settings=None):
             if (cidr.version != 4 or gateway not in cidr or gateway in {cidr.network_address, cidr.broadcast_address}
                     or not any(cidr.subnet_of(v) for v in allowed if v.version == 4)
                     or any(v.prefixlen == 0 for v in allowed + clients)): raise ValueError()
+            client_networks.extend(clients)
             management.update(str(ipaddress.ip_address(v)) for v in profile['management_addresses'])
             management.add(str(gateway))
             slots = profile['slots']
@@ -71,6 +72,17 @@ def validar_red_aplicacion(network_id, *, cluster_uuid, node, settings=None):
                     if (kind, value) in seen: raise ValueError()
                     seen.add((kind, value))
         if any(('address', address) in seen for address in management): raise ValueError()
+        # Los clientes autorizados no pueden incluir a los nodos ni al gateway: con una subred plana, un CIDR
+        # amplio les daría acceso directo al servicio. El portal sí debe poder alcanzarlo para verificarlo.
+        hypervisors = set()
+        for runner in (settings.runner_nodes or {}).values():
+            try: hypervisors.add(ipaddress.ip_address(runner['host']))
+            except (ValueError, TypeError, KeyError): pass
+        try: hypervisors.add(ipaddress.ip_address(settings.proxmox_host))
+        except ValueError: pass
+        hypervisors.update(ipaddress.ip_address(item['gateway']) for item in profiles.values())
+        if any(address in network for address in hypervisors for network in client_networks
+               if network.version == address.version): raise ValueError()
         # Una red nueva no adopta un slot legacy, esté libre o ya retirado.
         for legacy in settings.network_profiles.values():
             for item in legacy.get('instances', {}).values():

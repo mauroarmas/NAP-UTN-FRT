@@ -34,7 +34,8 @@ async def new_identity_011(db, cluster, vmid):
 
 
 @pytest.mark.parametrize('bad', ['management', 'gateway', 'broadcast', 'legacy', 'cross-profile',
-    'foreign-cluster', 'foreign-node', 'duplicate-mac', 'host-command'])
+    'foreign-cluster', 'foreign-node', 'duplicate-mac', 'host-command', 'client-covers-node',
+    'client-covers-gateway'])
 def test_network_rejects_management_legacy_overlap_and_unapproved_targets(red_aplicaciones_011, bad, monkeypatch):
     settings = get_settings(); profile = red_aplicaciones_011
     if bad == 'management': profile['slots']['slot-1']['address'] = '10.80.0.2'
@@ -43,6 +44,9 @@ def test_network_rejects_management_legacy_overlap_and_unapproved_targets(red_ap
     if bad == 'legacy': monkeypatch.setattr(settings, 'network_profiles', {'old': {'instances': {str(uuid4()): deepcopy(profile['slots']['slot-1'])}}})
     if bad == 'cross-profile': settings.application_network_profiles['duplicate'] = deepcopy(profile)
     if bad == 'duplicate-mac': profile['slots']['slot-2']['mac_address'] = profile['slots']['slot-1']['mac_address']
+    if bad == 'client-covers-node':
+        monkeypatch.setattr(settings, 'runner_nodes', {'pve1': {'host': '10.80.0.2'}}); profile['client_cidrs'] = ['10.80.0.0/24']
+    if bad == 'client-covers-gateway': profile['client_cidrs'] = ['10.80.0.0/30']
     if bad == 'host-command': profile['slots']['slot-1']['host'] = '$(unsafe).example.edu'
     cluster = str(uuid4()) if bad == 'foreign-cluster' else profile['cluster_uuid']
     node = 'another' if bad == 'foreign-node' else 'pve1'
@@ -81,3 +85,11 @@ async def test_release_requires_absence_of_same_identity_and_preserves_old_row(d
     assert await db.scalar(select(func.count()).select_from(ReservaRedAplicacion)) == 2
     row = await db.scalar(select(ReservaRedAplicacion).where(ReservaRedAplicacion.identidad_id == identity.id))
     assert row.liberada_at is not None
+
+
+def test_network_accepts_clients_that_exclude_nodes_and_gateway_but_include_the_portal(red_aplicaciones_011, monkeypatch):
+    profile = red_aplicaciones_011
+    monkeypatch.setattr(get_settings(), 'runner_nodes', {'pve1': {'host': '10.80.0.2'}})
+    profile['management_addresses'] = ['10.80.0.2', '10.80.0.9']  # .9 es el portal: debe poder alcanzar las instancias
+    profile['client_cidrs'] = ['10.80.0.3/32', '10.80.0.4/30', '10.80.0.8/29', '10.80.0.16/28']
+    validar_red_aplicacion('app-network', cluster_uuid=profile['cluster_uuid'], node='pve1')
