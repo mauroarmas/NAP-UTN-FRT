@@ -245,3 +245,20 @@ cátedras con el mismo docente en ambas ni con más de dos instancias.
 
 **Datos de prueba.** Se creó una cátedra (#25) y un usuario (#11) **sintéticos** (`lab-aislamiento-b@lab.invalid`, sin contraseña utilizable) y se desactivaron al terminar. Los pedidos #50 y #51
 y los servicios #30 y #31 quedan como historia.
+
+## Entrada acotada a los clientes (03/11/2026)
+
+Resuelve el límite anterior: los nodos alcanzaban el 3306 de las instancias porque `client_cidrs` era toda la `/24`.
+
+- **Perfil de red `lab-applications-011`, revisión 3.** `client_cidrs` pasa a 11 bloques que cubren la `/24` **sin** el gateway (.1) ni los nodos y el
+  almacenamiento (.90 a .94). El portal (.89) queda **dentro**: su worker se conecta al 3306 para verificar cada base. La revisión 2 lo excluía por error y la
+  verificación de un despliegue real expiró (`TimeoutError`); esa instancia no se pudo cerrar sola hasta quitar las reglas manuales que se le habían agregado.
+- **Perfil Docker `docker-ubuntu24:8`** (sha256 `b8d4d941…21e2`, `nodes=[frt, pve91]`): misma definición que la 7; gate real completo en cada nodo (job confirmado,
+  persistencia y rechazos de MariaDB). Ese gate corrió con la lista de la revisión 2 (sin .89); la revisión 3 sólo agrega .89 y se comprobó con un despliegue real.
+- **Validador del backend** (`validar_red_aplicacion`): rechaza un `client_cidrs` que contenga la dirección de un nodo (`RUNNER_NODES`, `PROXMOX_HOST`) o el gateway.
+  Acepta que contenga al portal.
+- **Comprobación con un despliegue real (pedido #53, servicio #33, `pve91`, red revisión 3, sin reglas manuales):** desde `frt` y `pve91` el 3306 queda
+  **bloqueado**; desde el portal (.89) y desde un cliente (.88) **conecta** (MariaDB 11.4). Baja `confirmada`; sin tablas `nap011_*` ni invitados de prueba.
+- **Nota operativa.** La regla de una instancia se fija al desplegarla: una instancia anterior a un cambio de `client_cidrs` conserva sus reglas viejas. Quitar a un
+  cliente exige dar de baja y volver a pedir. No agregar reglas nftables a mano a una instancia viva: el motor no reconoce la tabla modificada y la baja queda `incierta`.
+
