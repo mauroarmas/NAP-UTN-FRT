@@ -185,6 +185,16 @@ class StateStore(PrivateDirectory):
         finally:
             if descriptor is not None: os.close(descriptor)
 
+    def identifiers(self, kind):
+        """Identificadores de los manifiestos de un tipo (sólo nombres válidos; no lee su contenido)."""
+        self._open()
+        if kind not in {'job', 'resource', 'credential'}: raise JobError('INVALID_REQUEST')
+        try:
+            names = os.listdir(self.fd)
+        except OSError as exc: raise _os_error(exc) from None
+        prefix = kind + '.'
+        return [uuid_text(n[len(prefix):-5]) for n in sorted(names) if n.startswith(prefix) and n.endswith('.json')]
+
     def read_job(self, execution_id):
         job = self.read('job', execution_id)
         if job is not None:

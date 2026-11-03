@@ -86,3 +86,16 @@ def test_terminal_word_in_corrupt_manifest_is_not_evidence_of_an_idle_runtime(tm
     (state/('job.'+str(uuid4())+'.json')).write_text('{"estado":"confirmado"}')
     with pytest.raises(PackageError,match='ACTIVE_OR_UNKNOWN_JOB'):
         install_files({'/opt/nap/applications/job/worker.py':(b'new',0o444)},root=root,apply=True)
+
+
+def test_package_installs_the_boot_unit_that_restores_isolation_before_guests_start():
+    files = build_files(Path(__file__).resolve().parents[3])
+    unit = files['/etc/systemd/system/nap-isolation-restore.service'][0].decode()
+    assert '/etc/systemd/system/nap-isolation-restore.service' in files
+    assert files['/opt/nap/applications/job/restore_boot.py'][1] == 0o444
+    assert 'Before=pve-guests.service' in unit and 'After=' in unit and 'pve-cluster.service' in unit
+    assert 'ExecStart=/usr/bin/python3 -I /opt/nap/applications/job/restore_boot.py' in unit
+    assert 'WantedBy=multi-user.target' in unit
+    # Una unidad así nunca debe iniciar, detener ni crear invitados.
+    assert not any(word in unit for word in ('pct ', 'qm ', 'ExecStop', 'Restart=always'))
+

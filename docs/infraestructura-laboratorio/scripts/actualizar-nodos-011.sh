@@ -22,10 +22,10 @@ NODES=${NODES:-"frt=192.168.100.90 pve91=192.168.100.91"}
 OUT=${OUT:-$HOME/runnerjson}
 TPL=ubuntu-24.04-standard_24.04-2_amd64.tar.zst
 TPL_SHA=75a827c4ea4b2bef42e0521f51ed869e398f56b0e6b131c3cd5d284a2e0e08b5
-# Digest del paquete vigente (reparación idempotente; reinicia la base a medio inicializar). Anteriores: 107e3bff… (reemplazo del contenedor), 99279fd4… (espera configurable), 4ebb0a71… (0510c1a, plazo fijo
+# Digest del paquete vigente (restaura el aislamiento nftables al arrancar el nodo). Anteriores: 77d26a9f… (reparación OCI), 107e3bff… (reemplazo del contenedor), 99279fd4… (espera configurable), 4ebb0a71… (0510c1a, plazo fijo
 # de 120 s) y 73e804b6… (78af40e). Cada digest distinto es una revisión de perfil distinta.
 # Sólo para paquetes EXPERIMENTALES locales: DIGEST_ESPERADO=<hex> con REPO apuntando al worktree.
-DIGEST_ESPERADO=${DIGEST_ESPERADO:-77d26a9ffef574d3db9ee97b69aa38039c2e095db85278e37013f15b5b74aadd}
+DIGEST_ESPERADO=${DIGEST_ESPERADO:-f269ca1e15df961d69d3ab9a329789999d3739202198cfcd2c23059925cd9503}
 PROFILE_NODES=${PROFILE_NODES:-pve91}
 PERFIL_REV=${PERFIL_REV:-2}
 CTL=${NAP_SSH_CTL:-/tmp/nap-lab-ssh-%h}
