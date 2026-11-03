@@ -257,8 +257,9 @@ Resuelve el límite anterior: los nodos alcanzaban el 3306 de las instancias por
   persistencia y rechazos de MariaDB). Ese gate corrió con la lista de la revisión 2 (sin .89); la revisión 3 sólo agrega .89 y se comprobó con un despliegue real.
 - **Validador del backend** (`validar_red_aplicacion`): rechaza un `client_cidrs` que contenga la dirección de un nodo (`RUNNER_NODES`, `PROXMOX_HOST`) o el gateway.
   Acepta que contenga al portal.
-- **Comprobación con un despliegue real (pedido #53, servicio #33, `pve91`, red revisión 3, sin reglas manuales):** desde `frt` y `pve91` el 3306 queda
-  **bloqueado**; desde el portal (.89) y desde un cliente (.88) **conecta** (MariaDB 11.4). Baja `confirmada`; sin tablas `nap011_*` ni invitados de prueba.
+- **Comprobación con despliegues reales, red revisión 3, sin reglas manuales** (pedido #53, servicio #33, en `pve91`; pedido #54, servicio #34, en `frt`):
+  en cada uno, desde `frt` y `pve91` el 3306 queda **bloqueado** (incluido el nodo que aloja la instancia); desde el portal (.89) y desde un cliente (.88,
+  alias de la PC, no otra máquina) **conecta** (MariaDB 11.4). Bajas `confirmadas`; sin tablas `nap011_*` ni invitados de prueba en ningún nodo.
 - **Nota operativa.** La regla de una instancia se fija al desplegarla: una instancia anterior a un cambio de `client_cidrs` conserva sus reglas viejas. Quitar a un
   cliente exige dar de baja y volver a pedir. No agregar reglas nftables a mano a una instancia viva: el motor no reconoce la tabla modificada y la baja queda `incierta`.
 
