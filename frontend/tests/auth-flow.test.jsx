@@ -29,6 +29,17 @@ test.each(['onboarding', 'mfa_pending', 'recovery'])('etapa %s no monta el porta
   expect(screen.queryByText('Menú del portal')).not.toBeInTheDocument();
 });
 
+test('la configuración del segundo factor muestra un QR escaneable además de la clave', async () => {
+  preparar2FA.mockResolvedValue({ data: { desafio_id: 'pending', secret: 'FIXTURE-NOT-REAL',
+    provisioning_uri: 'otpauth://totp/Fixture:usuario?secret=FIXTURENOTREAL&issuer=Fixture' } });
+  render(<Seguridad user={{ totp_habilitado: false }} onRefresh={vi.fn()} />);
+  await userEvent.type(screen.getByLabelText('Contraseña actual'), 'secreto123');
+  await userEvent.click(screen.getByRole('button', { name: 'Activar segundo factor opcional' }));
+  const qr = await screen.findByAltText(/Código QR para configurar/);
+  expect(qr).toHaveAttribute('src', expect.stringMatching(/^data:image\/png;base64,/));
+  expect(screen.getByLabelText('Clave del autenticador')).toHaveValue('FIXTURE-NOT-REAL');
+});
+
 test('2FA desactivado permite operar y una configuración cancelada conserva esa elección', async () => {
   preparar2FA.mockResolvedValue({ data: { desafio_id: 'pending', secret: 'FIXTURE-NOT-REAL', provisioning_uri: 'otpauth://fixture' } });
   cancelarSetup2FA.mockResolvedValue({ status: 204 });
