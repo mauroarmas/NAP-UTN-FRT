@@ -139,6 +139,9 @@ async def test_reintentar_operacion_fallida_confirmada_crea_reparar(
     )
     op.estado = "fallida"
     op.error_codigo = "instalacion_fallida"
+    # El intento anterior terminó fallido y confirmado en el nodo (condición para reparar).
+    from app.models.intento_despliegue import IntentoDespliegue
+    (await db.scalar(select(IntentoDespliegue).where(IntentoDespliegue.operacion_id == op.id))).estado = "fallido"
 
     pedido = await db.get(Pedido, order_id)
     pedido.estado = EstadoPedido.ERROR

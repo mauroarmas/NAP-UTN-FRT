@@ -1,16 +1,20 @@
 #!/bin/bash
-# EN LA PC DEL OPERADOR. Alinea frt y pve91 con el motor Docker 011 de Mauro (commit 78af40e):
+# EN LA PC DEL OPERADOR. Alinea frt y pve91 con el motor Docker 011 vigente (HEAD: MariaDB PaaS + limpieza nftables):
 #   1. copia la plantilla base Ubuntu al storage "local" de cada nodo (desde truenas) y verifica su sha256;
 #   2. instala el paquete 011 del checkout actual con infra/runner/install.sh;
-#   3. regenera /etc/nap/applications-011/runner.json (plantilla local:, policy_bundle_sha256 vigente,
-#      platform leído del nodo, solo los nodos de NODES) y deja el respaldo del anterior;
+#   3. regenera /etc/nap/applications-011/runner.json CONSERVANDO las revisiones históricas tal cual
+#      y agregando la revisión PERFIL_REV (por defecto 2) como pendiente_validacion, con el
+#      policy_bundle_sha256 vigente, platform leído del nodo y SOLO los nodos de PROFILE_NODES
+#      (por defecto pve91, el único comprobado); deja el respaldo del anterior. Una revisión ya
+#      habilitada nunca se reescribe: el script se detiene;
 #   4. escribe ~/runnerjson/APPLICATION_PROFILES.env con la línea para backend/.env del portal.
 # install.sh NO reemplaza un runner.json existente: por eso el paso 3 es aparte.
 #
 # Sin argumentos solo muestra qué haría (no modifica nada). Con --aplicar ejecuta.
 # Pide la contraseña de root una vez por nodo (ControlMaster) y se detiene ante el primer fallo.
 #
-# Variables: REPO, NODES ("nombre=ip ..."), OUT (carpeta de salida local).
+# Variables: REPO, NODES ("nombre=ip ...", donde se instala el paquete), PROFILE_NODES (nodos que
+# declara el perfil nuevo), PERFIL_REV, OUT (carpeta de salida local).
 set -u
 APLICAR=0; [ "${1:-}" = "--aplicar" ] && APLICAR=1
 REPO=${REPO:-$HOME/Escritorio/NAP-UTN-FRT}
@@ -18,8 +22,13 @@ NODES=${NODES:-"frt=192.168.100.90 pve91=192.168.100.91"}
 OUT=${OUT:-$HOME/runnerjson}
 TPL=ubuntu-24.04-standard_24.04-2_amd64.tar.zst
 TPL_SHA=75a827c4ea4b2bef42e0521f51ed869e398f56b0e6b131c3cd5d284a2e0e08b5
-DIGEST_ESPERADO=73e804b60ce027506da11c9b8ad549c0b361de8df397b8214d5f0bd4a8eab2c2
-CTL=/tmp/nap-actualizar-ssh-%h
+# Digest del paquete vigente (reparación idempotente; reinicia la base a medio inicializar). Anteriores: 107e3bff… (reemplazo del contenedor), 99279fd4… (espera configurable), 4ebb0a71… (0510c1a, plazo fijo
+# de 120 s) y 73e804b6… (78af40e). Cada digest distinto es una revisión de perfil distinta.
+# Sólo para paquetes EXPERIMENTALES locales: DIGEST_ESPERADO=<hex> con REPO apuntando al worktree.
+DIGEST_ESPERADO=${DIGEST_ESPERADO:-77d26a9ffef574d3db9ee97b69aa38039c2e095db85278e37013f15b5b74aadd}
+PROFILE_NODES=${PROFILE_NODES:-pve91}
+PERFIL_REV=${PERFIL_REV:-2}
+CTL=${NAP_SSH_CTL:-/tmp/nap-lab-ssh-%h}
 SSH_OPTS="-o ControlMaster=auto -o ControlPath=$CTL -o ControlPersist=300"
 die() { echo "ERROR: $*" >&2; exit 1; }
 
@@ -63,31 +72,37 @@ for entry in $NODES; do n=${entry%%=*}
     || die "platform distinto entre nodos ($n: ${PVE[$n]}/${KERNEL[$n]} vs $first: ${PVE[$first]}/${KERNEL[$first]}); el perfil no puede cubrirlos"
 done
 NODE_NAMES=$(for e in $NODES; do printf '%s ' "${e%%=*}"; done)
+for pn in $PROFILE_NODES; do case " $NODE_NAMES" in *" $pn "*) ;; *) die "PROFILE_NODES incluye $pn, que no está en NODES";; esac; done
 
 # Fase 2: generar runner.json por nodo a partir del que ya tiene cada nodo.
 for entry in $NODES; do
   name=${entry%%=*}; ip=${entry#*=}
   ssh $SSH_OPTS root@$ip 'cat /etc/nap/applications-011/runner.json' > "$OUT/runner-$name.actual.json" \
     || die "no pude leer runner.json de $name (¿paquete no instalado?)"
-  python3 -I - "$OUT/runner-$name.actual.json" "$OUT/runner-$name.json" "$DIGEST" "${PVE[$first]}" "${KERNEL[$first]}" "$TPL" $NODE_NAMES <<'PY' || die "no pude generar runner.json de $name"
-import hashlib, json, sys
-src, dst, digest, pve, kernel, tpl, *nodes = sys.argv[1:]
+  python3 -I - "$OUT/runner-$name.actual.json" "$OUT/runner-$name.json" "$DIGEST" "${PVE[$first]}" "${KERNEL[$first]}" "$TPL" "$PERFIL_REV" $PROFILE_NODES <<'PY' || die "no pude generar runner.json de $name"
+import copy, hashlib, json, sys
+src, dst, digest, pve, kernel, tpl, rev, *nodes = sys.argv[1:]
 cfg = json.load(open(src))
 canon = lambda v: json.dumps(v, ensure_ascii=False, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()
-for key, entry in cfg['profiles'].items():
-    d = entry['definition']
-    d['base']['volumen_lxc'] = 'local:vztmpl/' + tpl
-    d['nodes'] = nodes
-    d['platform'].update(pve=pve, kernel=kernel)
-    d['policy_bundle_sha256'] = digest
-    entry['sha256'] = hashlib.sha256(canon(d)).hexdigest()
-    entry['estado'], entry['motivo_codigo'], entry['validacion'] = 'pendiente_validacion', 'VALIDATION_REQUIRED', None
-for net in cfg.get('networks', {}).values():
-    net['nodes'] = nodes
+key = 'docker-ubuntu24:' + rev
+if key in cfg['profiles'] and cfg['profiles'][key]['estado'] == 'habilitado':
+    sys.exit('%s ya está habilitado en %s; no se reescribe' % (key, cfg['node']))
+previas = sorted((k for k in cfg['profiles'] if k.startswith('docker-ubuntu24:') and k != key),
+                 key=lambda k: int(k.split(':')[1]))
+if not previas and key not in cfg['profiles']:
+    sys.exit('no hay una revisión previa de la que derivar la definición')
+d = copy.deepcopy(cfg['profiles'][key]['definition'] if key in cfg['profiles'] else cfg['profiles'][previas[-1]]['definition'])
+d['revision'] = int(rev)
+d['base']['volumen_lxc'] = 'local:vztmpl/' + tpl
+d['nodes'] = nodes
+d['platform'].update(pve=pve, kernel=kernel)
+d['policy_bundle_sha256'] = digest
+# Las revisiones históricas (incluida la habilitada del motor anterior) se conservan sin cambios.
+cfg['profiles'][key] = {'definition': d, 'sha256': hashlib.sha256(canon(d)).hexdigest(),
+                        'estado': 'pendiente_validacion', 'motivo_codigo': 'VALIDATION_REQUIRED', 'validacion': None}
 json.dump(cfg, open(dst, 'w'), separators=(',', ':'))
 if cfg['node'] == nodes[0]:  # línea para el portal, una sola vez
-    profiles = {k: v for k, v in cfg['profiles'].items()}
-    open(dst.rsplit('/', 1)[0] + '/APPLICATION_PROFILES.env', 'w').write('APPLICATION_PROFILES=' + json.dumps(profiles) + '\n')
+    open(dst.rsplit('/', 1)[0] + '/APPLICATION_PROFILES.env', 'w').write('APPLICATION_PROFILES=' + json.dumps(cfg['profiles']) + '\n')
 PY
   echo "runner.json de $name generado en $OUT/runner-$name.json"
 done
@@ -108,6 +123,5 @@ cp -p /etc/nap/applications-011/runner.json /root/runner-$name.antes.json
 install -o root -g root -m 0600 /root/runner-$name.nuevo.json /etc/nap/applications-011/runner.json
 rm -f /root/runner-$name.nuevo.json
 REMOTE
-  ssh -o ControlPath=$CTL -O exit "$host" 2>/dev/null
 done
 echo "Listo. Pendiente: pegar $OUT/APPLICATION_PROFILES.env en backend/.env y reiniciar la API."

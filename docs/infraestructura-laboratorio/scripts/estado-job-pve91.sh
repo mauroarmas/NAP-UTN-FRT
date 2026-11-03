@@ -5,7 +5,7 @@
 # No imprime secretos ni el contenido completo del job.
 set -u
 NODE_IP=${NODE_IP:-192.168.100.91}
-ssh -o SendEnv=-LC_* root@$NODE_IP 'bash -s' <<'REMOTE'
+ssh -o ControlPath=${NAP_SSH_CTL:-/tmp/nap-lab-ssh-%h} -o SendEnv=-LC_* root@$NODE_IP 'bash -s' <<'REMOTE'
 dir=/var/lib/nap-application-jobs
 f=$(ls -t $dir/job.*.json 2>/dev/null | head -1)
 echo "=== job más reciente: ${f:-ninguno}"

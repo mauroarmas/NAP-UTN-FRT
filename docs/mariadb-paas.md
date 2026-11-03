@@ -34,6 +34,14 @@ el valor original; usar la nueva contraseña en el cliente.
   validado para este motor. Mantener apagadas las prácticas que no se estén usando.
 - Después de iniciar o reiniciar, Proxmox puede mostrar la instancia encendida
   unos segundos antes de que MariaDB acepte conexiones.
+- La primera inicialización puede superar los 2 minutos con almacenamiento lento o compartido. La comprobación espera
+  hasta 300 s por defecto; un nodo la ajusta (60–600 s) con `/etc/nap/applications-011/limits.json`
+  (`{"schema_version": "nap-application-limits/1", "espera_base_datos_segundos": 450}`, propiedad de root, sin escritura
+  de grupo ni de otros). Un archivo inválido se rechaza; no se vuelve al valor por defecto en silencio.
+- Si un despliegue falla, administración puede **Reintentar**: se crea un intento nuevo sobre la misma instancia y se
+  conservan las credenciales. Sólo procede tras un fallo confirmado en el nodo y con el mismo perfil habilitado; si el
+  perfil cambió, o si el fallo ocurrió justo entre la creación de la base y la del usuario, hay que dar de baja y
+  pedir de nuevo. Si el intento anterior dejó la base a medio inicializar (sin datos de usuario), se reinicia ese volumen.
 - `/var/lib/mysql` se conserva en un volumen propio dentro del disco de la
   instancia. Detener, iniciar y reiniciar conservan los datos.
 - Dar de baja destruye la instancia y sus datos. Exportar lo que deba conservarse

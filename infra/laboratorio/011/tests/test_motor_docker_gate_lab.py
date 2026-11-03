@@ -39,5 +39,34 @@ def test_existing_vmid_prevents_initialization_before_assets_or_external_command
 
 
 def test_lab_constants_replace_the_original_environment(gate):
-    assert (gate.NODE,gate.STORAGE,gate.SLOT_ADDRESS) == ('pve91','truenas','192.168.100.119')
+    import socket
+    # El gate corre en el nodo: su nombre sale del hostname (pve91, frt, ...), no de una constante.
+    assert (gate.NODE,gate.STORAGE,gate.SLOT_ADDRESS) == (socket.gethostname(),'truenas','192.168.100.119')
     assert 'proxmox' not in Path(gate.__file__).read_text().split('POOL=',1)[1].replace('original fija proxmox','')
+
+
+def _normalized(text,lab):
+    """Cuerpo ejecutable sin el encabezado documental ni el bloque de constantes de entorno."""
+    body=text.split("\nPOOL=",1)[1]
+    if lab:
+        for old,new in [("'nodes':sorted(set(data.get('nodes') or [NODE])|{NODE})","'nodes':['proxmox']"),("'/nodes/'+NODE+'/storage/'+STORAGE+'/content'","'/nodes/proxmox/storage/local-lvm/content'"),
+            ("'/nodes/'+NODE+'/lxc/'","'/nodes/proxmox/lxc/'"),("[NODE]","['proxmox']"),
+            ("'node':NODE","'node':'proxmox'"),("node=NODE","node='proxmox'"),("('node',NODE)","('node','proxmox')"),
+            ("node=NODE;","node='proxmox';"),("SLOT_ADDRESS","'172.16.36.81'"),("STORAGE+':8'","'local-lvm:8'"),
+            ("'--nameserver',NAMESERVER","'--nameserver','172.16.36.2'"),("gw='+GATEWAY+',","gw=172.16.36.2,"),
+            ("re.escape(STORAGE)+r':(?:900011/)?vm-900011-disk-[0-9]+(?:\\.raw)?","r'local-lvm:vm-900011-disk-[0-9]+")]:
+            body=body.replace(old,new)
+    return body
+
+
+def test_lab_variant_only_differs_from_original_in_environment_constants(gate):
+    """Evita que la variante derive del gate original: mismas garantías, otro entorno."""
+    here=Path(gate.__file__).read_text()
+    original=(Path(gate.__file__).parent/'validar_motor_docker.py').read_text()
+    assert _normalized(here,True)==_normalized(original,False)
+
+
+def test_lab_variant_keeps_mariadb_secrets_and_runtime_cleanup(gate):
+    text=Path(gate.__file__).read_text()
+    for needle in ("data.get('application')=='mariadb'","mariadb_select_1","private_values","engine.cleanup(cleanup_request)","profile_revision"):
+        assert needle in text

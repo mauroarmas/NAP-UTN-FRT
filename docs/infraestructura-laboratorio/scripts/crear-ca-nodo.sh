@@ -10,7 +10,7 @@
 set -u
 NODE_IP=${NODE_IP:-192.168.100.91}
 NODE_NAME=${NODE_NAME:-pve91}
-CTL=/tmp/nap-ca-ssh-%h
+CTL=${NAP_SSH_CTL:-/tmp/nap-lab-ssh-%h}
 SSH_OPTS="-o ControlMaster=auto -o ControlPath=$CTL -o ControlPersist=120 -o SendEnv=-LC_*"
 
 ssh $SSH_OPTS root@$NODE_IP "NODE_NAME=$NODE_NAME python3 -I -" <<'PY'
@@ -56,5 +56,4 @@ tls = InstanceTLS.from_node()
 print('CA creada y aceptada por el runner; sha256 DER:', tls.ca_sha)
 PY
 rc=$?
-ssh -o ControlPath=$CTL -O exit root@$NODE_IP 2>/dev/null
 exit $rc

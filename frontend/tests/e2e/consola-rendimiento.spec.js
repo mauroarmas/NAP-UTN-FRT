@@ -77,8 +77,13 @@ test('apertura de consola con 200 mensajes en menos de 3 segundos', async ({ pag
   await page.goto('/pedidos');
   await page.getByRole('button', { name: 'Ver detalle', exact: true }).click();
 
+  // Se espera el botón del propio diálogo de detalle. Un `getByRole` global puede resolver al botón de la fila, que queda
+  // tapado por el fondo del diálogo mientras el detalle carga (falla intermitente en el CI: "dialog-backdrop intercepts pointer events").
+  const detalle = page.getByRole('dialog').first();
+  const verConsola = detalle.getByRole('button', { name: 'Ver consola' });
+  await expect(verConsola).toBeVisible();
   const t0 = Date.now();
-  await page.getByRole('button', { name: 'Ver consola' }).click();
+  await verConsola.click();
 
   const dialog = page.getByRole('dialog', { name: 'Consola de operación' });
   await expect(dialog).toBeVisible();

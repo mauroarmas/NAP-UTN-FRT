@@ -9,7 +9,8 @@ import pytest
 
 from infra.applications.docker.runtime import policy,policy_digest,validate_profile,application_arguments,volume_name
 from infra.applications.docker.guest import DockerGuest,InstallError
-from infra.applications.docker import deploy as strategy
+from infra.applications.docker import deploy as strategy, probes
+from pathlib import Path
 from infra.applications.job.protocol import canonical,JobError
 from infra.applications.tests.test_job_supervisor import rig
 
@@ -51,6 +52,7 @@ def test_profile_is_bound_to_exact_runtime_and_current_code_bundle(application):
 @pytest.mark.parametrize('failure',[None,'pull','probe'])
 def test_one_guest_strategy_has_real_stages_and_never_passes_pull_auth_to_application(application,monkeypatch,failure):
     app=application;events=[];commands=[];phase=[];sensitive=[]
+    monkeypatch.setattr(probes,'LIMITS_PATH',Path('/nonexistent/nap-limits.json'))
     class Node:
         def _configuration(self,owner):return {'cores':2,'memory':1024},app.profile
         def start_guest(self,owner):events.append('guest-start')
@@ -77,7 +79,7 @@ def test_one_guest_strategy_has_real_stages_and_never_passes_pull_auth_to_applic
     for action,payload in commands:
         assert ('registry'in payload)==(action=='pull')
         assert ('private_values'in payload)==(action=='start')
-        if action=='probe':assert set(payload['tls'])=={'ca_pem'}
+        if action=='probe':assert set(payload['tls'])=={'ca_pem'} and payload['espera_segundos']==90
     assert 'fixture-pull-private'in sensitive
 
 
@@ -167,3 +169,117 @@ def test_database_probe_uses_bounded_tls_sql_and_password_only_in_environment(ap
     assert '--ssl-verify-server-cert' in args and '--execute=SELECT 1' in args
     assert '--host=172.16.36.81' in args and 'fixture-db-private' not in repr(args)
     assert options['environment']=={'MYSQL_PWD':'fixture-db-private'}
+
+
+def test_guest_ready_window_is_bounded_and_defaults_per_kind(application, tmp_path):
+    app = application
+    request = {'identity': app.identity, 'configuration': app.configuration, 'action': 'probe'}
+    assert DockerGuest(request, root=tmp_path).ready_window(300) == 300
+    assert DockerGuest({**request, 'espera_segundos': 450}, root=tmp_path).ready_window(300) == 450
+    for bad in (0, 29, 601, True, '300', None, 10**9):
+        with pytest.raises(InstallError):
+            DockerGuest({**request, 'espera_segundos': bad}, root=tmp_path).ready_window(300)
+
+
+def _launch_request(app):
+    return {'identity':app.identity,'configuration':app.configuration,'resources':{'vcpus':2,'ram_mb':1024,'disk_gb':8},
+        'edge':app.lock['edge'],'private_values':{'APP_PASSWORD':'fixture-private'},'action':'start'}
+
+
+def _repair_run(app,*,existing,label,calls):
+    name='nap-'+__import__('uuid').UUID(app.identity['resource_uuid']).hex
+    mounts=[{'Destination':p,'Type':'volume','Name':volume_name(app.identity['resource_uuid'],p)} for p in app.configuration['persistencia']]
+    def run(args,**kwargs):
+        calls.append(args)
+        if 'ls' in args and '--all' in args:return (json.dumps(name)+'\n').encode() if existing else b''
+        if 'inspect' in args:
+            if args[-1]==name and existing and 'rm' not in args:
+                labels={'nap.resource_uuid':label}
+                return json.dumps([{'State':{'Running':True},'Image':app.configuration['imagen']['config_digest'],
+                    'Config':{'Labels':labels,'Healthcheck':{'Test':['NONE']}},'HostConfig':{'LogConfig':{'Type':'none'}},
+                    'AppArmorProfile':'docker-default','Mounts':mounts}]).encode()
+        return b''
+    return run,name
+
+
+def test_repair_start_replaces_only_its_own_previous_container_and_keeps_volumes(application,tmp_path):
+    app=application;calls=[]
+    run,name=_repair_run(app,existing=True,label=app.identity['resource_uuid'],calls=calls)
+    guest=DockerGuest(_launch_request(app),root=tmp_path,run=run);guest.verify_started=lambda:None
+    guest.start()
+    removal=[a for a in calls if 'rm' in a]
+    assert len(removal)==1 and removal[0][-4:]==['container','rm','--force',name]
+    assert not any('volume' in a and 'rm' in a for a in calls) and not any('-v' in a for a in removal)
+    order=[('rm' if 'rm' in a else 'run' if '--network=bridge' in a else '') for a in calls]
+    assert order.index('rm')<order.index('run')
+
+
+def test_repair_start_refuses_a_container_labelled_for_another_identity_without_touching_it(application,tmp_path):
+    app=application;calls=[]
+    run,name=_repair_run(app,existing=True,label=str(uuid4()),calls=calls)
+    guest=DockerGuest(_launch_request(app),root=tmp_path,run=run)
+    with pytest.raises(InstallError):guest.start()
+    assert not any('rm' in a for a in calls) and not any('--network=bridge' in a for a in calls)
+
+
+def test_first_start_without_a_previous_container_removes_nothing(application,tmp_path):
+    app=application;calls=[]
+    run,name=_repair_run(app,existing=False,label=app.identity['resource_uuid'],calls=calls)
+    guest=DockerGuest(_launch_request(app),root=tmp_path,run=run);guest.verify_started=lambda:None
+    guest.start()
+    assert not any('rm' in a for a in calls)
+
+
+def _database_run(app,*,volume_exists,answer,label=None):
+    calls=[];state={'exists':volume_exists}
+    volume=volume_name(app.identity['resource_uuid'],'/var/lib/mysql')
+    def run(args,**kwargs):
+        calls.append(args)
+        if 'volume' in args and 'rm' in args:state['exists']=False
+        if 'volume' in args and 'create' in args:state['exists']=True
+        if 'volume' in args and 'ls' in args:
+            return (json.dumps(volume)+'\n').encode() if state['exists'] else b''
+        if 'volume' in args and 'inspect' in args:
+            return json.dumps([{'Driver':'local','Labels':{'nap.resource_uuid':label or app.identity['resource_uuid']}}]).encode()
+        if '--entrypoint' in args:return (answer+'\n').encode()
+        return b''
+    return run,calls,volume
+
+
+def _database_guest(app,tmp_path,run):
+    app.configuration.update(access={'tipo':'tcp','puerto':3306,'politica':'mariadb-tls','probe':{'tipo':'mariadb_select_1','timeout_segundos':10}},
+        persistencia=['/var/lib/mysql'],variables={'MARIADB_DATABASE':'catedra','MARIADB_USER':'docente','MARIADB_ROOT_HOST':'localhost'},
+        secretos=[{'nombre':n,'etiqueta':'x','modo':'generado'} for n in ('MARIADB_PASSWORD','MARIADB_ROOT_PASSWORD')])
+    app.configuration['imagen']['repositorio']='docker.io/library/mariadb'
+    request=_launch_request(app);request['private_values']={s['nombre']:'fixture' for s in app.configuration['secretos']}
+    guest=DockerGuest(request,root=tmp_path,run=run);guest.verify_started=lambda:None
+    return guest
+
+
+def test_half_initialized_database_volume_is_reset_before_the_new_container_starts(application,tmp_path):
+    run,calls,volume=_database_run(application,volume_exists=True,answer='incompleta')
+    _database_guest(application,tmp_path,run).start()
+    flat=[' '.join(a) for a in calls]
+    removed=[i for i,c in enumerate(flat) if 'volume rm '+volume in c]
+    created=[i for i,c in enumerate(flat) if 'volume create' in c and volume in c]
+    started=[i for i,c in enumerate(flat) if '--network=bridge' in c]
+    assert len(removed)==1 and len(created)==1 and removed[0]<created[0]<started[0]
+    assert any('--entrypoint /bin/sh' in c and 'readonly' in c and '--network=none' in c for c in flat)
+
+
+def test_complete_database_volume_is_never_touched(application,tmp_path):
+    run,calls,volume=_database_run(application,volume_exists=True,answer='completa')
+    _database_guest(application,tmp_path,run).start()
+    assert not any('volume rm' in ' '.join(a) for a in calls) and any('--network=bridge' in ' '.join(a) for a in calls)
+
+
+def test_first_start_without_a_volume_does_not_probe_or_remove(application,tmp_path):
+    run,calls,volume=_database_run(application,volume_exists=False,answer='incompleta')
+    _database_guest(application,tmp_path,run).start()
+    assert not any('--entrypoint' in a for a in calls) and not any('volume rm' in ' '.join(a) for a in calls)
+
+
+def test_volume_with_another_owner_label_is_never_reset(application,tmp_path):
+    run,calls,volume=_database_run(application,volume_exists=True,answer='incompleta',label=str(uuid4()))
+    with pytest.raises(InstallError):_database_guest(application,tmp_path,run).start()
+    assert not any('volume rm' in ' '.join(a) for a in calls)

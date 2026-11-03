@@ -14,6 +14,7 @@ from fastapi import HTTPException
 from app.models.compromiso_capacidad import CompromisoCapacidad
 from app.models.configuracion_despliegue import ConfiguracionDespliegue
 from app.models.identidad_infraestructura import IdentidadInfraestructura
+from app.models.intento_despliegue import IntentoDespliegue
 from app.models.operacion_infraestructura import OperacionInfraestructura
 from app.models.pedido import Pedido, EstadoPedido, TipoPedido, ModeloServicio
 from app.models.reserva_red_aplicacion import ReservaRedAplicacion
@@ -68,6 +69,9 @@ async def test_reintento_concurrente_exactamente_una_operacion_reparar(
         op.estado = "fallida"
         op.error_codigo = "instalacion_fallida"
         op.updated_at = clock.now()
+        # El intento anterior terminó fallido y confirmado en el nodo (condición para reparar).
+        attempt = await session.scalar(select(IntentoDespliegue).where(IntentoDespliegue.operacion_id == op.id))
+        attempt.estado = "fallido"
 
         pedido = await session.get(Pedido, order_id)
         pedido.estado = EstadoPedido.ERROR

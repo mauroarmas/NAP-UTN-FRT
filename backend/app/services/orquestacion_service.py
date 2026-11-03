@@ -136,6 +136,9 @@ async def _coverage(db, op, request, service):
 
 async def _prepare(sessions, lease, *, pve, runner):
     op, identity, service, request, ledger = await _view(sessions, lease)
+    if op.tipo == 'reparar' and (op.contexto_seguro.get('asignacion') or {}).get('configuracion_despliegue_id'):
+        from app.services.application_execution_service import preparar_reparacion
+        return await preparar_reparacion(sessions, lease, pve=pve, runner=runner)
     if op.tipo=='desplegar' and (op.contexto_seguro.get('asignacion') or {}).get('configuracion_despliegue_id'):
         from app.services.application_execution_service import preparar
         return await preparar(sessions,lease,pve=pve,runner=runner)
@@ -302,6 +305,19 @@ async def _materialize(sessions, lease, observation):
         else:await _cas(db, lease, servicio_id=service.id, fase='bootstrap')
 
 
+def _es_reparacion_oci(op):
+    return op.tipo == 'reparar' and bool((op.contexto_seguro.get('asignacion') or {}).get('configuracion_despliegue_id'))
+
+
+async def _seguir_reparacion(sessions, lease):
+    """Con el recurso detenido, la reparación pasa a enviar el intento nuevo; no termina la operación."""
+    from app.services.consola_operacion_service import emitir_hito
+    async with _locked(sessions, lease) as (db, current, *rest):
+        await _cas(db, lease, fase='entorno',
+            contexto_seguro={k: v for k, v in current.contexto_seguro.items() if k != 'accion_externa'})
+        await emitir_hito(db, lease, hito='recurso_para_instalar')
+
+
 async def _cancel_obsolete_pause(sessions, lease, observation):
     async with _locked(sessions, lease) as (db, op, identity, service, request, ledger):
         if not (op.tipo == 'pausar' and op.actor_tipo == 'sistema' and op.actor_id_normalizado == 'vencimiento'
@@ -437,6 +453,9 @@ async def procesar_lease(sessions, lease, *, pve=None, runner=None, after_dispat
                             async with _locked(sessions, lease) as (db, current, *rest):
                                 await _cas(db, lease, fase='eliminacion_necesaria')
                             continue
+                        if _es_reparacion_oci(op):
+                            await _seguir_reparacion(sessions, lease)
+                            continue
                         async with _locked(sessions, lease) as (db, current, *rest):
                             await _cas(db, lease, contexto_seguro={**current.contexto_seguro,
                                 'accion_externa': 'detener', 'sin_cambios': True,
@@ -489,6 +508,11 @@ async def procesar_lease(sessions, lease, *, pve=None, runner=None, after_dispat
                         raise InfraNoVerificable()
                     async with _locked(sessions, lease) as (db, current, *rest):
                         await _cas(db, lease, fase='eliminacion_necesaria')
+                    continue
+                if _es_reparacion_oci(op) and action == 'detener':
+                    if observation.estado != 'propia' or observation.status != 'stopped':
+                        raise InfraNoVerificable()
+                    await _seguir_reparacion(sessions, lease)
                     continue
                 if action == 'crear':
                     await _materialize(sessions, lease, observation)

@@ -1,10 +1,14 @@
 """Bounded native SELECT with certificate identity checking before authentication."""
+import logging
 import ssl
 import pymysql
 from pymysql.constants import CLIENT
 
 from app.config import get_settings
 from app.services.infraestructura_io import ejecutar,InfraNoVerificable
+from app.utils.diagnostico import resumen_excepcion
+
+logger=logging.getLogger(__name__)
 
 
 class TLSConnection(pymysql.connections.Connection):
@@ -35,5 +39,7 @@ async def probe(instance,private):
                     if cursor.fetchone()!=(1,):raise InfraNoVerificable()
             return AccessObservation(instance['host'],instance['address'],instance['port'],
                 instance['configuration_sha256'],1)
-        except (pymysql.Error,OSError,ValueError):raise InfraNoVerificable() from None
+        except (pymysql.Error,OSError,ValueError) as exc:
+            logger.warning('Comprobación SQL no confirmada: %s',resumen_excepcion(exc))
+            raise InfraNoVerificable() from None
     return await ejecutar(check,timeout=instance['access']['probe']['timeout_segundos'])

@@ -54,6 +54,17 @@ root no se entrega. Sólo Medium está validado. Ver `docs/mariadb-paas.md` y
 `docs/evidencia/011/mariadb-paas.md`. Redis sigue descartado; no ampliar el catálogo
 con BookStack/Memos como condición de cierre del proyecto académico.
 
+Estado del motor (02/11/2026, vigente en `main`): Mauro ya no desarrolla; continúa el equipo restante.
+El `policy_digest` cambia con cada cambio del motor (hoy `77d26a9ffef574d3db9ee97b69aa38039c2e095db85278e37013f15b5b74aadd`;
+recalcular con `infra.applications.docker.runtime.policy_digest()`), y cada digest exige su propia revisión de
+perfil y su compuerta real: el `4ebb0a71…` de arriba es evidencia histórica del laboratorio de Mauro, no el vigente.
+Los perfiles son por instalación; no copiar hashes ni perfiles habilitados entre laboratorios. Resueltos en esta
+rama los hallazgos 1, 5, 6 y 7 de `docs/infraestructura-laboratorio/revision-integracion-2026-10-29.md`:
+runner o CA del portal inválidos rechazan la aprobación, la reparación de un despliegue Docker fallido es un intento
+nuevo sobre el mismo recurso, y la espera de arranque de la comprobación es configurable por nodo
+(`/etc/nap/applications-011/limits.json`). Validación real y límites:
+`docs/infraestructura-laboratorio/validacion-motor-0510c1a-2026-11-02.md`.
+
 Cierre de integración del 28/10/2026: ciclo IaaS real de Ubuntu Small confirmado en el
 laboratorio (pedido 39 / servicio 21): creación, credenciales iniciales, detención, inicio,
 reinicio y baja con ausencia y liberación de capacidad verificadas. El recurso de ensayo

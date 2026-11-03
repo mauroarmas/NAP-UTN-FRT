@@ -1,4 +1,6 @@
 #!/bin/bash
+# ADVERTENCIA: usa el puerto 18080 (puede estar ocupado) y ejecuta otro `docker run`. Reservado al
+# invitado descartable 900011 del gate; no apuntarlo a invitados con datos.
 # EN LA PC DEL OPERADOR. Diagnóstico del gate Docker en pve91 cuando 'start' queda UNCONFIRMED.
 # El gate descarta el stderr de docker; aquí se reproduce el MISMO docker run de la app
 # (infra/applications/docker/contract.py: application_arguments) con otro nombre, --rm y

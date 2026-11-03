@@ -1,32 +1,28 @@
 #!/bin/bash
-# EN LA PC DEL OPERADOR. Elimina las tablas nftables de aislamiento (bridge nap011_*) cuyo
-# contenedor YA NO EXISTE en el nodo.
+# EN LA PC DEL OPERADOR. SÓLO LECTURA: lista las tablas nftables de aislamiento (bridge nap011_*)
+# y las contrasta con los LXC del nodo. YA NO BORRA NADA.
 #
-# Por qué: la baja de un servicio desde el portal destruye el LXC pero deja su tabla de
-# aislamiento. Las tablas enganchan por nombre de interfaz (iifname "veth<VMID>i0") y Proxmox
-# reutiliza los VMID, así que la tabla vieja bloquea al contenedor nuevo que reciba ese VMID
-# (síntoma: sin DNS ni salida, 'apt' no arranca, la fase 'entorno' falla con
-# DEPENDENCY_UNAVAILABLE). Sólo el gate manual (cleanup) borra su tabla.
+# Histórico: este script borraba por prefijo de hostname las tablas "huérfanas" que dejaba la baja
+# de un servicio. Esa heurística no verifica identidad, recibo ni hash de las reglas: un invitado
+# renombrado, o el gate (nap011-final-*), puede no coincidir con el prefijo. Desde el motor
+# 0510c1a la baja OCI ejecuta la acción cerrada `cleanup`, que exige VMID ausente en todo el
+# clúster, identidad privada y recibo exacto de las reglas, y recién entonces libera la
+# dirección. Eso reemplaza este paso en el recorrido habitual.
 #
-# Una tabla se considera huérfana si ningún LXC del nodo tiene un nombre que empiece por
-# nap-<primeros 8 hex del UUID del recurso> (los LXC de aplicación se llaman así). Las tablas
-# de contenedores existentes NO se tocan. Sin argumentos sólo muestra qué haría.
+# Residuos históricos (tablas de bajas anteriores al motor actual): NO se retiran con este script.
+# Se reconcilian con la acción `cleanup` del runner usando la identidad y el recibo de cada
+# recurso, o a mano y de a una tabla tras comprobar ausencia del VMID, el recibo y el hash.
 set -u
-APLICAR=0; [ "${1:-}" = "--aplicar" ] && APLICAR=1
 NODE_IP=${NODE_IP:-192.168.100.91}
-ssh -o SendEnv=-LC_* root@$NODE_IP "APLICAR=$APLICAR bash -s" <<'REMOTE'
-nombres=$(pct list | awk 'NR>1 {print $NF}')
+[ $# -eq 0 ] || { echo "este script ya no acepta argumentos (no elimina nada); ver la cabecera" >&2; exit 2; }
+ssh -o ControlPath=${NAP_SSH_CTL:-/tmp/nap-lab-ssh-%h} -o SendEnv=-LC_* root@$NODE_IP 'bash -s' <<'REMOTE'
 echo "contenedores del nodo:"; pct list
-echo
-for t in $(nft -j list tables | python3 -c "import sys,json;print(' '.join(x['table']['family']+':'+x['table']['name'] for x in json.load(sys.stdin)['nftables'] if 'table' in x and x['table']['name'].startswith('nap011_')))"); do
-  fam=${t%%:*}; name=${t#*:}; hex=${name#nap011_}; corto=${hex:0:8}
-  if printf '%s\n' $nombres | grep -q "^nap-$corto"; then
-    echo "$name: su contenedor existe (nap-$corto...) -> se conserva"
-  else
-    echo "$name: HUÉRFANA (no hay contenedor nap-$corto...)"
-    if [ "$APLICAR" = 1 ]; then nft delete table $fam $name && echo "  eliminada"; fi
-  fi
-done
-echo; echo "tablas restantes:"; nft list tables | grep nap011_ || echo "(ninguna)"
+echo; echo "tablas bridge nap011_* presentes (sólo informativo):"
+nft -j list tables | python3 -c "
+import sys, json
+for x in json.load(sys.stdin)['nftables']:
+    t = x.get('table')
+    if t and t['name'].startswith('nap011_'): print(' ', t['family'], t['name'])
+" | sort
+echo; echo "recibos de aislamiento: $(ls /var/lib/nap-application-isolation 2>/dev/null | wc -l) archivos"
 REMOTE
-[ $APLICAR -eq 1 ] || echo "(simulación: usá --aplicar para eliminar las huérfanas)"

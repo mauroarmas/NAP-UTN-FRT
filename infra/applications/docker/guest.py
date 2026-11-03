@@ -189,12 +189,46 @@ https://:8443 {
         environment={**self.configuration['variables'],**values}
         if any(type(v)is not str or '\x00'in v for v in environment.values()):raise InstallError()
         args=application_arguments(self.identity,self.configuration,self.request['resources'],tls_directory=str(self.directory/'database-tls'))
+        self.retire_owned(self.name)
+        self.reset_incomplete_database()
         self.docker(args,environment=environment)
         if self.configuration['access']['tipo']=='web':self.start_edge()
         self.verify_started()
 
+    def reset_incomplete_database(self):
+        """Un intento interrumpido durante la primera inicialización deja datos a medias que la entrada oficial
+        de MariaDB da por inicializados: no vuelve a crear la base ni el usuario y el acceso nunca funciona.
+        Sin la base de la aplicación todavía no puede haber datos de usuario, así que sólo entonces se reinicia
+        el volumen propio de esta instancia. Una base completa nunca se toca."""
+        if self.configuration['access']['tipo']!='tcp' or '/var/lib/mysql' not in self.configuration['persistencia']:return
+        database=self.configuration['variables'].get('MARIADB_DATABASE','')
+        if not re.fullmatch(r'[A-Za-z0-9_]{1,64}',database):raise InstallError()
+        volume=volume_name(self.identity['resource_uuid'],'/var/lib/mysql')
+        names=[json.loads(v) for v in self.docker(['volume','ls','--format','{{json .Name}}'],capture=True).decode().splitlines() if v.strip()]
+        if volume not in names:return
+        details=self.inspect('volume',volume)
+        if details['Driver']!='local' or details.get('Options') or details['Labels'].get('nap.resource_uuid')!=self.identity['resource_uuid']:
+            raise InstallError('IDENTITY_MISMATCH')
+        image=self.configuration['imagen']
+        check='if [ -d /var/lib/mysql/mysql ] && [ ! -d /var/lib/mysql/%s ]; then echo incompleta; else echo completa; fi'%database
+        answer=self.docker(['run','--rm','--pull=never','--network=none','--cap-drop=ALL','--security-opt=no-new-privileges:true',
+            '--log-driver=none','--entrypoint','/bin/sh','--mount','type=volume,source='+volume+',target=/var/lib/mysql,readonly',
+            image['repositorio']+'@'+image['manifest_digest'],'-c',check],capture=True).decode().strip()
+        if answer!='incompleta':return
+        self.docker(['volume','rm',volume])
+        self.configure_volumes()
+
+    def retire_owned(self,name):
+        """Una reparación reutiliza el nombre: se retira sólo un contenedor de ESTA instancia, nunca sus volúmenes."""
+        listed=self.docker(['container','ls','--all','--format','{{json .Names}}'],capture=True).decode().splitlines()
+        if name not in [json.loads(v) for v in listed if v.strip()]:return
+        labels=self.inspect('container',name)['Config'].get('Labels') or {}
+        if labels.get('nap.resource_uuid')!=self.identity['resource_uuid']:raise InstallError('IDENTITY_MISMATCH')
+        self.docker(['container','rm','--force',name])
+
     def start_edge(self):
         edge=self.request['edge'];edge_dir=self.directory/'edge'
+        self.retire_owned(self.edge_name)
         self.docker(['run','-d','--name',self.edge_name,'--pull=never','--restart=unless-stopped',
             '--network=host','--read-only','--cap-drop=ALL','--cap-add=NET_BIND_SERVICE','--security-opt=no-new-privileges:true',
             '--log-driver=none','--no-healthcheck','--pids-limit=64','--memory=128m','--memory-swap=128m',
@@ -221,9 +255,15 @@ https://:8443 {
         for path,mount in mounts.items():
             if mount.get('Type')!='volume' or mount.get('Name')!=volume_name(self.identity['resource_uuid'],path):raise InstallError()
 
+    def ready_window(self,default):
+        # El host fija la espera (acotada); sin ese dato rige el valor por defecto de cada tipo.
+        value=self.request.get('espera_segundos',default)
+        if type(value) is not int or not 30<=value<=600:raise InstallError()
+        return value
+
     def probe(self):
         if self.configuration['access']['tipo']=='tcp':return self.probe_database()
-        probe=self.configuration['access']['probe'];deadline=time.monotonic()+90
+        probe=self.configuration['access']['probe'];deadline=time.monotonic()+self.ready_window(90)
         context=ssl.create_default_context(cadata=self.request['tls']['ca_pem'])
         while time.monotonic()<deadline:
             connection=None
@@ -241,7 +281,7 @@ https://:8443 {
         raise InstallError('DEPENDENCY_UNAVAILABLE')
 
     def probe_database(self):
-        deadline=time.monotonic()+120
+        deadline=time.monotonic()+self.ready_window(300)
         password=self.request['private_values']['MARIADB_PASSWORD']
         while time.monotonic()<deadline:
             try:

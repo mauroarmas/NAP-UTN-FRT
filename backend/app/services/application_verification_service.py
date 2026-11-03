@@ -2,6 +2,7 @@
 from dataclasses import dataclass
 import asyncio
 from hashlib import sha256
+import logging
 import ssl
 
 import httpx
@@ -19,6 +20,9 @@ from app.services.infraestructura_io import InfraNoVerificable
 from app.services.application_proxy_service import NoCookieJar
 from app.utils.clock import clock
 from app.utils.secretos import configured_keyring
+from app.utils.diagnostico import resumen_excepcion
+
+logger=logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -54,13 +58,19 @@ async def _probe_web(instance):
                     if count>65536:raise InfraNoVerificable()
                 return AccessObservation(instance['host'],instance['address'],instance['port'],
                     instance['configuration_sha256'],reply.status_code)
-    except (httpx.HTTPError,OSError,ValueError):raise InfraNoVerificable() from None
+    except (httpx.HTTPError,OSError,ValueError) as exc:
+        logger.warning('Comprobación web no confirmada: %s',resumen_excepcion(exc))
+        raise InfraNoVerificable() from None
 
 
 async def verify(sessions,lease,*,pve=None,probe=None):
     from app.services import orquestacion_service as flow,operacion_service as operations
     from app.services import pedido_service,historial_service,notificacion_service
     from app.services.perfiles_service import validar_asignacion_aplicacion
+    from app.services.ca_portal_service import estado_ca_portal,CaPortalNoDisponible
+    # Con un doble de la comprobación (pruebas) no hay TLS real que verificar.
+    problema=estado_ca_portal() if probe is None else None
+    if problema:raise CaPortalNoDisponible(problema)
     op,identity,service,pedido,_=await flow._view(sessions,lease)
     observed=await identities.observar(identity,pve=pve)
     if (observed.estado!='propia' or observed.status!='running'

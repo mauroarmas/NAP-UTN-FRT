@@ -73,6 +73,56 @@ async def preparar(sessions,lease,*,pve,runner):
     return True
 
 
+async def preparar_reparacion(sessions,lease,*,pve,runner):
+    """Intento nuevo y separado sobre el recurso existente tras un fallo confirmado del anterior.
+
+    Conserva identidad, red y credenciales (los secretos salen de la base, no se regeneran). Nunca crea otro
+    recurso: si el LXC sigue encendido se detiene primero (el nodo exige guest detenido para iniciar el job) y
+    luego se envía un `start` con ids de intento nuevos y el mismo `operacion_raiz_id`, que es la condición
+    con la que el nodo admite reintentar sobre un job fallido.
+    """
+    from app.services import orquestacion_service as flow
+    op,identity,service,pedido,ledger=await flow._view(sessions,lease)
+    if identity is None or identity.ausencia_confirmada_at or ledger is None or service is None or pedido is None:
+        await flow._finish_failure(sessions,lease,'asignacion_sin_regularizar')
+        return False
+    assignment=op.contexto_seguro['asignacion'];node=op.contexto_seguro['destino']['nodo']
+    observation=await identities.observar(identity,pve=pve)
+    if observation.estado!='propia' or not flow._matches(observation.config,assignment,op.contexto_seguro['destino']):
+        raise InfraNoVerificable()
+    client=runner if runner is not None else ApplicationJobClient()
+    request={'protocol':PROTOCOL,'action':'profiles'}
+    reply=parse_response(canonical(await client.execute(request,node=node)),request=request)
+    if not reply['ok'] or not any(all(profile.get(k)==v for k,v in assignment['perfil'].items())
+            and profile['estado']=='habilitado' for profile in reply['data']['profiles']):
+        raise error(409,'perfil_aplicacion_no_disponible','El perfil con el que se aprobó el pedido ya no está habilitado en el nodo; dá de baja el servicio y pedí de nuevo')
+    async with flow._locked(sessions,lease) as (db,op,identity,service,pedido,ledger):
+        if (ledger.liberado_at is not None or not await flow._coverage(db,op,pedido,service)
+                or ledger.expira_at and flow.db_utc(ledger.expira_at)<=clock.now()):
+            raise error(409,'vigencia_no_habilitada','La reserva o vigencia no habilita la reparación')
+        await validar_asignacion_aplicacion(db,pedido)
+        if op.contexto_seguro['asignacion']!=pedido.asignacion_snapshot or op.contexto_seguro['destino']!=pedido.destino_snapshot:
+            raise error(409,'decision_no_vigente','La configuración aprobada cambió')
+        attempt=await db.scalar(select(IntentoDespliegue).where(IntentoDespliegue.operacion_id==op.id).with_for_update())
+        if attempt is None:
+            root=op.operacion_raiz_id
+            if root is None:raise InfraNoVerificable()
+            number=(await db.scalar(select(func.max(IntentoDespliegue.numero)).where(IntentoDespliegue.operacion_raiz_id==root)) or 0)+1
+            attempt=IntentoDespliegue(operacion_id=op.id,operacion_raiz_id=root,numero=number,
+                identidad_infraestructura_id=identity.id,configuracion_sha256=assignment['configuracion_sha256'])
+            db.add(attempt);await db.flush()
+        elif attempt.identidad_infraestructura_id!=identity.id:raise InfraNoVerificable()
+        public=wire(op,attempt,identity,action='start')
+        public.update(configuracion=assignment['configuracion'],secreto_referencias=assignment['secretos'])
+        stopped=observation.status=='stopped'
+        # El hito inicial va antes de cambiar de fase: la consola no admite retroceder.
+        await emitir_hito(db,lease,hito='reintento_solicitado')
+        await flow._cas(db,lease,fase='entorno' if stopped else 'detencion_necesaria',contexto_seguro={
+            **op.contexto_seguro,'job_fingerprint':fingerprint(public)})
+        if stopped:await emitir_hito(db,lease,hito='recurso_para_instalar')
+    return True
+
+
 async def enviar_o_consultar(sessions,lease,*,pve,runner):
     from app.services import orquestacion_service as flow
     client=runner if runner is not None else ApplicationJobClient()

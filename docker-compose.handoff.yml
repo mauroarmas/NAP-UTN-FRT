@@ -45,6 +45,9 @@ services:
       SMTP_SSL: "false"
     volumes:
       - ./backend/app:/app/app
+      # El backend importa el contrato de infra/ en tiempo de ejecución: la imagen sólo trae una copia parcial
+      # del momento del build. Montarlo evita que un portal con infra/ viejo rechace peticiones nuevas.
+      - ./infra:/app/infra:ro
       - ./backend/alembic:/app/alembic
       - ./backend/scripts:/app/scripts
       - ./backend/alembic.ini:/app/alembic.ini

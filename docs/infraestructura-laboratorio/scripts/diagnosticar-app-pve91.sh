@@ -1,4 +1,7 @@
 #!/bin/bash
+# ADVERTENCIA: NO es sólo lectura. Crea otro contenedor, puede descargar imágenes, cambia el driver
+# de logs y publica el puerto 18081 en el invitado. No reproduce los volúmenes ni secretos de la app
+# original. Usar sólo en invitados DESCARTABLES con identidad comprobada, nunca en servicios con datos.
 # EN LA PC DEL OPERADOR. Diagnóstico de una app que entra en "Restarting" en un LXC de pve91.
 # La app se lanza con --log-driver=none, así que 'docker logs' no sirve. Aquí se arranca la MISMA
 # imagen con las MISMAS restricciones (infra/applications/docker/contract.py) pero con el driver
