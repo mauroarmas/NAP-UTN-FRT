@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import QRCode from 'qrcode';
 import { preparar2FA, confirmar2FA, prepararReemplazo2FA, confirmarReemplazo2FA, cancelarSetup2FA, regenerarCodigos2FA, desactivar2FA, verificarIngresoTotp, recuperar2FA, recuperar2FAAsistido } from '../services/api';
 import { mensajeError } from '../utils/errors';
 
@@ -55,6 +56,21 @@ export function DesafioIngreso({ session, onRefresh }) {
   </section>;
 }
 
+// El QR se dibuja en el navegador a partir de la URI que ya entrega el API: el secreto no sale a ningún servicio externo.
+function CodigoQR({ uri }) {
+  const [imagen, setImagen] = useState(null);
+  useEffect(() => {
+    let vigente = true;
+    setImagen(null);
+    QRCode.toDataURL(uri, { margin: 2, width: 220, errorCorrectionLevel: 'M' })
+      .then((url) => { if (vigente) setImagen(url); })
+      .catch(() => { if (vigente) setImagen(null); });
+    return () => { vigente = false; };
+  }, [uri]);
+  if (!imagen) return null;
+  return <div className="field"><img src={imagen} width="220" height="220" alt="Código QR para configurar la aplicación autenticadora" style={{ background: '#fff', borderRadius: 8 }} /><p className="text-muted">Escanealo con tu aplicación autenticadora. Si no podés, usá la clave de abajo.</p></div>;
+}
+
 export default function Seguridad({ user, recovery = false, onRefresh }) {
   const [mode, setMode] = useState(user?.totp_habilitado ? 'reemplazar' : 'activar');
   const [password, setPassword] = useState('');
@@ -93,7 +109,8 @@ export default function Seguridad({ user, recovery = false, onRefresh }) {
     <p>{recovery ? 'Configurá y verificá un factor nuevo para recuperar el acceso. El factor anterior se conserva hasta confirmar el reemplazo.' : `El segundo factor es opcional. Estado actual: ${user?.totp_habilitado ? 'activado' : 'desactivado'}.`}</p>
     <form onSubmit={submit}>
       {pending ? <>
-        <p>Agregá esta clave a tu aplicación autenticadora y confirmá el código generado. La configuración vence en cinco minutos.</p>
+        <p>Escaneá el QR o agregá la clave a tu aplicación autenticadora y confirmá el código generado. La configuración vence en cinco minutos.</p>
+        <CodigoQR uri={pending.provisioning_uri} />
         <div className="field"><label htmlFor="clave-autenticador">Clave del autenticador</label><input id="clave-autenticador" className="input" readOnly value={pending.secret} /></div>
         <details><summary>Configuración manual de la aplicación</summary><p style={{ overflowWrap: 'anywhere' }}><code>{pending.provisioning_uri}</code></p></details>
       </> : <>
