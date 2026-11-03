@@ -40,13 +40,17 @@ def build_parser():
     g = c.add_mutually_exclusive_group(required=True)
     g.add_argument('--activar', action='store_true'); g.add_argument('--desactivar', action='store_true')
 
-    o = sub.add_parser('oferta', help='Actualiza la oferta MariaDB al perfil vigente (el botón "Actualizar aplicación")')
-    o.add_argument('--plantilla', type=int, default=23); o.add_argument('--clave', required=True)
+    o = sub.add_parser('oferta', help='Actualiza la oferta de una aplicación al perfil vigente (el botón "Actualizar aplicación")')
+    o.add_argument('--aplicacion', choices=sorted(APLICACIONES), default='mariadb')
+    o.add_argument('--plantilla', type=int, default=None, help='por defecto, la plantilla de la aplicación elegida')
+    o.add_argument('--clave', required=True)
 
     ped = sub.add_parser('pedido', help='Crea, evalúa y aprueba un pedido MariaDB (Medium) hacia un nodo')
     ped.add_argument('--usuario', required=True, help='titular de la cátedra que pide')
     ped.add_argument('--catedra', type=int, required=True); ped.add_argument('--nodo', required=True)
-    ped.add_argument('--plantilla', type=int, default=23); ped.add_argument('--storage', default='truenas')
+    ped.add_argument('--aplicacion', choices=sorted(APLICACIONES), default='mariadb')
+    ped.add_argument('--plantilla', type=int, default=None, help='por defecto, la plantilla de la aplicación elegida')
+    ped.add_argument('--storage', default='truenas')
     ped.add_argument('--dias', type=int, default=14); ped.add_argument('--clave', required=True,
         help='prefijo de las claves de idempotencia (se derivan -pedido y -aprobar)')
     ped.add_argument('--sin-aprobar', action='store_true', help='sólo crear y evaluar')
@@ -105,8 +109,20 @@ async def _cuenta(a):
         print('cuenta', email, 'activo =', usuario.activo)
 
 
-def _cuerpo_oferta(revision):
+# Aplicaciones que este script sabe ofrecer: plantilla del catálogo y modelo de servicio.
+APLICACIONES = {'mariadb': {'plantilla': 23, 'modelo': 'paas'}, 'nginx': {'plantilla': 22, 'modelo': 'saas'}}
+
+
+def _plantilla(a):
+    return a.plantilla if a.plantilla is not None else APLICACIONES[a.aplicacion]['plantilla']
+
+
+def _cuerpo_oferta(revision, aplicacion='mariadb'):
     from app.schemas.aplicacion import RevisarAplicacion
+    if aplicacion == 'nginx':
+        return RevisarAplicacion(origen='imagen_docker', imagen='docker.io/nginxinc/nginx-unprivileged:latest', puerto=8080,
+            modelo_servicio='saas', variables={}, secretos=[], persistencia=[], ruta_salud='/', websocket=False,
+            revision_esperada=revision)
     return RevisarAplicacion(origen='imagen_docker', imagen='docker.io/library/mariadb:11.4', puerto=3306, modelo_servicio='paas',
         variables={'MARIADB_DATABASE': 'catedra', 'MARIADB_USER': 'docente', 'MARIADB_ROOT_HOST': 'localhost'},
         secretos=[{'nombre': 'MARIADB_PASSWORD', 'etiqueta': 'Contraseña de la base', 'modo': 'generado'},
@@ -120,8 +136,9 @@ async def _oferta(a):
     from app.services import configuracion_despliegue_service as catalog
     async with AsyncSessionLocal() as db:
         admin = await _usuario(db, admin_email())
-        plantilla = await db.get(RecursoTemplate, a.plantilla)
-        r = await catalog.change(db, actor=admin, template_id=a.plantilla, clave=a.clave, body=_cuerpo_oferta(plantilla.revision))
+        plantilla = await db.get(RecursoTemplate, _plantilla(a))
+        r = await catalog.change(db, actor=admin, template_id=_plantilla(a), clave=a.clave,
+                                 body=_cuerpo_oferta(plantilla.revision, a.aplicacion))
         await db.commit()
         print('oferta', r.status_code, {k: r.resultado.get(k) for k in ('id', 'oferta_disponible', 'configuracion_id', 'requiere_actualizar_perfil')})
 
@@ -133,14 +150,14 @@ async def _pedido(a):
     from app.services import solicitud_service, evaluacion_service, admision_service
     async with AsyncSessionLocal() as db:
         admin = await _usuario(db, admin_email()); titular = await _usuario(db, a.usuario)
-        plantilla = await db.get(RecursoTemplate, a.plantilla)
+        plantilla = await db.get(RecursoTemplate, _plantilla(a))
         vig = _vigencia(a.dias)
         creado = await solicitud_service.crear(db, actor=titular, clave=a.clave + '-pedido', payload=PedidoCreate.model_validate({
-            'template_id': a.plantilla, 'modelo_servicio': 'paas', 'vigencia': vig, 'catedra_id': a.catedra,
+            'template_id': _plantilla(a), 'modelo_servicio': APLICACIONES[a.aplicacion]['modelo'], 'vigencia': vig, 'catedra_id': a.catedra,
             'descripcion_requerimientos': 'Pedido operado desde el laboratorio (%s)' % a.clave}))
         await db.commit()
         pid = creado.resultado.get('id') or creado.resultado.get('pedido_id')
-        cuerpo = {'asignacion': {'template_id': a.plantilla, 'vcpus': 2, 'ram_mb': 1024, 'disk_gb': 8, 'tamano': 'medium',
+        cuerpo = {'asignacion': {'template_id': _plantilla(a), 'vcpus': 2, 'ram_mb': 1024, 'disk_gb': 8, 'tamano': 'medium',
                                  'configuracion_despliegue_id': str(plantilla.configuracion_despliegue_id)},
                   'destino': {'nodo': a.nodo, 'storage': a.storage}, 'vigencia': vig}
         ev = await evaluacion_service.evaluar(db, pid, actor=admin, payload=PedidoEvaluacion.model_validate(cuerpo))
