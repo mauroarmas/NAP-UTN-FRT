@@ -28,16 +28,21 @@ def cluster(proxmox, perfil_capacidad):
 
 
 async def _sembrar(db, servicio_id, cpu=0.0, net_delta=0):
-    """Cobertura suficiente (>= 80% de intervalos de 60s confirmados)."""
+    """Cobertura suficiente: 90% de los intervalos de 60s, con margen sobre el mínimo (80%).
+
+    La ventana de actividad se alinea al minuto: si el minuto cambia entre sembrar y evaluar, se corre un
+    intervalo. Sembrar exactamente el mínimo dejaba la prueba en ~2% de fallas intermitentes.
+    """
     fin = clock.now().replace(second=0, microsecond=0) - timedelta(minutes=1)
     esperadas = int(
         inactividad_service._muestras_esperadas(inactividad_service.VENTANA_INACTIVIDAD)
-        * 0.8
+        * 0.9
     )
     filas = [
         dict(
             servicio_id=servicio_id,
-            timestamp=fin - timedelta(minutes=esperadas - i - 1),
+            # La muestra se toma al final de su intervalo: así su antigüedad no depende de en qué segundo se siembra.
+            timestamp=fin - timedelta(minutes=esperadas - i - 1) + timedelta(seconds=59),
             intervalo_at=fin - timedelta(minutes=esperadas - i - 1),
             calidad="confirmada",
             estado_observado="running",
@@ -278,3 +283,18 @@ async def test_encenderlo_desde_el_portal_limpia_la_marca(
     await db.refresh(servicio)
     assert servicio.estado == EstadoServicio.RUNNING
     assert servicio.pausado_auto_at is None
+
+
+async def test_un_cambio_de_minuto_entre_sembrar_y_evaluar_no_cambia_el_veredicto(
+    db, proxmox, catedra, usuario_catedra, template, monkeypatch
+):
+    """Regresión determinista de una falla intermitente (~2%): sembrar a 12:00:59 y evaluar a 12:01:01."""
+    base = clock.now().replace(second=59, microsecond=0)
+    monkeypatch.setattr(clock, "now", lambda: base)
+    servicio = await _servicio_ocioso(db, proxmox, catedra, usuario_catedra, template, vmid=402)
+    monkeypatch.setattr(clock, "now", lambda: base + timedelta(seconds=2))   # ya es el minuto siguiente
+
+    veredicto = await inactividad_service.evaluar_actividad(db, servicio)
+
+    assert veredicto["inactivo"] is True and veredicto["motivo"] == "sin_uso"
+    assert veredicto["cobertura"] >= inactividad_service.COBERTURA_MINIMA

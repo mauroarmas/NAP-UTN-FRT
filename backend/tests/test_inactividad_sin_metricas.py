@@ -35,7 +35,8 @@ async def _sembrar_metricas(db, servicio_id, cantidad, cpu=0.0, net_delta=0):
     filas = [
         dict(
             servicio_id=servicio_id,
-            timestamp=fin - timedelta(minutes=cantidad - i - 1),
+            # La muestra se toma al final de su intervalo (su antigüedad no depende del segundo en que se siembra).
+            timestamp=fin - timedelta(minutes=cantidad - i - 1) + timedelta(seconds=59),
             intervalo_at=fin - timedelta(minutes=cantidad - i - 1),
             calidad="confirmada",
             estado_observado="running",
@@ -110,7 +111,8 @@ async def test_con_cobertura_suficiente_y_sin_uso_si_se_evalua_inactivo(
     esperadas = inactividad_service._muestras_esperadas(
         inactividad_service.VENTANA_INACTIVIDAD
     )
-    await _sembrar_metricas(db, servicio.id, int(esperadas * 0.8), cpu=0.0, net_delta=0)
+    # 90%: con margen sobre el mínimo (80%) para que un cambio de minuto entre sembrar y evaluar no lo rompa.
+    await _sembrar_metricas(db, servicio.id, int(esperadas * 0.9), cpu=0.0, net_delta=0)
 
     veredicto = await inactividad_service.evaluar_actividad(db, servicio)
 
