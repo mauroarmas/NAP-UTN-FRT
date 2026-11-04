@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Input**: User description: "Acceso SSH a servicios IaaS Linux (Ubuntu) con la clave pública de la persona usuaria. Hoy el único método de acceso de un Ubuntu desplegado es la consola web del portal, que está bloqueada porque exige acreditar aislamiento, identidad nativa de Proxmox y revocación de consola; sin esa evidencia nadie puede usar el servicio sin ayuda de quien tenga acceso de administración al nodo. Se quiere que al pedir el servicio la persona aporte su clave pública SSH, que el motor la instale en el contenedor con el servicio de acceso remoto activo, y que el portal muestre cómo conectarse desde una máquina permitida, igual que ya ocurre con MariaDB. El control de quién llega sigue siendo la lista de clientes permitidos y el aislamiento por instancia. No depende de las identidades ni ACL de consola de Proxmox. Fuera de alcance: terminal web dentro del portal, habilitar la consola Proxmox, cambios a servicios Docker/OCI."
+**Input**: User description: "Acceso SSH a servicios IaaS Linux (Ubuntu) con la clave pública de la persona usuaria. Hoy el único método de acceso de un Ubuntu desplegado es la consola web del portal, que está bloqueada porque exige acreditar aislamiento, identidad nativa de Proxmox y revocación de consola; sin esa evidencia nadie puede usar el servicio sin ayuda de quien tenga acceso de administración al nodo. Se quiere que al pedir el servicio la persona aporte su clave pública SSH, que el motor la instale en el contenedor con el servicio de acceso remoto activo, y que el portal muestre cómo conectarse desde una máquina permitida, igual que ya ocurre con MariaDB. No depende de las identidades ni ACL de consola de Proxmox. Fuera de alcance: terminal web dentro del portal, habilitar la consola Proxmox, cambios a servicios Docker/OCI."
 
 <!-- Principio VII: recorrido más corto útil. La persona sólo aporta un dato nuevo (su clave pública);
      el resto es automático. Principio I: este acceso no deriva a Proxmox ni usa sus permisos, por lo que
@@ -27,7 +27,7 @@ Una persona de una cátedra pide un servicio Ubuntu. En el pedido pega su clave 
 1. **Given** una persona con rol cátedra que pide un servicio Linux, **When** completa el pedido, **Then** el formulario pide una clave pública además de lo que ya pedía, rechaza con un mensaje comprensible una clave inválida o ilegible, y no exige ningún otro dato nuevo.
 2. **Given** un servicio Linux disponible creado con una clave pública, **When** la persona abre su detalle, **Then** ve la dirección, el usuario y el comando de conexión listo para copiar, indicación de que se entra con la clave y no con contraseña, y desde qué máquinas está permitido.
 3. **Given** una máquina permitida y la clave privada de la persona, **When** ejecuta el comando mostrado, **Then** entra al servicio con una sesión de terminal.
-4. **Given** una máquina que no está en la lista de clientes permitidos, **When** intenta conectarse, **Then** no llega al servicio, y esa restricción coincide con lo que el portal informó.
+4. **Given** una conexión por contraseña, o con una clave distinta de la registrada, **When** intenta entrar, **Then** el servicio la rechaza.
 5. **Given** una persona con una clave distinta de la registrada, **When** intenta conectarse, **Then** el acceso es rechazado.
 
 ---
@@ -72,8 +72,8 @@ La persona cambió de computadora o perdió su clave privada. Reemplaza la clave
 - El pedido se aprueba y falla antes de instalar la clave: el servicio no se entrega con acceso a medias; se recupera con el mecanismo existente de reparación, sin duplicar recursos.
 - La misma clave pública se usa en varios servicios de la misma persona: es válido y cada servicio la trata de forma independiente.
 - Dos cátedras distintas usan la misma clave pública: ninguna obtiene acceso al servicio de la otra por ello.
-- La persona se conecta desde una máquina no permitida: el portal ya le dijo desde dónde se puede; el rechazo de red no se presenta como un error del servicio.
-- El nodo se reinicia: el servicio no arranca solo (decisión vigente); al iniciarlo desde el portal, el acceso por clave y el aislamiento de red están vigentes antes de declararlo utilizable.
+- La persona se conecta desde una red sin ruta hacia el servicio: el portal informa la dirección y el hecho de que debe estar en la red institucional del laboratorio; el fallo de red no se presenta como un error del servicio.
+- El nodo se reinicia: el servicio no arranca solo (decisión vigente); al iniciarlo desde el portal, el acceso por clave sigue vigente y el servicio no se declara utilizable hasta comprobar que el acceso remoto responde.
 
 ## Requirements *(mandatory)*
 
@@ -85,11 +85,11 @@ La persona cambió de computadora o perdió su clave privada. Reemplaza la clave
 - **FR-004**: Al desplegar el servicio, el sistema MUST dejar dentro del contenedor el acceso remoto activo, un usuario sin privilegios con permiso de elevación y autorizada únicamente la clave aportada para ese usuario, sin intervención manual de quien administra el nodo. MUST NOT habilitar el ingreso remoto directo como administrador del contenedor.
 - **FR-005**: El acceso remoto MUST permitir sólo autenticación por clave; MUST NOT admitir ingreso por contraseña.
 - **FR-006**: El servicio MUST NOT declararse utilizable ni entregarse hasta comprobar que el acceso remoto responde con la clave registrada; si la comprobación falla, el estado informado es el de fallo con motivo, no «utilizable».
-- **FR-007**: El detalle del servicio MUST mostrar dirección, usuario, comando de conexión copiable, el hecho de que se entra con clave, y las redes o máquinas desde las que está permitido. MUST mostrarlo sólo cuando el servicio está en marcha y verificado.
-- **FR-008**: Quién puede llegar al servicio MUST seguir definido por la lista de clientes permitidos y el aislamiento de red por instancia ya vigentes. Esta función MUST NOT ampliar esa lista ni abrir excepciones de red por sí misma, y MUST NOT permitir el acceso desde los nodos de infraestructura.
+- **FR-007**: El detalle del servicio MUST mostrar dirección, usuario, comando de conexión copiable, el hecho de que se entra con clave, y la indicación de que debe conectarse desde la red institucional. MUST mostrarlo sólo cuando el servicio está en marcha y verificado.
+- **FR-008**: Esta función MUST NOT abrir, cerrar ni modificar reglas de red. Los servicios Linux IaaS no tienen hoy restricción de red por instancia: el único control de ingreso es la clave. La spec lo declara de forma explícita y no presenta el acceso como restringido por origen.
 - **FR-009**: El acceso MUST NOT depender de las identidades, permisos ni evidencias de la consola de Proxmox, y MUST NOT derivar a la persona a ninguna pantalla de Proxmox.
 - **FR-010**: La baja del servicio MUST eliminar el acceso con él, y la clave de un servicio dado de baja MUST NOT dar acceso a otro servicio posterior que reutilice su dirección o identificador interno.
-- **FR-011**: Detener e iniciar el servicio desde el portal MUST conservar el acceso por clave; tras el reinicio de un nodo, iniciar el servicio MUST dejar el acceso y el aislamiento de red vigentes antes de declararlo utilizable.
+- **FR-011**: Detener e iniciar el servicio desde el portal MUST conservar el acceso por clave; tras el reinicio de un nodo, iniciar el servicio MUST dejar el acceso por clave vigente y MUST NOT declararlo utilizable hasta comprobar que el acceso remoto responde.
 - **FR-012**: El titular del servicio y la administración MUST poder registrar o reemplazar la clave pública de un servicio entregado, incluidos los creados antes de esta función; al reemplazarla, la anterior MUST dejar de funcionar. Cualquier otra persona MUST ser rechazada.
 - **FR-013**: Registrar, validar y reemplazar una clave, y los intentos rechazados por falta de permiso, MUST quedar en el historial del servicio con autor y momento, sin incluir la clave completa en mensajes de error ni registros operativos.
 - **FR-014**: Los servicios Docker/OCI, las bases de datos y las aplicaciones web MUST NOT cambiar de comportamiento ni mostrar este acceso.
@@ -100,7 +100,6 @@ La persona cambió de computadora o perdió su clave privada. Reemplaza la clave
 - **Clave de acceso remoto del servicio**: clave pública aportada por la persona titular para un servicio Linux concreto; tiene huella identificatoria, fecha de registro y de último reemplazo, y pertenece a un único servicio. Nunca incluye la parte privada.
 - **Servicio Linux IaaS**: instancia entregada a una cátedra que, además de lo que ya tiene, pasa a tener un método de acceso remoto verificable y los datos de conexión que el portal muestra.
 - **Datos de conexión**: dirección, usuario, comando, y redes permitidas, derivados del servicio y de la configuración de red institucional; se presentan sólo cuando el servicio está en marcha y verificado.
-- **Lista de clientes permitidos**: configuración institucional preexistente que decide qué máquinas llegan a las instancias; esta función la consume, no la modifica.
 
 ## Success Criteria *(mandatory)*
 
@@ -108,8 +107,8 @@ La persona cambió de computadora o perdió su clave privada. Reemplaza la clave
 
 - **SC-001**: Una persona sin conocimientos de administración de Proxmox puede pasar de «servicio Ubuntu disponible» a una terminal abierta en él en menos de 2 minutos, usando sólo lo que muestra el portal.
 - **SC-002**: Tras aprobar un pedido, en el 100 % de los despliegues exitosos se puede entrar con la clave aportada sin ninguna acción manual sobre el nodo, en un ensayo con al menos 3 servicios en 2 nodos.
-- **SC-003**: En todos los intentos de ensayo con una clave distinta de la registrada, con contraseña, o desde una máquina fuera de la lista permitida, el acceso es rechazado (0 ingresos indebidos).
-- **SC-004**: Tras detener e iniciar un servicio, y tras reiniciar un nodo e iniciar el servicio, la misma clave sigue entrando en el 100 % de los ensayos, y en ninguno el servicio se declara utilizable con el acceso o el aislamiento sin verificar.
+- **SC-003**: En todos los intentos de ensayo con una clave distinta de la registrada, con contraseña, o como administrador del contenedor, el acceso es rechazado (0 ingresos indebidos).
+- **SC-004**: Tras detener e iniciar un servicio, y tras reiniciar un nodo e iniciar el servicio, la misma clave sigue entrando en el 100 % de los ensayos, y en ninguno el servicio se declara utilizable con el acceso remoto sin verificar.
 - **SC-005**: Tras reemplazar la clave, la anterior es rechazada y la nueva admitida en el 100 % de los ensayos.
 - **SC-006**: Ninguna clave privada ni contraseña de acceso aparece en pantalla, historial, mensajes de error ni registros operativos en las comprobaciones de seguridad.
 - **SC-007**: Las pruebas de regresión existentes de servicios Docker/OCI, bases de datos y consola IaaS pasan sin cambios de comportamiento.
@@ -119,9 +118,9 @@ La persona cambió de computadora o perdió su clave privada. Reemplaza la clave
 - La plantilla Linux oficial ya incluye, o el motor puede dejarle activo, el servicio de acceso remoto sin descargar software externo no controlado; si hiciera falta incluirlo, es parte de esta función.
 - El usuario de conexión es un usuario sin privilegios con permiso de elevación dentro de su propio contenedor (decisión de aclaración); el ingreso directo como administrador del contenedor no se ofrece. Sólo se admite autenticación por clave. El portal informa ese usuario en lugar del `root` que hoy muestra.
 - Los servicios Linux ya entregados antes de esta función pueden incorporar una clave por el mismo camino de reemplazo (decisión de aclaración); el motor les deja el acceso listo sin tener que darlos de baja.
-- La máquina de la persona está en una red incluida en la lista de clientes permitidos. Ampliar esa lista para oficinas o laboratorios concretos es una decisión institucional aparte y fuera de esta función.
+- La máquina de la persona tiene ruta de red hasta el servicio (la red institucional del laboratorio). Los servicios Linux IaaS no tienen hoy aislamiento de red por instancia ni lista de clientes permitidos —eso existe sólo en el motor de aplicaciones Docker/OCI—; agregarlos es una decisión institucional aparte, fuera de esta función. Mientras tanto la clave es el único control de ingreso.
 - Una persona aporta una clave por servicio; varias claves por servicio o por cátedra quedan fuera de alcance.
 - Los tipos de clave admitidos se fijan por una política institucional simple y revisable, con los tipos modernos habituales; no se pide a la persona que elija un algoritmo.
 - El reinicio de un nodo sigue sin arrancar los servicios solos; el inicio desde el portal es el camino, como ya está decidido.
-- Esta función cambia el comportamiento del motor de despliegue Linux, por lo que alcanza el contrato de equivalencia de las configuraciones validadas: requiere una nueva revisión de perfil y su validación real en cada nodo antes de habilitarse.
-- Fuera de alcance: terminal web en el portal, habilitar o modificar la consola interactiva de Proxmox, cambios a servicios Docker/OCI, bases de datos y aplicaciones web, gestión de claves de varias personas por servicio, y cualquier ampliación de la lista de clientes permitidos.
+- Esta función necesita ejecutar acciones dentro del contenedor desde el nodo, por lo que requiere reinstalar el paquete de nodo y validarse con un ensayo real en cada nodo antes de habilitarse. No debe alterar el motor Docker/OCI ni sus perfiles ya validados.
+- Fuera de alcance: terminal web en el portal, habilitar o modificar la consola interactiva de Proxmox, cambios a servicios Docker/OCI, bases de datos y aplicaciones web, gestión de claves de varias personas por servicio, y cualquier restricción de red por instancia para servicios Linux.
