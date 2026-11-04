@@ -136,7 +136,41 @@ async def aplicar(sessions, *, runner, identity, servicio_id, operacion_id):
         if fila is not None and fila.revision == datos['revision']:
             fila.aplicada_revision, fila.aplicada_at = datos['revision'], ahora
     return {'usuario': USUARIO, 'puerto': 22, 'huella': datos['huella'], 'revision': datos['revision'],
-        'verificado_at': ahora.isoformat()}
+        'verificado_at': ahora.isoformat(), **({'direccion': resultado['direccion']} if resultado.get('direccion') else {})}
+
+
+async def refrescar_direccion(sessions, *, runner, identity, servicio_id, operacion_id):
+    """Al iniciar el servicio: vuelve a leer la IP que el contenedor tiene de verdad. Nunca hace fallar la orden.
+
+    El DHCP puede entregar una dirección distinta de la reservada o cambiarla; el comando de conexión tiene que
+    usar la que el contenedor realmente tiene. Si el nodo no responde, se conserva la última conocida.
+    """
+    try:
+        async with sessions() as db:
+            fila = await fila_de(db, servicio_id)
+            if fila is None or fila.aplicada_revision != fila.revision:
+                return None
+            datos = {'revision': fila.revision, 'huella': fila.huella_sha256}
+        nonce = configured_keyring().decrypt(identity.nonce_cifrado, context=f'infra:{identity.resource_uuid}:nonce')
+        if runner is None:
+            from app.services.guest_runner_client import GuestRunnerClient
+            runner = GuestRunnerClient()
+        respuesta = await runner.execute_iaas_access(_solicitud(identity, datos, operacion_id=operacion_id, accion='probe', nonce=nonce))
+        direccion = (respuesta.get('result') or {}).get('direccion') if respuesta.get('status') == 'succeeded' else None
+        if not direccion:
+            return None
+        async with sessions() as db, db.begin():
+            servicio = await db.get(Servicio, servicio_id, with_for_update=True)
+            if servicio is None:
+                return None
+            ssh = dict((servicio.acceso_metadata or {}).get('ssh') or {})
+            if ssh.get('direccion') == direccion:
+                return direccion
+            ssh.update(direccion=direccion, verificado_at=clock.now().isoformat())
+            servicio.acceso_metadata = {**(servicio.acceso_metadata or {}), 'ssh': ssh}
+        return direccion
+    except Exception:  # Es una mejora de presentación: un fallo no puede impedir iniciar el servicio.
+        return None
 
 
 def estado_derivado(fila, *, operacion_abierta):
@@ -156,7 +190,8 @@ async def bloque_acceso(db, servicio, *, cubierto):
     estado = estado_derivado(fila, operacion_abierta=abierta)
     metadata = servicio.acceso_metadata or {}
     direcciones = metadata.get('addresses') or []
-    direccion = direcciones[0] if direcciones else None
+    # Preferimos la IP que el contenedor tiene de verdad (la reservada puede no coincidir si el DHCP no la respeta).
+    direccion = (metadata.get('ssh') or {}).get('direccion') or (direcciones[0] if direcciones else None)
     en_marcha = servicio.estado == EstadoServicio.RUNNING
     puede = bool(estado == 'aplicada' and en_marcha and cubierto and direccion)
     motivo = None

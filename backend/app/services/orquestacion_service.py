@@ -524,6 +524,11 @@ async def procesar_lease(sessions, lease, *, pve=None, runner=None, after_dispat
                         if not await _coverage(db, current, current_request, current_service):
                             await _cas(db, lease, fase='detencion_necesaria')
                             continue
+                if action in {'iniciar', 'reiniciar'}:
+                    from app.services import iaas_acceso_service
+                    if iaas_acceso_service.es_servicio_linux(service):
+                        await iaas_acceso_service.refrescar_direccion(sessions, runner=runner, identity=identity,
+                            servicio_id=service.id, operacion_id=op.id)
                 await _confirmed(sessions, lease, observation, runner=runner)
                 return
             if op.fase == 'bootstrap':

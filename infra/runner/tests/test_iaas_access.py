@@ -28,6 +28,7 @@ class Nodo:
         self.pool = pool
         self.marker = marker or {'resource_uuid': RESOURCE, 'pool': 'catedra-3', 'nonce_sha256': hashlib.sha256(NONCE.encode()).hexdigest()}
         self.fail_on = None
+        self.salida_ip = b'2: eth0    inet 192.168.100.18/24 metric 1024 brd 192.168.100.255 scope global dynamic eth0\n       valid_lft 3000sec\n'
 
     def __call__(self, argv, *, input=None, timeout=30, accepted_codes=(0,)):
         self.calls.append((list(argv), input))
@@ -41,6 +42,8 @@ class Nodo:
             return b'status: running\n' if self.running else b'status: stopped\n'
         assert argv[:2] == [modulo.PCT, 'exec'] and argv[3] == '--', argv
         inner = argv[4:]
+        if inner[:2] == ['/bin/sh', '-c'] and inner[2] == modulo.DIRECCION:
+            return self.salida_ip
         if inner[:2] == ['/bin/sh', '-c'] and inner[3] == 'nap-test':
             return b'si\n' if inner[4] in self.installed else b''
         if inner[:2] == ['/bin/sh', '-c']:
@@ -167,3 +170,20 @@ def test_despacho_por_protocolo():
     assert is_iaas_access_request(pedido(clave=nueva_clave()))
     assert not is_iaas_access_request(b'{"protocol":"nap-guest-runner/1"}')
     assert not is_iaas_access_request(b'no json')
+
+
+def test_informa_la_ip_real_del_contenedor():
+    nodo, clave = Nodo(), nueva_clave()
+    respuesta = handle_iaas_access_request(pedido(clave=clave), executor=ejecutor(nodo))
+    assert respuesta['result']['direccion'] == '192.168.100.18'
+    huella = respuesta['result']['huella']
+    probe = handle_iaas_access_request(pedido('probe', huella=huella), executor=ejecutor(nodo))
+    assert probe['result']['direccion'] == '192.168.100.18'
+
+
+@pytest.mark.parametrize('salida', [b'', b'2: eth0 inet6 fe80::1/64 scope link\n', b'2: eth0 inet no-es-ip/24 scope global\n', b'inet\n'])
+def test_sin_una_ipv4_valida_no_inventa_direccion(salida):
+    nodo, clave = Nodo(), nueva_clave()
+    nodo.salida_ip = salida
+    respuesta = handle_iaas_access_request(pedido(clave=clave), executor=ejecutor(nodo))
+    assert respuesta['status'] == 'succeeded' and 'direccion' not in respuesta['result']

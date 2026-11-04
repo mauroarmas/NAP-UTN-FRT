@@ -6,6 +6,7 @@ No modifica `node_executor.py` (entra en el policy_digest del motor Docker).
 """
 from datetime import datetime, timezone
 import hashlib
+import ipaddress
 import os
 from pathlib import Path
 import time
@@ -33,6 +34,7 @@ SSHD_CONTENIDO = ('# Gestionado por NAP; no editar.\nPasswordAuthentication no\n
     'PermitRootLogin no\nPubkeyAuthentication yes\nAllowUsers ' + USUARIO + '\n')
 # Código constante: recibe sólo rutas/modos fijados aquí; el contenido llega por stdin.
 ESCRIBIR = 'set -e; umask 077; cat > "$1.nap-new"; chmod "$2" "$1.nap-new"; chown "$3" "$1.nap-new"; mv "$1.nap-new" "$1"'
+DIRECCION = 'ip -4 -o addr show dev eth0 scope global'
 BANNER = 'exec 3<>/dev/tcp/127.0.0.1/22 && IFS= read -r -t 5 linea <&3 && printf "%s" "${linea:0:8}"'
 SIN_EFECTO = {'IDENTITY_MISMATCH', 'GUEST_NOT_RUNNING', 'SSHD_UNAVAILABLE', 'SUDO_UNAVAILABLE', 'INVALID_REQUEST'}
 
@@ -85,6 +87,18 @@ class IaasAccessExecutor:
     def _present(self, request, path):
         return bool(self._exec(request, ['/bin/sh', '-c', 'test -x "$1" && echo si', 'nap-test', path], accepted=(0, 1)).strip())
 
+    def direccion(self, request):
+        """IPv4 que el contenedor tiene realmente en eth0 (puede diferir de la reservada si el DHCP no la respeta)."""
+        salida = self._exec(request, ['/bin/sh', '-c', DIRECCION], accepted=(0, 1, 2)).decode(errors='replace')
+        for linea in salida.splitlines():
+            partes = linea.split()
+            if 'inet' in partes and partes.index('inet') + 1 < len(partes):
+                try:
+                    return str(ipaddress.IPv4Address(partes[partes.index('inet') + 1].split('/')[0]))
+                except ValueError:
+                    continue
+        return None
+
     def configure(self, request):
         if not self._running(request):
             raise RunnerError('GUEST_NOT_RUNNING')
@@ -123,8 +137,12 @@ class IaasAccessExecutor:
             raise RunnerError('PROBE_FAILED')
         for intento in range(reintentos):
             if self._exec(request, ['/bin/bash', '-c', BANNER], accepted=(0, 1)).startswith(b'SSH-2.0-'):
-                return {'ready': True, 'revision': request['revision'], 'huella': request['huella'],
+                resultado = {'ready': True, 'revision': request['revision'], 'huella': request['huella'],
                     'usuario': USUARIO, 'puerto': 22}
+                direccion = self.direccion(request)
+                if direccion:
+                    resultado['direccion'] = direccion
+                return resultado
             if intento + 1 < reintentos:
                 self.sleep(1)
         raise RunnerError('PROBE_FAILED')
@@ -151,7 +169,7 @@ def handle_iaas_access_request(raw, *, executor=None):
         phase = 'identity'
         executor.verify(request)
         identity, phase = True, 'execution'
-        result = executor.configure(request) if request['action'] == 'configure' else executor.probe(request)
+        result = executor.configure(request) if request['action'] == 'configure' else executor.probe(request, reintentos=6)
         return _response(request, status='succeeded', phase='verified', identity=True, result=result)
     except RunnerError as exc:
         # Sin efecto aplicado el fallo es definitivo; con efecto el resultado queda sin confirmar.

@@ -254,3 +254,45 @@ async def test_cada_servicio_tiene_su_propia_clave(client, db, engine, proxmox, 
     assert uno != dos and filas[uno].huella_sha256 != filas[dos].huella_sha256
     enviadas = {c['clave_publica'] for c in runner.calls if c['action'] == 'configure'}
     assert enviadas == {' '.join(primera.split()[:2]), ' '.join(segunda.split()[:2])}
+
+
+# --- IP observada ------------------------------------------------------------------------------------
+
+async def test_el_comando_usa_la_ip_que_el_contenedor_tiene_de_verdad(client, db, engine, proxmox, entorno,
+        auth_catedra, auth_admin, catedra):
+    """El DHCP puede no respetar la reserva: el comando tiene que apuntar a la IP observada."""
+    _, sid = await _desplegado(client, db, engine, proxmox, auth_catedra, auth_admin, catedra,
+        RunnerSsh(direccion='10.20.0.99'), nueva_clave())
+    detalle = (await client.get(f'/servicios/{sid}/acceso', headers=auth_catedra)).json()['acceso_ssh']
+    assert detalle['direccion'] == '10.20.0.99' and detalle['comando'] == 'ssh nap@10.20.0.99'
+    servicio = await db.get(Servicio, sid, populate_existing=True)
+    assert servicio.acceso_metadata['addresses'] != ['10.20.0.99']  # la reservada se conserva aparte
+
+
+async def test_sin_ip_observada_se_usa_la_reservada(client, db, engine, proxmox, entorno, auth_catedra, auth_admin, catedra):
+    _, sid = await _desplegado(client, db, engine, proxmox, auth_catedra, auth_admin, catedra, RunnerSsh(), nueva_clave())
+    servicio = await db.get(Servicio, sid, populate_existing=True)
+    detalle = (await client.get(f'/servicios/{sid}/acceso', headers=auth_catedra)).json()['acceso_ssh']
+    assert detalle['direccion'] == servicio.acceso_metadata['addresses'][0]
+
+
+async def test_al_iniciar_se_refresca_la_ip_y_un_fallo_no_rompe_nada(client, db, engine, proxmox, entorno,
+        auth_catedra, auth_admin, catedra):
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+    from uuid import uuid4
+    from app.models.identidad_infraestructura import IdentidadInfraestructura
+    from app.schemas.guest_runner import RunnerError
+    from app.services import iaas_acceso_service
+    _, sid = await _desplegado(client, db, engine, proxmox, auth_catedra, auth_admin, catedra,
+        RunnerSsh(direccion='10.20.0.50'), nueva_clave())
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    servicio = await db.get(Servicio, sid, populate_existing=True)
+    identidad = await db.get(IdentidadInfraestructura, servicio.identidad_infraestructura_id, populate_existing=True)
+    nueva = await iaas_acceso_service.refrescar_direccion(sessions, runner=RunnerSsh(direccion='10.20.0.77'),
+        identity=identidad, servicio_id=sid, operacion_id=uuid4())
+    assert nueva == '10.20.0.77'
+    assert (await client.get(f'/servicios/{sid}/acceso', headers=auth_catedra)).json()['acceso_ssh']['comando'] == 'ssh nap@10.20.0.77'
+    # El nodo no responde: se conserva la última conocida y no se propaga la excepción.
+    assert await iaas_acceso_service.refrescar_direccion(sessions, runner=RunnerSsh(excepcion=RunnerError('UNCONFIRMED')),
+        identity=identidad, servicio_id=sid, operacion_id=uuid4()) is None
+    assert (await client.get(f'/servicios/{sid}/acceso', headers=auth_catedra)).json()['acceso_ssh']['direccion'] == '10.20.0.77'

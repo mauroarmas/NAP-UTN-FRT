@@ -23,8 +23,8 @@ def nueva_clave(comentario='docente@equipo'):
 class RunnerSsh:
     """Doble del runner del nodo para el protocolo nap-iaas-access/1."""
 
-    def __init__(self, *, error=None, excepcion=None):
-        self.calls, self.error, self.excepcion = [], error, excepcion
+    def __init__(self, *, error=None, excepcion=None, direccion=None):
+        self.calls, self.error, self.excepcion, self.direccion = [], error, excepcion, direccion
 
     async def execute_iaas_access(self, request):
         self.calls.append(request)
@@ -36,8 +36,10 @@ class RunnerSsh:
         if self.error:
             return base | {'status': 'failed', 'phase': 'execution', 'error': {'code': self.error, 'retryable': False}}
         huella = validar_clave(request['clave_publica'])[2] if request['action'] == 'configure' else request['huella']
-        return base | {'status': 'succeeded', 'result': {'ready': True, 'revision': request['revision'], 'huella': huella,
-            'usuario': 'nap', 'puerto': 22}}
+        resultado = {'ready': True, 'revision': request['revision'], 'huella': huella, 'usuario': 'nap', 'puerto': 22}
+        if self.direccion:
+            resultado['direccion'] = self.direccion
+        return base | {'status': 'succeeded', 'result': resultado}
 
 
 async def pedir_ubuntu(client, db, headers, catedra, *, proxmox, clave, clave_http='pedido-ssh', extra=None):

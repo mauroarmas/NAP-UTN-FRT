@@ -1,4 +1,5 @@
 """Protocolo cerrado nap-iaas-access/1; solo biblioteca estándar, se instala igual en el nodo."""
+import ipaddress
 import re
 from uuid import UUID
 
@@ -60,7 +61,7 @@ def parse_request(raw):
 
 RESPONSE_FIELDS = {'protocol', 'operation_id', 'action', 'resource_uuid', 'status', 'phase', 'identity_verified',
     'observed_at', 'result', 'error'}
-RESULT_FIELDS = {'ready', 'revision', 'huella', 'usuario', 'puerto'}
+RESULT_FIELDS = {'ready', 'revision', 'huella', 'usuario', 'puerto', 'direccion'}
 ERROR_CODES = {'INVALID_REQUEST', 'IDENTITY_MISMATCH', 'GUEST_NOT_RUNNING', 'SSHD_UNAVAILABLE', 'SUDO_UNAVAILABLE',
     'PROBE_FAILED', 'UNCONFIRMED', 'DEADLINE_EXCEEDED', 'RUNNER_UNAVAILABLE'}
 
@@ -78,6 +79,10 @@ def parse_response(raw, request):
             if (not isinstance(result, dict) or not set(result) <= RESULT_FIELDS or result.get('ready') is not True
                 or value.get('identity_verified') is not True):
                 raise ValueError()
+            if 'direccion' in result:
+                if not isinstance(result['direccion'], str):
+                    raise ValueError()
+                ipaddress.IPv4Address(result['direccion'])  # ValueError si no es una IPv4
         else:
             error = value.get('error')
             if not isinstance(error, dict) or error.get('code') not in ERROR_CODES:

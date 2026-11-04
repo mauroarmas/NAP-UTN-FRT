@@ -71,3 +71,17 @@ def test_rechaza_claves_duplicadas_y_exceso_de_tamano():
 def test_rechaza_entrada_no_bytes():
     with pytest.raises(RunnerError):
         parse_request('{}')
+
+
+def test_la_respuesta_acepta_una_direccion_ipv4_y_rechaza_cualquier_otra_cosa():
+    from app.schemas.iaas_access import parse_response
+    pedido = _base(action='probe', huella='SHA256:' + 'A' * 43)
+    pedido.pop('clave_publica')
+    def respuesta(direccion):
+        return json.dumps({'protocol': PROTOCOL, 'operation_id': pedido['operation_id'], 'action': 'probe',
+            'resource_uuid': pedido['resource_uuid'], 'status': 'succeeded', 'identity_verified': True,
+            'result': {'ready': True, 'revision': 1, 'huella': pedido['huella'], 'usuario': 'nap', 'puerto': 22, 'direccion': direccion}}).encode()
+    assert parse_response(respuesta('192.168.100.18'), pedido)['result']['direccion'] == '192.168.100.18'
+    for malo in ['no-es-ip', '999.1.1.1', 5, None, '::1', '1.2.3.4; rm -rf /']:
+        with pytest.raises(RunnerError):
+            parse_response(respuesta(malo), pedido)
