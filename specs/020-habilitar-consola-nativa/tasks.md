@@ -15,7 +15,7 @@
 
 ## Phase 1: Setup
 
-- [ ] T001 [P] Crear la prueba de higiene `backend/tests/test_sin_datos_lab_020.py` que recorra los archivos versionados (`git ls-files`) y falle si encuentra direcciones `192.168.100.`, `172.16.36.`, tokens, UUID del clúster del lab (`0d69119f-`), o identidades `@pve`/`@pam` distintas de los marcadores y de `root@pam` en el importador (SC-006)
+- [ ] T001 [P] Crear la prueba de higiene `backend/tests/test_sin_datos_lab_020.py` que recorra los archivos versionados (`git ls-files`) y falle si encuentra direcciones `192.168.100.`, `172.16.36.`, tokens, el UUID del clúster del lab (por su prefijo), o identidades `@pve`/`@pam` distintas de los marcadores y de `root@pam` en el importador (SC-006)
 - [ ] T002 [P] Verificar que la configuración privada del lab (`~/.local/share/nap009/`) sigue fuera del repositorio y que `.gitignore` cubre lo que el ensayo genere (salidas del ensayo en el scratchpad, no en el árbol)
 
 ## Phase 2: Foundational (bloquea las historias)

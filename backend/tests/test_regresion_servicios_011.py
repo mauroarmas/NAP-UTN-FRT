@@ -189,7 +189,10 @@ async def test_regresion_iaas_ciclo_completo_y_consola(
     assert revelar.json()["credenciales"]["password"] == credenciales["guest_password"]
 
     # Consola IaaS de servicio (/servicios/{id}/consola)
-    # Exclusiva de servicio encendido, con vigencia y confirmación de identidad
+    # Exclusiva de servicio encendido, con vigencia y confirmación de identidad; desde la spec 020 también
+    # exige la habilitación de la instalación (dobles; no acredita una sesión PVE real).
+    from tests.test_convergencia_seguridad_009 import console_fixture
+    await console_fixture(db, usuario_catedra, service, admin, monkeypatch)
     consola_iaas = await client.get(f"/servicios/{service.id}/consola", headers=auth_admin)
     assert consola_iaas.status_code == 200, consola_iaas.text
     consola_data = consola_iaas.json()

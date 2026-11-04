@@ -140,10 +140,14 @@ async def console_fixture(db, actor, service, admin, monkeypatch, *, environment
     from app.models.catedra import Catedra
     category = await db.get(Catedra, service.catedra_id)
     profile = {'cluster_uuid':settings.infrastructure_profile['cluster_id'], 'pve_version':'9.2.2',
+        'nodos':{'pve1':{'host':'pve1.test','port':8006}},
         'gate':{'evidencia_ref':str(evidence_id),'sha256':evidence.sha256},
         'identities':{actor.identidad_consola:{'usuario_id':actor.id,'revision_admin':actor.revision_admin,
             'referencia_institucional':'TEST-ONLY', 'catedras':{str(category.id):category.revision_admin}}}}
     monkeypatch.setattr(settings, 'console_access_profile', profile)
+    from app.services import consola_destino_service
+    async def responde(host, port): return True
+    monkeypatch.setattr(consola_destino_service, '_responde', responde)
     await db.commit()
     return profile
 
