@@ -32,9 +32,11 @@ test.each([
   expect(screen.queryByRole('link', { name: /Abrir consola/ })).toBeNull();
 });
 
-test('con la consola habilitada ofrece sólo el enlace al destino devuelto', async () => {
-  api.getConsolaServicio.mockResolvedValue({ data: { url: 'https://nodo.example:8006/?console=lxc&xtermjs=1&vmid=100&node=n1', servicio_id: 7, vmid: 100, node: 'n1' } });
+test('con la consola habilitada ofrece primero el inicio de sesión del mismo nodo y luego el destino', async () => {
+  api.getConsolaServicio.mockResolvedValue({ data: { url: 'https://nodo.example:8006/?console=lxc&xtermjs=1&vmid=100&node=n1', login_url: 'https://nodo.example:8006/', servicio_id: 7, vmid: 100, node: 'n1' } });
   await consultar();
+  const login = await screen.findByRole('link', { name: 'Iniciar sesión' });
+  expect(login).toHaveAttribute('href', 'https://nodo.example:8006/');
   const link = await screen.findByRole('link', { name: 'Abrir consola de esta instancia' });
   await waitFor(() => expect(link).toHaveAttribute('href', expect.stringContaining('xtermjs=1')));
   expect(link).toHaveAttribute('rel', 'noopener noreferrer');

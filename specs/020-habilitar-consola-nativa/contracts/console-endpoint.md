@@ -17,10 +17,12 @@
 
 ```json
 { "url": "https://<nodo-alcanzable>:<puerto>/?console=lxc&xtermjs=1&vmid=<vmid>&node=<nodo-del-contenedor>",
+  "login_url": "https://<nodo-alcanzable>:<puerto>/",
   "servicio_id": 45, "vmid": 100, "node": "frt" }
 ```
 
 - `node` es siempre el nodo que aloja el contenedor; el host de `url` es el primer nodo alcanzable (el propio, y si no responde, otro del clúster).
+- `login_url` es el inicio de sesión del **mismo** nodo que `url`: la página de consola no muestra login propio y usa la sesión que la persona ya tenga en ese nodo; sin ella responde «401 no ticket» (hallazgo del ensayo con navegador, 2026-11-04). La sesión dura unas 2 horas.
 - No se devuelven tickets, cookies, contraseñas ni la identidad de la persona.
 
 ## Errores

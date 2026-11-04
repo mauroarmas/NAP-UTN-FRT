@@ -188,7 +188,10 @@ async def consola_del_servicio(servicio_id: int, current_user: Usuario = Depends
         profile = await autorizar(db, servicio, current_user)
     host, port = await resolver_destino(profile, servicio.proxmox_node)
     console_url = f"https://{host}:{port}/?console=lxc&xtermjs=1&vmid={servicio.proxmox_vmid}&node={servicio.proxmox_node}"
-    return {"url": console_url, "servicio_id": servicio_id, "vmid": servicio.proxmox_vmid, "node": servicio.proxmox_node}
+    # La página de consola usa la sesión que la persona ya tenga en ese nodo y no muestra login propio:
+    # sin sesión responde "401 no ticket". `login_url` lleva al inicio de sesión del mismo nodo.
+    return {"url": console_url, "login_url": f"https://{host}:{port}/", "servicio_id": servicio_id,
+            "vmid": servicio.proxmox_vmid, "node": servicio.proxmox_node}
 
 
 @router.get("/", response_model=list[ServicioResponse])

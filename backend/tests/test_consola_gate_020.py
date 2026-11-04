@@ -33,7 +33,8 @@ async def test_administracion_con_instalacion_habilitada_recibe_el_destino(
     body = response.json()
     assert body['url'].startswith('https://pve1.test:8006/?console=lxc&xtermjs=1&')
     assert f"vmid={service.proxmox_vmid}&node=pve1" in body['url']
-    assert set(body) == {'url', 'servicio_id', 'vmid', 'node'}
+    assert set(body) == {'url', 'login_url', 'servicio_id', 'vmid', 'node'}
+    assert body['login_url'] == 'https://pve1.test:8006/'
 
 
 async def test_persona_habilitada_recibe_el_destino_del_nodo_del_contenedor(
@@ -60,6 +61,7 @@ async def test_failover_cuando_el_nodo_del_contenedor_no_responde(
     assert response.status_code == 200, response.text
     assert response.json()['url'].startswith('https://pve2.test:8006/')
     assert 'node=pve1' in response.json()['url']
+    assert response.json()['login_url'] == 'https://pve2.test:8006/'
 
 
 async def test_sin_nodos_vivos_la_persona_recibe_503_claro(
