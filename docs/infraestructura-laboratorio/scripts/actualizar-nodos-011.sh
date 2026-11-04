@@ -25,7 +25,7 @@ TPL_SHA=75a827c4ea4b2bef42e0521f51ed869e398f56b0e6b131c3cd5d284a2e0e08b5
 # Digest del paquete vigente (restaura el aislamiento nftables al arrancar el nodo). Anteriores: 77d26a9f… (reparación OCI), 107e3bff… (reemplazo del contenedor), 99279fd4… (espera configurable), 4ebb0a71… (0510c1a, plazo fijo
 # de 120 s) y 73e804b6… (78af40e). Cada digest distinto es una revisión de perfil distinta.
 # Sólo para paquetes EXPERIMENTALES locales: DIGEST_ESPERADO=<hex> con REPO apuntando al worktree.
-DIGEST_ESPERADO=${DIGEST_ESPERADO:-f269ca1e15df961d69d3ab9a329789999d3739202198cfcd2c23059925cd9503}
+DIGEST_ESPERADO=${DIGEST_ESPERADO:-5e216c87a93dbd578c6be94c1602635a7d9776d4639c58cb80b85aaf9a385304}
 PROFILE_NODES=${PROFILE_NODES:-pve91}
 PERFIL_REV=${PERFIL_REV:-2}
 CTL=${NAP_SSH_CTL:-/tmp/nap-lab-ssh-%h}

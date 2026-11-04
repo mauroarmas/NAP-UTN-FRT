@@ -29,7 +29,8 @@ if not __package__:
 
 from .protocol import JobError
 
-# `pvestatd` publica los invitados poco después de que arranca `pve-cluster`: se reintenta en lugar de fallar.
+# `pvestatd` publica los invitados poco después de que arranca `pve-cluster`, y en frío los comandos de Proxmox
+# pueden tardar más que su plazo: se reintenta en lugar de fallar.
 ATTEMPTS, PAUSE = 30, 3
 
 
@@ -40,8 +41,15 @@ def restore(runtime_factory=None, *, attempts=ATTEMPTS, pause=PAUSE, sleep=time.
         runtime_factory = build_runtime
     total = {'restaurados': [], 'vigentes': [], 'obsoletos': [], 'fallidos': []}
     for attempt in range(1, attempts + 1):
-        with runtime_factory() as runtime:
-            report = runtime.node.restore_isolations()
+        try:
+            with runtime_factory() as runtime:
+                report = runtime.node.restore_isolations()
+        except JobError as exc:
+            # En frío `pveversion` u otro comando de Proxmox puede superar su plazo y `build_runtime` lo informa como
+            # UNCONFIRMED: es transitorio. Se reintenta igual que un fallo por recurso; agotados los intentos se
+            # propaga y `main` lo informa (la unidad queda fallida). Un error definitivo no se reintenta.
+            if exc.code != 'UNCONFIRMED' or attempt == attempts: raise
+            sleep(pause); continue
         known = {item for key in ('restaurados', 'vigentes', 'obsoletos') for item in total[key]}
         for key in ('restaurados', 'vigentes', 'obsoletos'): total[key] += [i for i in report[key] if i not in known]
         total['fallidos'] = report['fallidos']
