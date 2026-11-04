@@ -27,6 +27,9 @@ SOURCES.update({
     '/opt/nap/runner/node_executor.py': 'infra/runner/node_executor.py',
     '/opt/nap/runner/protocol.py': 'backend/app/schemas/guest_runner.py',
     '/opt/nap/runner/registry_entries.py': 'backend/app/utils/artifact_registry.py',
+    '/opt/nap/runner/iaas_access.py': 'infra/runner/iaas_access.py',
+    '/opt/nap/runner/iaas_protocol.py': 'backend/app/schemas/iaas_access.py',
+    '/opt/nap/runner/ssh_keys.py': 'backend/app/utils/ssh_keys.py',
     '/usr/local/sbin/nap-guest-runner': 'infra/runner/nap-guest-runner',
 })
 TMPFILES = '/etc/tmpfiles.d/nap-application-jobs.conf'

@@ -228,6 +228,23 @@ def is_application_request(raw):
         return False
 
 
+def is_iaas_access_request(raw):
+    """Protocolo cerrado de acceso SSH a Linux IaaS; el módulo se importa sólo si coincide."""
+    try:
+        value = parse_json(raw, limit=16384)
+        return isinstance(value, dict) and value.get('protocol') == 'nap-iaas-access/1'
+    except Exception:
+        return False
+
+
+def handle_iaas_access_request(raw, *, executor=None):
+    if __package__:
+        from infra.runner.iaas_access import handle_iaas_access_request as handle
+    else:
+        from iaas_access import handle_iaas_access_request as handle
+    return handle(raw, executor=executor)
+
+
 def handle_application_request(raw, *, runtime_factory=None):
     """Separate application dispatcher; legacy recipe registry is not consulted."""
     protocol = 'nap-application-job/1'
@@ -268,6 +285,9 @@ def main():
     signal.alarm(0)
     if is_application_request(raw):
         print(canonical(handle_application_request(raw)))
+        return
+    if is_iaas_access_request(raw):
+        print(canonical(handle_iaas_access_request(raw)))
         return
     try:
         registry = parse_json(trusted_file('/etc/nap/runner/registry.json'), limit=2097152)

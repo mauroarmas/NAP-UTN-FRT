@@ -15,19 +15,19 @@
 
 ## Phase 1: Setup
 
-- [ ] T001 Confirmar la cabeza de Alembic con `alembic heads` en `backend/` y anotarla en un comentario de `specs/017-acceso-ssh-iaas-linux/plan.md` (sección Storage)
-- [ ] T002 Leer completos `backend/app/services/orquestacion_service.py` y `backend/app/routers/operaciones.py` y dejar en `specs/017-acceso-ssh-iaas-linux/research.md` (R7) los puntos exactos donde se agregan el paso `configure/probe` en `bootstrap` IaaS, el tipo `acceso_ssh` y su restricción CHECK en `operaciones_infraestructura`
-- [ ] T003 [P] Agregar prueba de no regresión del digest en `infra/applications/tests/test_policy_digest_estable.py`: fija el `policy_digest()` actual como constante y falla si cambia (R4)
+- [x] T001 Confirmar la cabeza de Alembic con `alembic heads` en `backend/` y anotarla en un comentario de `specs/017-acceso-ssh-iaas-linux/plan.md` (sección Storage)
+- [x] T002 Leer completos `backend/app/services/orquestacion_service.py` y `backend/app/routers/operaciones.py` y dejar en `specs/017-acceso-ssh-iaas-linux/research.md` (R7) los puntos exactos donde se agregan el paso `configure/probe` en `bootstrap` IaaS, el tipo `acceso_ssh` y su restricción CHECK en `operaciones_infraestructura`
+- [x] T003 [P] Agregar prueba de no regresión del digest en `infra/applications/tests/test_policy_digest_estable.py`: fija el `policy_digest()` actual como constante y falla si cambia (R4)
 
 ## Phase 2: Foundational (bloquea todas las historias)
 
-- [ ] T004 [P] Crear `backend/app/utils/ssh_keys.py`: `validar_clave(texto) -> (tipo, clave_normalizada, huella)`; admite `ssh-ed25519`, `ecdsa-sha2-nistp256/384/521`, `ssh-rsa` ≥ 3072 bits; rechaza clave privada (`clave_ssh_privada`), varias líneas, opciones por delante, caracteres de control, tipo interno distinto del declarado; descarta el comentario; huella `SHA256:` en base64 sin relleno
-- [ ] T005 [P] Pruebas de `ssh_keys` en `backend/tests/test_ssh_keys.py` con claves reales de prueba generadas en el test (ed25519, ecdsa, rsa 2048/3072), casos inválidos y huella igual a `ssh-keygen -lf`
+- [x] T004 [P] Crear `backend/app/utils/ssh_keys.py`: `validar_clave(texto) -> (tipo, clave_normalizada, huella)`; admite `ssh-ed25519`, `ecdsa-sha2-nistp256/384/521`, `ssh-rsa` ≥ 3072 bits; rechaza clave privada (`clave_ssh_privada`), varias líneas, opciones por delante, caracteres de control, tipo interno distinto del declarado; descarta el comentario; huella `SHA256:` en base64 sin relleno
+- [x] T005 [P] Pruebas de `ssh_keys` en `backend/tests/test_ssh_keys.py` con claves reales de prueba generadas en el test (ed25519, ecdsa, rsa 2048/3072), casos inválidos y huella igual a `ssh-keygen -lf`
 - [ ] T006 [P] Crear modelo `ClaveAccesoServicio` en `backend/app/models/clave_acceso_servicio.py` y registrarlo en `backend/app/models/__init__.py` (campos de data-model.md; `servicio_id` único)
 - [ ] T007 Crear la migración Alembic en `backend/alembic/versions/` (tabla `claves_acceso_servicio` + valor `acceso_ssh` en el tipo/CHECK de `operaciones_infraestructura` según T002) con `downgrade` completo
-- [ ] T008 [P] Agregar `clave_ssh_publica` a `DatosSolicitud` en `backend/app/schemas/pedido.py` (≤ 800, opcional en el esquema; la obligatoriedad se valida en el servicio de admisión)
-- [ ] T009 [P] Crear el protocolo `nap-iaas-access/1` en `backend/app/schemas/iaas_access.py` (parser estricto sin dependencias, mismo estilo que `guest_runner.py`: campos exactos, UUID, `vmid` entero, `revision`, `usuario == 'nap'`, tope 16 KiB) y copiarlo como módulo del nodo
-- [ ] T010 [P] Pruebas del protocolo en `backend/tests/test_iaas_access_protocol.py` (campos extra/duplicados, clave en `probe`, usuario distinto, tamaño)
+- [x] T008 [P] Agregar `clave_ssh_publica` a `DatosSolicitud` en `backend/app/schemas/pedido.py` (≤ 800, opcional en el esquema; la obligatoriedad se valida en el servicio de admisión)
+- [x] T009 [P] Crear el protocolo `nap-iaas-access/1` en `backend/app/schemas/iaas_access.py` (parser estricto sin dependencias, mismo estilo que `guest_runner.py`: campos exactos, UUID, `vmid` entero, `revision`, `usuario == 'nap'`, tope 16 KiB) y copiarlo como módulo del nodo
+- [x] T010 [P] Pruebas del protocolo en `backend/tests/test_iaas_access_protocol.py` (campos extra/duplicados, clave en `probe`, usuario distinto, tamaño)
 
 **Checkpoint**: base de validación, datos y protocolo lista; sin infraestructura.
 
@@ -39,11 +39,11 @@
 
 ### Runner (nodo)
 
-- [ ] T011 [P] [US1] Pruebas del módulo en `infra/runner/tests/test_iaas_access.py`: parseo estricto, identidad (`vmid`/nodo/pool/`resource_uuid`/nonce, `unprivileged`, `lxc`), `configure` y `probe` con `run_command` simulado, idempotencia por `(resource_uuid, revision)`, `GUEST_NOT_RUNNING`, `SSHD_UNAVAILABLE`, y **la clave no aparece en ningún `argv`**
-- [ ] T012 [US1] Implementar `infra/runner/iaas_access.py` (solo biblioteca estándar): verificación de identidad previa a todo efecto; `configure` (usuario `nap` sin contraseña en `sudo`, `/etc/sudoers.d/nap-acceso` 0440, `~nap/.ssh/authorized_keys` 0600 con solo la clave recibida, `/etc/ssh/sshd_config.d/50-nap-acceso.conf`, `sshd -t`, habilitar y recargar `ssh`) y `probe` (escucha en 22, banner `SSH-2.0-`, huella de `authorized_keys`, `sshd -T`); contenidos por stdin a `pct exec … tee` con rutas fijas y `argv` en lista
-- [ ] T013 [US1] Despachar el protocolo nuevo en `infra/runner/nap_guest_runner.py` (función `is_iaas_access_request` + `handle_iaas_access_request`, junto a la de aplicaciones) sin tocar el resto del flujo
-- [ ] T014 [US1] Agregar `iaas_access.py` (y su protocolo) a `SOURCES`/`ALLOWED` en `infra/applications/install.py` con ruta instalada `/opt/nap/runner/iaas_access.py`; actualizar `infra/applications/tests` del instalador si cuentan archivos
-- [ ] T015 [US1] Correr `T003` y las pruebas de `infra/runner/tests` y `infra/applications/tests`; el `policy_digest` debe seguir igual
+- [x] T011 [P] [US1] Pruebas del módulo en `infra/runner/tests/test_iaas_access.py`: parseo estricto, identidad (`vmid`/nodo/pool/`resource_uuid`/nonce, `unprivileged`, `lxc`), `configure` y `probe` con `run_command` simulado, idempotencia por `(resource_uuid, revision)`, `GUEST_NOT_RUNNING`, `SSHD_UNAVAILABLE`, y **la clave no aparece en ningún `argv`**
+- [x] T012 [US1] Implementar `infra/runner/iaas_access.py` (solo biblioteca estándar): verificación de identidad previa a todo efecto; `configure` (usuario `nap` sin contraseña en `sudo`, `/etc/sudoers.d/nap-acceso` 0440, `~nap/.ssh/authorized_keys` 0600 con solo la clave recibida, `/etc/ssh/sshd_config.d/50-nap-acceso.conf`, `sshd -t`, habilitar y recargar `ssh`) y `probe` (escucha en 22, banner `SSH-2.0-`, huella de `authorized_keys`, `sshd -T`); contenidos por stdin a `pct exec … tee` con rutas fijas y `argv` en lista
+- [x] T013 [US1] Despachar el protocolo nuevo en `infra/runner/nap_guest_runner.py` (función `is_iaas_access_request` + `handle_iaas_access_request`, junto a la de aplicaciones) sin tocar el resto del flujo
+- [x] T014 [US1] Agregar `iaas_access.py` (y su protocolo) a `SOURCES`/`ALLOWED` en `infra/applications/install.py` con ruta instalada `/opt/nap/runner/iaas_access.py`; actualizar `infra/applications/tests` del instalador si cuentan archivos
+- [x] T015 [US1] Correr `T003` y las pruebas de `infra/runner/tests` y `infra/applications/tests`; el `policy_digest` debe seguir igual
 
 ### Portal
 

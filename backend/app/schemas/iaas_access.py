@@ -1,0 +1,58 @@
+"""Protocolo cerrado nap-iaas-access/1; solo biblioteca estándar, se instala igual en el nodo."""
+import re
+from uuid import UUID
+
+try:  # Portal y pruebas del repositorio.
+    from app.schemas.guest_runner import RunnerError, parse_json
+    from app.utils.ssh_keys import ClaveSshInvalida, validar_clave
+except ImportError:  # Nodo: módulos hermanos copiados por el instalador.
+    from protocol import RunnerError, parse_json
+    from ssh_keys import ClaveSshInvalida, validar_clave
+
+
+PROTOCOL = 'nap-iaas-access/1'
+USUARIO = 'nap'
+ACTIONS = {'configure', 'probe'}
+BASE_FIELDS = {'protocol', 'operation_id', 'action', 'cluster_uuid', 'resource_uuid', 'node', 'vmid', 'pool',
+    'nonce', 'revision', 'usuario'}
+MAX_BYTES = 16384
+
+
+def _uuid(value):
+    return isinstance(value, str) and str(UUID(value)) == value
+
+
+def parse_request(raw):
+    """Valida el JSON recibido; devuelve el diccionario con la clave ya normalizada y su huella."""
+    try:
+        if not isinstance(raw, bytes) or len(raw) > MAX_BYTES:
+            raise ValueError()
+        value = parse_json(raw, limit=MAX_BYTES)
+        if not isinstance(value, dict) or value.get('protocol') != PROTOCOL or value.get('action') not in ACTIONS:
+            raise ValueError()
+        action = value['action']
+        expected = BASE_FIELDS | ({'clave_publica'} if action == 'configure' else {'huella'})
+        if set(value) != expected:
+            raise ValueError()
+        if not all(_uuid(value[key]) for key in ['operation_id', 'cluster_uuid', 'resource_uuid']):
+            raise ValueError()
+        if type(value['vmid']) is not int or not 100 <= value['vmid'] <= 999999999:
+            raise ValueError()
+        if type(value['revision']) is not int or not 1 <= value['revision'] <= 1000000:
+            raise ValueError()
+        if value['usuario'] != USUARIO:
+            raise ValueError()
+        for key, pattern in {'node': r'[a-zA-Z0-9][a-zA-Z0-9-]{0,62}', 'pool': r'[a-zA-Z0-9][a-zA-Z0-9_.-]{0,99}',
+            'nonce': r'[a-zA-Z0-9_-]{22,128}'}.items():
+            if not isinstance(value[key], str) or not re.fullmatch(pattern, value[key]):
+                raise ValueError()
+        if action == 'configure':
+            _, normalizada, huella = validar_clave(value['clave_publica'])
+            value = {**value, 'clave_publica': normalizada, 'huella': huella}
+        elif not isinstance(value['huella'], str) or not re.fullmatch(r'SHA256:[A-Za-z0-9+/]{43}', value['huella']):
+            raise ValueError()
+        return value
+    except (ValueError, TypeError, ClaveSshInvalida):
+        raise RunnerError('INVALID_REQUEST') from None
+    except RunnerError:
+        raise
