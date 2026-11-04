@@ -151,3 +151,31 @@ class GuestRunnerClient:
             raise RunnerError('UNCONFIRMED') from None
         finally:
             await self._stop(process)
+
+    async def execute_iaas_access(self, request):
+        """Protocolo nap-iaas-access/1: mismo SSH y mismo comando forzado; la clave sólo viaja por stdin."""
+        from app.schemas import iaas_access
+        try:
+            raw = canonical(request).encode()
+        except (TypeError, ValueError, RecursionError):
+            raise RunnerError('INVALID_REQUEST') from None
+        request = iaas_access.parse_request(raw)
+        entry = self.config.get(request['node']) if isinstance(self.config, dict) else None
+        argv = ssh_argv(entry)
+        process = None
+        try:
+            async with asyncio.timeout(self.timeout_seconds):
+                process = await self.start_process(*argv, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.DEVNULL, limit=65537, start_new_session=True,
+                    env={'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8'})
+                output = await self._exchange(process, raw)
+                if process.returncode != 0:
+                    raise RunnerError('RUNNER_UNAVAILABLE')
+                return iaas_access.parse_response(output, request)
+        except asyncio.CancelledError:
+            await self._stop(process)
+            raise
+        except (TimeoutError, OSError, ValueError):
+            raise RunnerError('UNCONFIRMED') from None
+        finally:
+            await self._stop(process)

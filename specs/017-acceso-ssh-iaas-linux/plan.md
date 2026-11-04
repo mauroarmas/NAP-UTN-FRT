@@ -9,7 +9,7 @@
 Hoy un Ubuntu IaaS entregado solo ofrece la consola web, que está bloqueada por una compuerta institucional. La persona aporta su clave pública SSH
 al pedir el servicio; el portal la valida y la guarda (solo material público); una acción nueva y cerrada del runner del nodo
 (`nap-iaas-access/1`) crea dentro del contenedor el usuario `nap` con elevación, instala solo esa clave y endurece `sshd` (sin contraseña ni
-root); el servicio no se declara utilizable hasta que el chequeo local lo confirma. La misma acción, ejecutada como operación durable idempotente
+root); el servicio no se declara utilizable hasta que el chequeo local lo confirma. La misma acción, ejecutada como operación `reparar` idempotente
 por revisión, cubre el reemplazo de clave y los servicios ya entregados. El detalle de acceso agrega un bloque `acceso_ssh` sin tocar `metodo`
 ni la compuerta de consola. Se respeta una restricción dura: no modificar ningún archivo que entre en el `policy_digest` del motor Docker, de modo
 que los perfiles validados siguen vigentes. Detalle y fuentes en [research.md](research.md).
@@ -130,4 +130,4 @@ Cada tramo deja el sistema funcionando y es demostrable; los tramos 1–3 + 6 so
 | Violación / complejidad | Por qué hace falta | Alternativa más simple rechazada porque |
 |---|---|---|
 | Protocolo nuevo `nap-iaas-access/1` en el runner | Crear usuario, reemplazar clave y alcanzar servicios ya entregados exigen ejecutar dentro del invitado (Proxmox no lo permite por API). | `ssh-public-keys` de Proxmox solo sirve al crear y solo para `root`; reutilizar `nap-guest-runner/1` exige receta y `bundle` que el IaaS crudo no tiene. |
-| Operación durable `acceso_ssh` | Un reemplazo es una operación contra infraestructura y debe ser recuperable (Principio III). | Ejecutarlo dentro de la petición HTTP dejaría estados ambiguos si el nodo no responde. |
+| Reutilizar `reparar` con marca `acceso_ssh` (sin tipo nuevo) | Un reemplazo es una operación contra infraestructura y debe ser recuperable (Principio III). | Ejecutarlo dentro de la petición HTTP dejaría estados ambiguos si el nodo no responde; un tipo nuevo obligaba a tocar el bucle de estados y la restricción CHECK. |

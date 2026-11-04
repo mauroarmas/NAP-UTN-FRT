@@ -27,6 +27,8 @@ async def validar(db, data, *, historical=False):
             raise error(422, 'plantilla_incompatible', 'Elegí una plantilla LXC vigente del modelo solicitado')
         if not historical:
             from app.services.perfiles_service import exigir_definicion
+            from app.services import iaas_acceso_service
+            iaas_acceso_service.validar_solicitud(template, data)
             definition = await exigir_definicion(db, template, bloquear=True)
             if template.configuracion_despliegue_id and data.oferta_revision is not None and data.oferta_revision!=template.revision:
                 raise error(409,'oferta_actualizada','La oferta cambió; revisá la aplicación antes de enviar',oferta_revision=template.revision)
@@ -76,9 +78,10 @@ async def crear(db, *, actor, payload, clave):
         if category_id not in await catedras_visibles(session, actor):
             raise error(403, 'sin_permisos', 'La cátedra ya no está disponible')
         period = await validar(session, data)
+        from app.services import iaas_acceso_service
         request = Pedido(catedra_id=category_id, solicitante_id=actor.id, template_id=data.template_id,
             modelo_servicio=ModeloServicio(data.modelo_servicio), descripcion_requerimientos=data.descripcion_requerimientos,
-            parametros_extra=data.parametros_extra.model_dump(exclude_none=True) if data.parametros_extra else None,
+            parametros_extra=iaas_acceso_service.parametros_normalizados(data.parametros_extra.model_dump(exclude_none=True)) if data.parametros_extra else None,
             estado=EstadoPedido.SOLICITADO, tipo=TipoPedido.ALTA,
             created_at=clock.now().replace(tzinfo=None), updated_at=clock.now().replace(tzinfo=None))
         if data.template_id is not None:
@@ -148,7 +151,7 @@ async def resolver(db, pedido_id, *, actor, tipo, payload, clave):
                         modelo_servicio=data.modelo_servicio or request.modelo_servicio.value,
                         descripcion_requerimientos=data.descripcion_requerimientos if data.descripcion_requerimientos is not None else request.descripcion_requerimientos,
                         parametros_extra=data.parametros_extra or {key: value for key, value in (request.parametros_extra or {}).items()
-                            if key in {'titulo', 'software_solicitado', 'referencia_imagen', 'instrucciones_uso'}},
+                            if key in {'titulo', 'software_solicitado', 'referencia_imagen', 'instrucciones_uso', 'clave_ssh_publica'}},
                         vigencia=data.vigencia, catedra_id=request.catedra_id)
                 except ValidationError:
                     raise error(422, 'solicitud_incompleta', 'Revisá el servicio solicitado y su justificación pedagógica; infraestructura requiere plantilla') from None
@@ -162,7 +165,8 @@ async def resolver(db, pedido_id, *, actor, tipo, payload, clave):
                     request.definicion_version_id=selected.definicion_version_id if selected else None
                     request.configuracion_despliegue_id=selected.configuracion_despliegue_id if selected else None
                 if data.parametros_extra is not None:
-                    request.parametros_extra = data.parametros_extra.model_dump(exclude_none=True)
+                    from app.services import iaas_acceso_service
+                    request.parametros_extra = iaas_acceso_service.parametros_normalizados(data.parametros_extra.model_dump(exclude_none=True))
                 if data.descripcion_requerimientos is not None:
                     request.descripcion_requerimientos = data.descripcion_requerimientos
                 if request.tipo == TipoPedido.ALTA:

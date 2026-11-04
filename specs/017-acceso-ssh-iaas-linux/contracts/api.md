@@ -34,10 +34,10 @@ Respuesta `202`:
 { "servicio_id": 41, "operacion_id": "…", "huella": "SHA256:…", "revision": 2, "estado": "pendiente" }
 ```
 
-Errores: 403 permisos · 404 servicio · 409 `servicio_no_linux` · 409 `operacion_en_curso` · 409 `servicio_no_activo` (dado de baja o en baja) ·
+Errores: 403 permisos · 404 servicio inexistente o dado de baja · 409 `servicio_no_linux` · 409 `operacion_en_curso` · 409 `servicio_detenido` (el servicio debe estar en marcha) ·
 422 `clave_ssh_invalida` / `clave_ssh_privada`. Mismo `Idempotency-Key` + mismo cuerpo devuelve la misma respuesta; mismo `Idempotency-Key` con otra clave es 409.
 
-Registrar sobre un servicio sin clave y reemplazar son la misma operación (la revisión pasa de inexistente a 1, o de N a N+1).
+Registrar sobre un servicio sin clave y reemplazar son la misma operación (la revisión pasa de inexistente a 1, o de N a N+1). Repetir la misma clave ya aplicada responde `200` con `sin_cambios: true` y no envía nada al nodo.
 
 ## 3. Consultar el acceso (cambio aditivo)
 

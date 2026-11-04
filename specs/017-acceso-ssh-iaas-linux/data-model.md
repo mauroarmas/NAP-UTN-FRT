@@ -27,7 +27,7 @@ el comentario se descarta. Devuelve `(tipo, clave_normalizada, huella)` o un err
 
 - `pedidos.parametros_extra` (JSON): admite `clave_ssh_publica` cuando `modelo_servicio = iaas` con base Linux. Al aprobar, la clave normalizada
   pasa a `asignacion_snapshot['acceso_ssh']` junto con su huella; `_materialize` crea la fila de `claves_acceso_servicio` con `revision = 1`.
-- `operaciones_infraestructura.tipo`: nuevo valor `acceso_ssh`. Contexto seguro: `servicio_id`, `revision`. **No** guarda la clave (se lee de la tabla al ejecutar).
+- `operaciones_infraestructura`: sin cambios de esquema. El reemplazo o alta tardía usa `tipo = 'reparar'` con `contexto_seguro['acceso_ssh'] = {'revision': N}` (research R7). **No** guarda la clave: se lee de la tabla al ejecutar.
 - `historial_servicio`: eventos `acceso_ssh_registrado`, `acceso_ssh_reemplazado`, `acceso_ssh_aplicado`, `acceso_ssh_rechazado`, con autor y huella (nunca la clave).
 
 ## Flujos de estado
@@ -35,7 +35,7 @@ el comentario se descarta. Devuelve `(tipo, clave_normalizada, huella)` o un err
 ```
  pedido con clave ──aprobar──► asignación (acceso_ssh) ──materializar──► fila revision=1, aplicada=nulo
                                                                               │
-              operación acceso_ssh (configure + probe, idempotente por revisión)
+              operación `reparar` con marca acceso_ssh (configure + probe, idempotente por revisión)
                                                                               ▼
                           confirmada ──► aplicada_revision = revision ──► servicio utilizable (si el resto también)
                           fallida/incierta ──► servicio NO utilizable, motivo visible, reintento = misma revisión
@@ -46,7 +46,7 @@ el comentario se descarta. Devuelve `(tipo, clave_normalizada, huella)` o un err
 
 ## Reglas de integridad
 
-- Un servicio no puede tener dos operaciones `acceso_ssh` activas (se rechaza con 409 `operacion_en_curso`).
+- Un servicio no puede tener dos operaciones abiertas a la vez, incluidas las de acceso (se rechaza con 409 `operacion_en_curso`).
 - Reemplazar mientras hay una operación activa no se admite: la persona espera a que termine.
 - Solo servicios con `modelo_servicio = iaas` y `asignacion_snapshot.origen = proxmox_iaas` tienen fila; el resto responde 409 `servicio_no_linux`.
 - La clave de un servicio dado de baja no se copia a otro: la fila pertenece al `servicio_id` y el runner además verifica identidad del invitado

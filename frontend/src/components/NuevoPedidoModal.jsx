@@ -24,6 +24,7 @@ export default function NuevoPedidoModal({ open, onClose, onCreated, user, initi
   const [otherName, setOtherName] = useState('');
   const [imageRef, setImageRef] = useState('');
   const [instructions, setInstructions] = useState('');
+  const [sshKey, setSshKey] = useState('');
   const [dates, setDates] = useState(vigenciaInicial);
   const [validDates, setValidDates] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -37,7 +38,7 @@ export default function NuevoPedidoModal({ open, onClose, onCreated, user, initi
     if (!open) return;
     let active = true;
     const initialModel = initialTemplate?.modelo_servicio || 'iaas';
-    setModel(initialModel); setTemplateId(''); setCategoryId(''); setDescription(''); setTitle(''); setOtherName(''); setImageRef(''); setInstructions(''); setDates(vigenciaInicial());
+    setModel(initialModel); setTemplateId(''); setCategoryId(''); setDescription(''); setTitle(''); setOtherName(''); setImageRef(''); setInstructions(''); setSshKey(''); setDates(vigenciaInicial());
     setValidDates(false); setError(''); setFields({}); setBusy(false); submitting.current = false;
     key.current = crypto.randomUUID(); setLoading(true);
     Promise.all([getTemplates(), admin ? getCatedras() : getCatedrasMias()]).then(([tpl, cats]) => {
@@ -54,11 +55,12 @@ export default function NuevoPedidoModal({ open, onClose, onCreated, user, initi
   if (!open) return null;
   const available = templates.filter((t) => compatible(t, model));
   const isOther = templateId === 'otro';
-  const complete = Boolean(validDates && templateId && categoryId && title.trim() && description.trim() && (!isOther || otherName.trim()));
+  const needsKey = Boolean(available.find((t) => String(t.id) === templateId)?.requiere_clave_ssh);
+  const complete = Boolean(validDates && templateId && categoryId && title.trim() && description.trim() && (!isOther || otherName.trim()) && (!needsKey || sshKey.trim()));
   const edit = (setter, value) => { setter(value); key.current = crypto.randomUUID(); setFields({}); };
   const changeModel = (value) => {
     const first = templates.find((t) => compatible(t, value));
-    setModel(value); setTemplateId(first ? String(first.id) : value !== 'iaas' ? 'otro' : ''); setOtherName(''); setImageRef(''); setInstructions('');
+    setModel(value); setTemplateId(first ? String(first.id) : value !== 'iaas' ? 'otro' : ''); setOtherName(''); setImageRef(''); setInstructions(''); setSshKey('');
     key.current = crypto.randomUUID(); setError(''); setFields({});
   };
   const submit = async (event) => {
@@ -72,6 +74,7 @@ export default function NuevoPedidoModal({ open, onClose, onCreated, user, initi
         software_solicitado: isOther ? otherName.trim() : null,
         ...(isOther && imageRef.trim() ? { referencia_imagen: imageRef.trim() } : {}),
         ...(isOther && instructions.trim() ? { instrucciones_uso: instructions.trim() } : {}),
+        ...(needsKey ? { clave_ssh_publica: sshKey.trim() } : {}),
       } };
     const chosen = templates.find(t => String(t.id) === templateId);
     if (chosen?.origen_biblioteca) payload.oferta_revision = chosen.revision;
@@ -123,6 +126,13 @@ export default function NuevoPedidoModal({ open, onClose, onCreated, user, initi
             {available.map((t) => <option key={t.id} value={String(t.id)}>{t.nombre}{t.version_ofrecida ? ` · versión ${t.version_ofrecida}` : ''}</option>)}
             {model !== 'iaas' && <option value="otro">Otro</option>}
           </select>
+          {needsKey && <div className="request-field">
+            <label htmlFor="request-ssh-key">Clave pública SSH</label>
+            <p id="request-ssh-key-help" className="request-hint">Con esta clave vas a entrar a tu servicio. Pegá el contenido de tu archivo <code>.pub</code> (por ejemplo <code>~/.ssh/id_ed25519.pub</code>). Si no tenés una, generala con <code>ssh-keygen -t ed25519</code>. Nunca pegues la clave privada.</p>
+            <textarea id="request-ssh-key" className="input" rows={3} maxLength={800} spellCheck={false} autoComplete="off"
+              aria-describedby="request-ssh-key-help" value={sshKey} disabled={busy}
+              onChange={(e) => edit(setSshKey, e.target.value)} placeholder="ssh-ed25519 AAAA… tu-usuario@tu-equipo" required />
+          </div>}
           {available.length === 0 && !loading && <p className="request-hint">{model === 'iaas' ? 'No hay plantillas disponibles. Consultá a administración.' : 'Podés elegir «Otro» y contarnos qué servicio necesitás.'}</p>}
         </div>
         {isOther && <div className="request-other">

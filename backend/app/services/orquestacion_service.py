@@ -286,6 +286,8 @@ async def _materialize(sessions, lease, observation):
                 from app.utils.secretos import configured_keyring
                 values = configured_keyring().decrypt(op.contexto_seguro['credenciales_iaas'], context=f'operacion:{op.id}:iaas')
                 service.credenciales_encrypted = configured_keyring().encrypt(values, context=f'servicio:{service.id}:secretos')
+                from app.services import iaas_acceso_service
+                iaas_acceso_service.crear_fila(db, service, assignment, request.solicitante_id)
             request.servicio_id, identity.servicio_id, ledger.servicio_id = service.id, service.id, service.id
             periods = list((await db.scalars(select(VigenciaAutorizada).where(VigenciaAutorizada.pedido_id == request.id,
                 VigenciaAutorizada.revision_decision == op.contexto_seguro['revision_decision']))).all())
@@ -539,11 +541,20 @@ async def procesar_lease(sessions, lease, *, pve=None, runner=None, after_dispat
                     from app.utils.secretos import configured_keyring
                     nonce = configured_keyring().decrypt(identity.nonce_cifrado, context=f'infra:{identity.resource_uuid}:nonce')
                     allocation = op.contexto_seguro.get('red_reservada', {}).get('instance', {})
+                    from app.services import iaas_acceso_service
+                    try:
+                        ssh = await iaas_acceso_service.aplicar(sessions, runner=runner, identity=identity,
+                            servicio_id=service.id, operacion_id=op.id)
+                    except iaas_acceso_service.AccesoSshRechazado as exc:
+                        await _finish_failure(sessions, lease, exc.codigo)
+                        return
+                    # Una operación de reparación no trae la reserva de red: se conserva la dirección ya conocida.
+                    addresses = [allocation['address']] if allocation.get('address') else list((service.acceso_metadata or {}).get('addresses', []))
                     preparation = {'identity_verified': True, 'local_health': True, 'acceso_metadata': {
                         'preparacion_id': str(op.id), 'local_health': True, 'producto': 'linux',
                         'origen': 'proxmox_iaas', 'metodo': 'consola', 'username': 'root',
-                        'endpoint': f'/servicios/{service.id}/consola', 'addresses': [allocation['address']] if allocation.get('address') else [],
-                        'nonce_sha256': hashlib.sha256(nonce.encode()).hexdigest()}}
+                        'endpoint': f'/servicios/{service.id}/consola', 'addresses': addresses,
+                        'nonce_sha256': hashlib.sha256(nonce.encode()).hexdigest(), **({'ssh': ssh} if ssh else {})}}
                 else:
                     preparation = await bootstrap_service.preparar(sessions=sessions, servicio_id=service.id,
                         operacion_id=op.id, identidad_id=identity.id, runner=runner, lease=lease)

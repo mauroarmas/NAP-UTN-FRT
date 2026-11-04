@@ -112,6 +112,22 @@ class RevelarAccesoRequest(Contrato):
     pass
 
 
+class AccesoSshResponse(Contrato):
+    estado: Literal['sin_clave', 'pendiente', 'aplicada', 'fallida']
+    usuario: str
+    direccion: str | None = None
+    puerto: int
+    comando: str | None = None
+    huella: str | None = None
+    verificado_at: str | None = None
+    puede_conectar: bool
+    motivo: str | None = None
+
+
+class AccesoSshRequest(Contrato):
+    clave_publica: str = Field(min_length=1, max_length=800)
+
+
 class AccesoServicioResponse(Contrato):
     servicio_id: int
     modelo_servicio: str | None = None
@@ -127,6 +143,7 @@ class AccesoServicioResponse(Contrato):
     acceso_con_nap: bool = False
     puede_abrir_con_nap: bool = False
     verificacion_instancia: dict | None = None
+    acceso_ssh: AccesoSshResponse | None = None
 
 
 class AccesoReveladoResponse(Contrato):

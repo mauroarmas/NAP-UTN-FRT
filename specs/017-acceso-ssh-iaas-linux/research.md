@@ -63,10 +63,19 @@ La clave pública no es secreta, pero la privada **nunca** entra: se rechaza por
 
 ## R7. Operación durable para reemplazos y servicios existentes
 
-Un reemplazo o un alta tardía es una operación contra infraestructura y debe ser recuperable (Principio III). **Decisión**: nuevo tipo
-`acceso_ssh` en `operaciones_infraestructura`, ejecutado por el mismo worker con el mismo arrendamiento y CAS. Es idempotente por
-`(servicio_id, revision)`: reenviar la acción con la misma revisión deja el mismo estado final, por lo que un reintento tras incertidumbre es seguro.
-Es la pieza de mayor riesgo del plan: antes de escribir tareas hay que leer completo `orquestacion_service.py` (623 líneas) y `operaciones.py`.
+Un reemplazo o un alta tardía es una operación contra infraestructura y debe ser recuperable (Principio III).
+
+**Decisión (revisada tras leer `orquestacion_service.py` completo)**: no se agrega un tipo de operación nuevo. El orquestador ya tiene un camino
+`reparar` que, sobre un LXC no OCI, pasa por la fase `bootstrap` y termina en `_confirmed(preparation=…)`. Esa fase es exactamente donde hoy se arma la
+preparación fija de un Linux IaaS, y es donde se aplica la clave. Un reemplazo o alta tardía crea una operación `reparar` (admisión propia, abierta al
+titular y no solo a administración) con la marca `contexto_seguro['acceso_ssh']`. Así se reutilizan arrendamiento, CAS, `_defer` ante incertidumbre,
+`_finish_failure` y el historial, sin tocar la restricción CHECK de `operaciones_infraestructura` ni el bucle de estados.
+
+- Idempotencia: `configure` converge al mismo estado con la misma revisión, así que un resultado incierto se reintenta igual.
+- La reparación conserva la dirección: una operación de reparación no trae `red_reservada`, por lo que la dirección se toma del `acceso_metadata` previo
+  (lo cubre una prueba; sin eso el servicio perdería su IP en el detalle).
+- Requiere el servicio en marcha (`servicio_detenido` si no): `_confirmed` exige `running`.
+- Una reparación de administración sin clave registrada se comporta como antes (preparación fija, sin SSH).
 
 ## R8. Usuario de conexión y elevación
 

@@ -14,6 +14,7 @@ from app.services import bases_iaas_service as bases, perfiles_service
 from app.utils.clock import clock
 from app.utils.secretos import configured_keyring
 from tests.capacity_helpers import perfil_capacidad, aprobar_http  # noqa: F401
+from tests.iaas_ssh_helpers import RunnerSsh, nueva_clave
 
 
 async def configure(monkeypatch, proxmox):
@@ -60,6 +61,7 @@ async def test_iaas_solicitud_aprobacion_despliegue_acceso_sin_definicion(client
     response = await client.post('/pedidos/', headers=auth_catedra | {'Idempotency-Key': 'pedido-iaas'}, json={
         'template_id': row.id, 'modelo_servicio': 'iaas', 'catedra_id': catedra.id,
         'descripcion_requerimientos': 'Entorno para las prácticas de sistemas operativos.',
+        'parametros_extra': {'clave_ssh_publica': nueva_clave()},
         'vigencia': {'tipo': 'personalizado', 'desde': today.isoformat(), 'hasta': (today+timedelta(days=7)).isoformat()}})
     assert response.status_code == 201, response.text
     pedido = await db.get(Pedido, response.json()['id'])
@@ -68,7 +70,7 @@ async def test_iaas_solicitud_aprobacion_despliegue_acceso_sin_definicion(client
     await db.commit()
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     for _ in range(8):
-        await procesar_una(sessions, pve=proxmox)
+        await procesar_una(sessions, pve=proxmox, runner=RunnerSsh())
     await db.refresh(pedido)
     assert pedido.estado == EstadoPedido.ACTIVO
     service = await db.get(Servicio, pedido.servicio_id)

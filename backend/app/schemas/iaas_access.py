@@ -56,3 +56,32 @@ def parse_request(raw):
         raise RunnerError('INVALID_REQUEST') from None
     except RunnerError:
         raise
+
+
+RESPONSE_FIELDS = {'protocol', 'operation_id', 'action', 'resource_uuid', 'status', 'phase', 'identity_verified',
+    'observed_at', 'result', 'error'}
+RESULT_FIELDS = {'ready', 'revision', 'huella', 'usuario', 'puerto'}
+ERROR_CODES = {'INVALID_REQUEST', 'IDENTITY_MISMATCH', 'GUEST_NOT_RUNNING', 'SSHD_UNAVAILABLE', 'SUDO_UNAVAILABLE',
+    'PROBE_FAILED', 'UNCONFIRMED', 'DEADLINE_EXCEEDED', 'RUNNER_UNAVAILABLE'}
+
+
+def parse_response(raw, request):
+    """Acepta sólo la respuesta del mismo pedido; un código desconocido se trata como sin confirmar."""
+    try:
+        value = parse_json(raw, limit=65536)
+        if (not isinstance(value, dict) or not set(value) <= RESPONSE_FIELDS or value.get('protocol') != PROTOCOL
+            or any(value.get(key) != request[key] for key in ['operation_id', 'action', 'resource_uuid'])
+            or value.get('status') not in {'succeeded', 'failed', 'unconfirmed'}):
+            raise ValueError()
+        if value['status'] == 'succeeded':
+            result = value.get('result')
+            if (not isinstance(result, dict) or not set(result) <= RESULT_FIELDS or result.get('ready') is not True
+                or value.get('identity_verified') is not True):
+                raise ValueError()
+        else:
+            error = value.get('error')
+            if not isinstance(error, dict) or error.get('code') not in ERROR_CODES:
+                value['error'] = {'code': 'UNCONFIRMED', 'retryable': True}
+        return value
+    except (ValueError, TypeError, KeyError, RunnerError):
+        raise RunnerError('UNCONFIRMED') from None

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { getAccesoServicio, getConsolaServicio, revelarAccesoServicio, abrirAplicacionServicio } from '../services/api';
 import { mensajeError } from '../utils/errors';
+import CambiarClaveSshModal from './CambiarClaveSshModal';
 
 function secureLink(value) {
   try {
@@ -17,6 +18,7 @@ export default function AccesoServicio({ servicio, user }) {
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const [consoleURL, setConsoleURL] = useState(null);
+  const [sshModal, setSshModal] = useState(false);
   const submitting = useRef(false);
   const admin = user?.rol === 'admin';
   useEffect(() => {
@@ -47,6 +49,15 @@ export default function AccesoServicio({ servicio, user }) {
     try { await navigator.clipboard.writeText(revealed.credenciales.password); }
     catch { setError('No se pudo copiar la contraseña. Podés seleccionarla y copiarla manualmente.'); return; }
     setNotice('Contraseña copiada por tu solicitud.');
+  });
+  const refresh = () => act(async () => {
+    const { data } = await getAccesoServicio(servicio.id);
+    setMetadata(data);
+  });
+  const copyCommand = () => act(async () => {
+    try { await navigator.clipboard.writeText(metadata.acceso_ssh.comando); }
+    catch { setError('No se pudo copiar el comando. Podés seleccionarlo y copiarlo manualmente.'); return; }
+    setNotice('Comando copiado.');
   });
   const downloadCA = () => {
     const url = URL.createObjectURL(new Blob([revealed.credenciales.ca_pem], { type: 'application/x-pem-file' }));
@@ -88,6 +99,20 @@ export default function AccesoServicio({ servicio, user }) {
       {metadata.verificado_at && <p>Verificado el {new Date(metadata.verificado_at).toLocaleString('es-AR')}.</p>}
       {method === 'https' && link && (metadata.estado_entrega === 'entregado' || admin && metadata.estado_entrega === 'solo_validacion') && <a className="btn btn-secondary" href={link} target="_blank" rel="noopener noreferrer">
         Abrir aplicación</a>}
+      {metadata.acceso_ssh && <section className="card col gap-2" aria-label="Acceso por SSH">
+        <h3>Conexión por SSH</h3>
+        {metadata.acceso_ssh.puede_conectar ? <>
+          <p>Entrá desde tu computadora, dentro de la red institucional, con la clave que registraste. No usa contraseña.</p>
+          <p><code style={{ overflowWrap: 'anywhere' }}>{metadata.acceso_ssh.comando}</code></p>
+          <p className="card-meta">Clave registrada: <code style={{ overflowWrap: 'anywhere' }}>{metadata.acceso_ssh.huella}</code></p>
+          <div className="row wrap gap-2"><button className="btn btn-secondary" disabled={busy} onClick={copyCommand}>Copiar comando</button></div>
+        </> : <p role="status">{metadata.acceso_ssh.motivo}</p>}
+        <div className="row wrap gap-2">
+          {metadata.acceso_ssh.estado === 'pendiente' && <button className="btn btn-secondary" disabled={busy} onClick={refresh}>Actualizar estado</button>}
+          {metadata.acceso_ssh.estado !== 'pendiente' && <button className="btn btn-secondary" disabled={busy} onClick={() => setSshModal(true)}>
+            {metadata.acceso_ssh.estado === 'sin_clave' ? 'Agregar clave' : 'Cambiar clave'}</button>}
+        </div>
+      </section>}
       {method === 'consola' && <div className="row wrap gap-2"><button className="btn btn-secondary" disabled={busy} onClick={queryConsole}>Consultar consola</button>
         {consoleURL && <a href={consoleURL} target="_blank" rel="noopener noreferrer">Abrir consola de esta instancia</a>}</div>}
       {metadata.puede_revelar_credenciales && !revealed && <button className="btn btn-primary" disabled={busy} onClick={reveal}>Revelar acceso inicial</button>}
@@ -104,6 +129,8 @@ export default function AccesoServicio({ servicio, user }) {
       <div className="row wrap gap-2"><button className="btn btn-secondary" onClick={() => setRevealed(null)}>Ocultar acceso inicial</button>
         <button className="btn btn-secondary" disabled={busy} onClick={copyPassword}>Copiar contraseña</button></div>
     </section>}
+    {sshModal && <CambiarClaveSshModal servicio={servicio} tieneClave={metadata?.acceso_ssh?.estado !== 'sin_clave'}
+      onClose={() => setSshModal(false)} onDone={() => { setNotice('Estamos aplicando la clave. Puede tardar unos segundos.'); refresh(); }} />}
     {metadata?.producto === 'bookstack' && <p>El docente administra esta instancia BookStack. Creá cuentas individuales de lectura dentro de la aplicación y revisá sus permisos. El libro virtual definitivo está pendiente de relevamiento.</p>}
     {metadata?.producto === 'drawio' && <p>Guardá los diagramas en tu equipo para conservarlos y poder editarlos después.</p>}
   </section>;

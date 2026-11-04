@@ -18,12 +18,12 @@ al wrapper `nap-guest-runner`, JSON por stdin. El despacho se hace por el campo 
   "nonce": "<22..128 [A-Za-z0-9_-]>",
   "revision": 2,
   "usuario": "nap",
-  "clave_publica": "ssh-ed25519 AAAA…"
+  "clave_publica": "ssh-ed25519 AAAA…"   // en `probe`: "huella": "SHA256:…" en su lugar
 }
 ```
 
 - Campos exactos; cualquier otro, o duplicado, se rechaza `INVALID_REQUEST`. Tope de 16 KiB.
-- `clave_publica` solo en `configure`. Se valida de nuevo en el nodo con las mismas reglas que el portal (no se confía en el origen).
+- `clave_publica` solo en `configure`; `probe` lleva `huella`. Se valida de nuevo en el nodo con las mismas reglas que el portal (no se confía en el origen).
 - `usuario` solo puede ser `nap`.
 
 ## Identidad (antes de cualquier efecto)
@@ -36,9 +36,9 @@ El nodo comprueba, leyendo la configuración del LXC, que `vmid`, nodo, pool, `r
 
 **`configure`** — idempotente por `(resource_uuid, revision)`:
 1. Si el invitado está detenido: error `GUEST_NOT_RUNNING` (reintentable; el portal reintenta al iniciarlo).
-2. Crea el usuario `nap` si no existe (sin contraseña, shell bash, grupo `sudo`) y deja `/etc/sudoers.d/nap-acceso` con `nap ALL=(ALL) NOPASSWD:ALL` (0440).
+2. Crea el usuario `nap` si no existe (cuenta sin contraseña válida, shell bash) y deja `/etc/sudoers.d/nap-acceso` con `nap ALL=(ALL) NOPASSWD:ALL` (0440).
 3. Escribe `~nap/.ssh/authorized_keys` (0600, dueño `nap`) con **solo** la clave recibida, reemplazando todo lo anterior.
-4. Escribe `/etc/ssh/sshd_config.d/50-nap-acceso.conf`: `PasswordAuthentication no`, `PermitRootLogin no`, `AllowUsers nap`, `KbdInteractiveAuthentication no`.
+4. Escribe `/etc/ssh/sshd_config.d/00-nap-acceso.conf` (el prefijo `00-` hace que gane sobre otros archivos como `50-cloud-init.conf`, porque sshd usa el primer valor): `PasswordAuthentication no`, `PermitRootLogin no`, `AllowUsers nap`, `KbdInteractiveAuthentication no`.
 5. Valida con `sshd -t`, habilita y recarga `ssh`.
 6. Ejecuta el mismo chequeo que `probe`.
 
@@ -58,7 +58,7 @@ con rutas fijas. Los argumentos son una lista, sin shell.
 ```
 
 Códigos: `INVALID_REQUEST`, `IDENTITY_MISMATCH`, `GUEST_NOT_RUNNING`, `SSHD_UNAVAILABLE` (la plantilla no trae `openssh-server`),
-`CONFIG_INVALID`, `PROBE_FAILED`, `UNCONFIRMED`. `unconfirmed` = el efecto pudo haber ocurrido; el portal repite **la misma** `revision`.
+`SUDO_UNAVAILABLE` (la plantilla no trae `sudo`), `PROBE_FAILED`, `UNCONFIRMED`. `unconfirmed` = el efecto pudo haber ocurrido; el portal repite **la misma** `revision`.
 
 ## Restricciones de implementación
 

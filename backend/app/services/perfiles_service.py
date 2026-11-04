@@ -165,6 +165,7 @@ async def anexar_disponibilidad(db, templates):
             row.tamano_recomendado = identificar_tamano({key: getattr(row, 'default_' + key) for key in TAMANOS['small']}) or 'small'
             row.oferta_disponible = disponible(row)
             row.origen_biblioteca = False
+            row.requiere_clave_ssh = True
             continue
         definition = definitions.get(row.definicion_version_id)
         minimum = (definition.manifest or {}).get('minimum_resources') if definition else None
