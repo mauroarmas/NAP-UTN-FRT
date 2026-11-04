@@ -208,3 +208,116 @@ def test_native_preparation_uses_institutional_policy_and_tls_before_installer(n
     assert result['network']['host']=='app81.nap.test' and result['tls']['private_key_pem']=='fixture-key'
     assert seen==['app81.nap.test'] and len(effects)==1
     assert values['config']['features']=='nesting=1,keyctl=1'
+
+
+# --- Restauración del aislamiento tras reiniciar el nodo (las tablas nftables viven en el kernel) -----------------
+
+@pytest.fixture
+def rebooting(native, policy, rig, tmp_path):
+    """Nodo con un trabajo guardado, un recibo `applied` y una tabla nftables simulada que se puede 'perder'."""
+    import json
+    from hashlib import sha256
+    from types import SimpleNamespace
+    from infra.applications.job.isolation import IsolationManager
+    from infra.applications.job.network import NetworkRegistry, table_name
+    from infra.applications.job.protocol import canonical
+    from infra.applications.tests.test_job_supervisor import call
+    node, values, identity, effects = setup_node(native, policy)
+    call(rig)  # deja `job.*` y `resource.*` en el almacén durable, como un despliegue real
+    _, profile = node._configuration(identity)
+    entry = {'cluster_uuid': identity['cluster_uuid'], 'nodes': [identity['node']],
+        **{k: policy[k] for k in ('bridge', 'client_cidrs', 'management_addresses', 'peer_cidrs', 'endpoints')},
+        'slots': {'app81': {'host': 'app81.nap.test', 'address': policy['address'], 'mac_address': policy['mac_address']}}}
+    node.networks = NetworkRegistry({profile['network_profile_id']: entry}, cluster_uuid=identity['cluster_uuid'], node=identity['node'])
+    state = {'table': None, 'installs': 0, 'comment': None}
+    base = node.run_command
+    def command(argv, **kwargs):
+        if argv[0] == '/usr/sbin/nft' and argv[1] == '-f':
+            if state['table'] is not None: raise RuntimeError('table exists')
+            batch = kwargs['input'].decode()
+            state.update(table=batch.split()[3], installs=state['installs'] + 1, comment=batch.split('comment "')[1].split('"')[0])
+            return b''
+        if argv[0] == '/usr/sbin/nft':
+            if state['table'] is None: raise RuntimeError('no such table')
+            return json.dumps({'nftables': [{'metainfo': {'json_schema_version': 1}}, {'table': {
+                'family': 'bridge', 'name': state['table'], 'handle': 3, 'comment': state['comment']}}]}).encode()
+        return base(argv, **kwargs)
+    node.run_command = command
+    directory = tmp_path / 'isolation'; directory.mkdir(mode=0o700)
+    boots = {'now': str(uuid4())}
+    node.isolation_factory = lambda: IsolationManager(directory=directory, boot_id=boots['now'])
+    job = rig.store.read_job(rig.request['execution_id'])
+    deployed, _ = node.networks.for_guest(profile, identity, values['config'], job['configuracion'])
+    node.isolation_factory().ensure(identity, deployed, assert_stopped=lambda: node.assert_stopped(identity),
+        install=lambda: node.install_isolation(identity, deployed), observe=lambda: node.observe_isolation(deployed))
+    return SimpleNamespace(node=node, values=values, identity=identity, state=state, boots=boots, rig=rig, entry=entry,
+        profile=profile, name=table_name(deployed), restore=lambda: node.restore_isolations(jobs_directory=rig.path))
+
+
+def test_reboot_loses_the_table_and_restore_recreates_it_before_any_guest_starts(rebooting):
+    r = rebooting
+    assert r.state['installs'] == 1
+    r.state['table'] = None            # reinicio del nodo: el kernel pierde la tabla
+    r.boots['now'] = str(uuid4())      # y el arranque tiene otro boot_id
+    report = r.restore()
+    assert report == {'restaurados': [r.identity['resource_uuid']], 'vigentes': [], 'obsoletos': [], 'fallidos': []}
+    assert r.state['installs'] == 2 and r.state['table'] == r.name
+    assert not any(argv[0] == '/usr/sbin/pct' for argv in r.values['calls'])  # nunca inicia ni toca el invitado
+
+
+def test_restore_is_idempotent_and_does_not_reinstall_a_present_table(rebooting):
+    r = rebooting
+    r.state['table'] = None; r.boots['now'] = str(uuid4())
+    r.restore()
+    again = r.restore()
+    assert again == {'restaurados': [], 'vigentes': [r.identity['resource_uuid']], 'obsoletos': [], 'fallidos': []}
+    assert r.state['installs'] == 2
+
+
+@pytest.mark.parametrize('bad', ['policy-changed', 'foreign-marker', 'no-job', 'same-boot-table-vanished', 'running-without-table'])
+def test_restore_fails_closed_and_never_installs_a_different_or_unowned_policy(rebooting, bad):
+    r = rebooting
+    r.state['table'] = None
+    if bad != 'same-boot-table-vanished': r.boots['now'] = str(uuid4())
+    if bad == 'running-without-table': r.values['status'] = 'running'
+    if bad == 'policy-changed': r.entry['client_cidrs'] = ['172.16.36.0/25']  # otro perfil de red: otro hash que el del recibo
+    if bad == 'foreign-marker': r.values['config']['description'] = '{"nap":{}}'
+    if bad == 'no-job':
+        for path in r.rig.path.glob('job.*.json'): path.unlink()
+    if bad == 'policy-changed':
+        from infra.applications.job.network import NetworkRegistry
+        r.node.networks = NetworkRegistry({r.profile['network_profile_id']: r.entry}, cluster_uuid=r.identity['cluster_uuid'], node=r.identity['node'])
+    report = r.restore()
+    assert report['restaurados'] == [] and [f['resource_uuid'] for f in report['fallidos']] == [r.identity['resource_uuid']]
+    assert r.state['installs'] == 1 and r.state['table'] is None
+
+
+def test_restore_ignores_released_and_missing_receipts(rebooting):
+    r = rebooting
+    r.state['table'] = None; r.boots['now'] = str(uuid4())
+    manager = r.node.isolation_factory()
+    ok = manager.release(r.identity, assert_absent=lambda: None, observe=lambda: None, remove=lambda: None)
+    assert ok and r.restore() == {'restaurados': [], 'vigentes': [], 'obsoletos': [], 'fallidos': []}
+    assert r.state['installs'] == 1
+
+
+@pytest.mark.parametrize('gone', ['guest-deleted', 'vmid-reused-by-another-resource'])
+def test_receipts_of_deleted_or_reused_guests_are_obsolete_and_never_fail_the_boot(rebooting, gone):
+    r = rebooting
+    r.state['table'] = None; r.boots['now'] = str(uuid4())
+    if gone == 'guest-deleted': r.values['resource']['vmid'] = 123
+    else:
+        import json
+        marker = json.loads(r.values['config']['description'])
+        marker['nap']['resource_uuid'] = str(uuid4())
+        r.values['config']['description'] = json.dumps(marker)
+    assert r.restore() == {'restaurados': [], 'vigentes': [], 'obsoletos': [r.identity['resource_uuid']], 'fallidos': []}
+    assert r.state['installs'] == 1 and r.state['table'] is None
+
+
+def test_a_running_guest_is_never_modified_and_a_present_table_counts_as_current(rebooting):
+    r = rebooting
+    r.values['status'] = 'running'
+    assert r.restore() == {'restaurados': [], 'vigentes': [r.identity['resource_uuid']], 'obsoletos': [], 'fallidos': []}
+    assert r.state['installs'] == 1
+

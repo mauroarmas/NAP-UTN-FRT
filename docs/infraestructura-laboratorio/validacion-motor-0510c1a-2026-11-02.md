@@ -263,3 +263,35 @@ Resuelve el límite anterior: los nodos alcanzaban el 3306 de las instancias por
 - **Nota operativa.** La regla de una instancia se fija al desplegarla: una instancia anterior a un cambio de `client_cidrs` conserva sus reglas viejas. Quitar a un
   cliente exige dar de baja y volver a pedir. No agregar reglas nftables a mano a una instancia viva: el motor no reconoce la tabla modificada y la baja queda `incierta`.
 
+## Reinicio de un nodo (03/11/2026)
+
+**Defecto encontrado.** Tras `systemctl reboot` en `pve91`, con una instancia de MariaDB desplegada (servicio #38):
+
+| Qué | Resultado |
+|---|---|
+| Nodo | vuelve en ~75 s; quórum, NFS (TrueNAS), `runner.json` y disco del LXC intactos |
+| LXC | **no arranca solo** (`onboot: 0`) |
+| Portal | muestra `RUNNING` falso mientras el nodo cae; se corrige solo ~2 min después de volver (`running → stopped`, "Estado observado en Proxmox; no se envió ninguna orden") |
+| Tabla nftables `nap011_*` | **desaparece** (vive en el kernel) |
+| `iniciar` por el portal | arranca el LXC **sin ninguna regla de red**: los nodos conectaban al 3306 y el portal seguía diciendo `RUNNING / utilizable` |
+
+**Corrección.** Unidad systemd `nap-isolation-restore.service` (`Before=pve-guests.service`, instalada y habilitada por el paquete). Recrea la tabla de cada recurso con
+recibo `applied` antes de que arranque ningún invitado. No guarda la política: la **recalcula** con la identidad y la configuración del job durable, el perfil de red
+institucional y la configuración real del LXC, y `IsolationManager.ensure` la compara con el hash del recibo (cualquier diferencia falla cerrado). Sólo instala sobre
+invitados **detenidos** y nunca inicia ni crea ninguno. Un recibo cuyo invitado ya no existe, o cuyo vmid reutiliza otro recurso, se omite como obsoleto; un invitado en marcha
+sólo se verifica. Se reintenta únicamente lo transitorio (el clúster aún no publica los invitados). No usa `hookscript`: `_configuration` lo rechaza por diseño.
+
+**Verificación real** (perfil `docker-ubuntu24:9`, `policy_digest` `f269ca1e…`, gate completo en `frt` y `pve91`; instancia #39 en `pve91`):
+
+1. Reinicio de `pve91`: la unidad corrió a las 19:04:33 y `pve-guests` a las 19:04:35 (terminó antes). Informe: `restaurados` = la instancia, `obsoletos` = 6 recibos de pruebas viejas, `fallidos` = ninguno, 1 intento.
+2. Con el LXC aún detenido la tabla `nap011` ya existía.
+3. `iniciar` por el portal (confirmada en ~10 s): nodos `.90` y `.91` **bloqueados** al 3306; la PC (`.89`) conecta con TLS; el dato escrito antes del reinicio se recupera.
+4. Baja confirmada; sin tablas ni invitados de prueba.
+
+**Límites.**
+- Las instancias **siguen sin arrancar solas** tras un reinicio: hay que iniciarlas por el portal. No se activó `onboot` a propósito: reiniciaría también los servicios que un usuario detuvo.
+  Que el portal las reinicie al detectar que el nodo volvió es una mejora aparte.
+- Si la restauración falla para un recurso, la unidad queda en fallo (se ve en `journalctl -u nap-isolation-restore`), pero no impide que el nodo arranque ni que el portal inicie el invitado.
+- Los recibos `applied` de invitados borrados por caminos antiguos quedan en `/var/lib/nap-application-isolation`; son inofensivos y la unidad los ignora.
+- El firewall de Proxmox del clúster está **desactivado** (sin `cluster.fw` ni `host.fw`; iptables en `ACCEPT`); sólo filtran las tablas `nap011_*` de cada instancia. Decidir si se activa para la universidad.
+

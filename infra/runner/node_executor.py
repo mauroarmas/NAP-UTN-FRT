@@ -369,6 +369,69 @@ class ApplicationNodeExecutor:
         self._prepared={identity['resource_uuid']:policy}
         return {'network': slot, 'tls': material}
 
+    def _guest_of_receipt(self, binding):
+        """Sólo lectura: ¿qué hay hoy bajo el vmid de un recibo? 'absent', 'foreign' o ('owned', 'running'|'stopped')."""
+        resources = parse_system_json(self._call(['/usr/bin/pvesh', 'get', '/cluster/resources', '--type', 'vm', '--output-format', 'json']), limit=2097152)
+        if type(resources) is not list: raise self.protocol.JobError('UNCONFIRMED')
+        matches = [row for row in resources if type(row) is dict and row.get('vmid') == binding['vmid']]
+        if not matches: return 'absent'
+        if len(matches) != 1 or matches[0].get('node') != self.local_node or matches[0].get('type') != 'lxc': return 'foreign'
+        config = parse_system_json(self._call(['/usr/bin/pvesh', 'get', '/nodes/'+self.local_node+'/lxc/'+str(binding['vmid'])+'/config', '--output-format', 'json']))
+        try: marker = self.protocol.strict_json(config['description'].encode(), limit=16384)['nap']['resource_uuid']
+        except Exception: raise self.protocol.JobError('IDENTITY_MISMATCH') from None  # un invitado sin marca legible: no se toca y se avisa
+        if marker != binding['resource_uuid']: return 'foreign'  # el vmid lo reutilizó otro recurso: el recibo es obsoleto
+        status = parse_system_json(self._call(['/usr/bin/pvesh', 'get', '/nodes/'+self.local_node+'/lxc/'+str(binding['vmid'])+'/status/current', '--output-format', 'json']))
+        return ('owned', 'running' if status.get('status') == 'running' else 'stopped')
+
+    def restore_isolations(self, *, jobs_directory=Path('/var/lib/nap-application-jobs')):
+        """Tras reiniciar el nodo, recrea la tabla nftables de cada instancia con recibo `applied`.
+
+        La tabla vive en el kernel y se pierde al apagar. La política NO se guarda: se vuelve a calcular con los
+        mismos datos que el despliegue (identidad y configuración del job, perfil de red institucional y
+        configuración real del LXC) y `ensure` la compara con el hash del recibo. Si algo cambió, falla cerrado:
+        nunca se instala una política distinta de la que se validó. Sólo instala sobre invitados detenidos; los
+        recibos de invitados que ya no existen (o cuyo vmid usa otro recurso) se omiten como obsoletos.
+        """
+        if __package__:
+            from infra.applications.job.state import StateStore
+        else:
+            from applications.job.state import StateStore
+        isolation, networks = getattr(self, 'isolation_factory', None), getattr(self, 'networks', None)
+        if isolation is None or networks is None: raise self.protocol.JobError('PROFILE_UNAVAILABLE')
+        manager = isolation()
+        report = {'restaurados': [], 'vigentes': [], 'obsoletos': [], 'fallidos': []}
+        for binding in manager.applied():
+            resource = binding['resource_uuid']
+            try:
+                guest = self._guest_of_receipt(binding)
+                if guest in ('absent', 'foreign'):
+                    report['obsoletos'].append(resource); continue
+                with StateStore(jobs_directory, create=False) as store:
+                    entry = store.read('resource', resource)
+                    if (type(entry) is not dict or set(entry) != {'schema_version', 'resource_uuid', 'execution_id'}
+                            or entry['schema_version'] != 'nap-job-resource/1' or entry['resource_uuid'] != resource): raise ValueError()
+                    job = store.read_job(entry['execution_id'])
+                if job is None or job['identity']['resource_uuid'] != resource: raise ValueError()
+                identity, deployment = job['identity'], job['configuracion']
+                config, profile = self._configuration(identity)
+                policy, _ = networks.for_guest(profile, identity, config, deployment)
+                if guest[1] == 'running':
+                    # Nunca se instala sobre un invitado en marcha; si ya corre sin su tabla, se informa.
+                    self.observe_isolation(policy)
+                    report['vigentes'].append(resource); continue
+                effects = []
+                def install(identity=identity, policy=policy):
+                    effects.append(True)
+                    return self.install_isolation(identity, policy)
+                manager.ensure(identity, policy, assert_stopped=lambda identity=identity: self.assert_stopped(identity),
+                    install=install, observe=lambda policy=policy: self.observe_isolation(policy))
+                report['restaurados' if effects else 'vigentes'].append(resource)
+            except self.protocol.JobError as exc:
+                report['fallidos'].append({'resource_uuid': resource, 'codigo': exc.code})
+            except Exception:
+                report['fallidos'].append({'resource_uuid': resource, 'codigo': 'UNCONFIRMED'})
+        return report
+
     def assert_stopped(self,identity):
         self.assert_owner(identity)
         status=parse_system_json(self._call(['/usr/bin/pvesh','get',

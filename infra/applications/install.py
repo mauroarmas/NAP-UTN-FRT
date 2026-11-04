@@ -14,7 +14,7 @@ import tempfile
 from uuid import uuid4, UUID
 
 
-JOBS = ('protocol','configuration','state','supervisor','credentials','worker','runtime','collector','spool','redaction','selfcheck','network','tls','isolation')
+JOBS = ('protocol','configuration','state','supervisor','credentials','worker','runtime','collector','spool','redaction','selfcheck','network','tls','isolation','restore_boot')
 SOURCES = {f'/opt/nap/applications/job/{name}.py': f'infra/applications/job/{name}.py' for name in JOBS}
 SOURCES.update({f'/opt/nap/applications/docker/{name}.py':f'infra/applications/docker/{name}.py'
     for name in ('runtime','contract','guest','deploy','access','probes')})
@@ -31,6 +31,7 @@ SOURCES.update({
     '/opt/nap/runner/iaas_protocol.py': 'backend/app/schemas/iaas_access.py',
     '/opt/nap/runner/ssh_keys.py': 'backend/app/utils/ssh_keys.py',
     '/usr/local/sbin/nap-guest-runner': 'infra/runner/nap-guest-runner',
+    '/etc/systemd/system/nap-isolation-restore.service': 'infra/runner/nap-isolation-restore.service',
 })
 TMPFILES = '/etc/tmpfiles.d/nap-application-jobs.conf'
 CONFIG = '/etc/nap/applications-011/runner.json'
@@ -226,6 +227,10 @@ def verify_installed():
         stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True,timeout=10)
     subprocess.run(['/usr/bin/systemd-tmpfiles','--create','/etc/tmpfiles.d/nap-application-jobs.conf'],
         stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True,timeout=10)
+    # La unidad que restaura el aislamiento tras un reinicio queda habilitada (idempotente); no se inicia aquí.
+    for command in (['daemon-reload'],['enable','nap-isolation-restore.service']):
+        subprocess.run(['/usr/bin/systemctl',*command],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,check=True,timeout=30)
 
 
 def main():
