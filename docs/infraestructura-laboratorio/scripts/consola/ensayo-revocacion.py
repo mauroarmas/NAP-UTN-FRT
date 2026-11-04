@@ -25,6 +25,7 @@ import ssl
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -218,6 +219,7 @@ async def ensayo(a):
         'login_nuevo_posible': nuevo_login is not None}
     await sa.cerrar(); await sb.cerrar()
 
+    informe['finalizado_at'] = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     informe['aprobado'] = all(p['ok'] for p in informe['puntos'].values())
     informe['nota'] = ('Los puntos 1-3 son los exigidos por FR-007; el 4 documenta el retiro total. Si `aprobado` es falso, '
                        'la consola permanece deshabilitada en esta instalación (FR-008).')

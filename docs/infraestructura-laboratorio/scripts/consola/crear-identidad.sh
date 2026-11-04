@@ -2,18 +2,20 @@
 # Crea una identidad individual de consola y le da el rol de consola SOLO sobre el pool de su cátedra.
 # Se ejecuta como root en un nodo. Sin --aplicar sólo muestra lo que haría.
 #
-#   crear-identidad.sh --usuario <usuario>@<dominio> --pool catedra-<N> [--aplicar]
+#   crear-identidad.sh --usuario <usuario>@<dominio> --pool catedra-<N> [--sin-clave] [--aplicar]
 #
-# La contraseña (dominio `pve`) se lee de la entrada estándar, dos veces; nunca por argumento.
+# La contraseña (dominio `pve`) se lee de la entrada estándar, dos veces; nunca por argumento. Con --sin-clave
+# no se fija ninguna: la persona la establece con `pveum passwd <identidad>` en una terminal propia del nodo.
 # Una identidad pertenece a UNA persona: no se reutiliza ni se comparte. `root@pam` está prohibida.
 set -euo pipefail
 
 ROL="${NAP_ROL_CONSOLA:-NapConsola}"
-USUARIO=""; POOL=""; APLICAR=0
+USUARIO=""; POOL=""; APLICAR=0; SIN_CLAVE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --usuario) USUARIO="$2"; shift ;;
     --pool) POOL="$2"; shift ;;
+    --sin-clave) SIN_CLAVE=1 ;;
     --aplicar) APLICAR=1 ;;
     *) echo "argumento desconocido: $1" >&2; exit 2 ;;
   esac
@@ -35,7 +37,7 @@ if [ "$APLICAR" -ne 1 ]; then
 fi
 if [ "$EXISTE" -eq 0 ]; then
   pveum user add "$USUARIO" --comment "Consola NAP (identidad individual)"
-  if [ "$REALM" = "pve" ]; then
+  if [ "$REALM" = "pve" ] && [ "$SIN_CLAVE" -eq 0 ]; then
     # Lee la contraseña de la entrada estándar sin exponerla en la lista de procesos.
     pveum passwd "$USUARIO"
   fi

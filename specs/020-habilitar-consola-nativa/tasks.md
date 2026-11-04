@@ -64,9 +64,9 @@
 
 **Independent Test**: tras cargar el perfil la compuerta abre; alterar la revisión de la cátedra la vuelve a cerrar.
 
-- [ ] T019 [LAB] [US3] Importar el inventario de la identidad de prueba con `python -m scripts.importar_identidades_consola --archivo <json> --actor <operador> --referencia <acta>` dentro del contenedor `api` (el JSON con datos del lab queda en el scratchpad)
-- [ ] T020 [LAB] [US3] Registrar la evidencia `revocacion_consola` (`entorno: real`, `cluster_uuid` del clúster del lab, `pve_version` 9.2.2) desde el informe de T017 y confirmar el trámite en `/admin/cambios-consola` con administración (Ivan)
-- [ ] T021 [LAB] [US3] Cargar `console_access_profile` (evidencia, hash, `nodos`, identidad con revisiones vigentes) en la configuración privada del lab y recrear `api` y `worker`
+- [x] T019 [LAB] [US3] Importar el inventario de la identidad de prueba con `python -m scripts.importar_identidades_consola --archivo <json> --actor <operador> --referencia <acta>` dentro del contenedor `api` (el JSON con datos del lab queda en el scratchpad)
+- [x] T020 [LAB] [US3] Registrar la evidencia `revocacion_consola` (`entorno: real`, `cluster_uuid` del clúster del lab, `pve_version` 9.2.2) desde el informe de T017 y confirmar el trámite en `/admin/cambios-consola` con administración (Ivan)
+- [x] T021 [LAB] [US3] Cargar `console_access_profile` (evidencia, hash, `nodos`, identidad con revisiones vigentes) en la configuración privada del lab y recrear `api` y `worker`
 - [ ] T022 [LAB] [US3] Verificación funcional (quickstart paso 6): consola abierta desde el navegador para un Linux de frt y otro de pve91; la misma cuenta rechazada en la cátedra 25; usuario sin identidad con mensaje claro; con un nodo apagado la consola del otro sigue abriendo por el nodo vivo (SC-001, SC-002, SC-007); y cambiar la revisión de la cátedra cierra la compuerta (FR-011)
 
 ## Phase 6: User Story 4 - Runbook para la universidad (P3)
