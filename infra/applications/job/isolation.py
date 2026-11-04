@@ -29,6 +29,20 @@ class IsolationManager:
         if str(UUID(boot_id))!=boot_id:raise JobError('UNCONFIRMED')
         self.boot_id=boot_id
 
+    def applied(self):
+        """Vínculos (cluster, recurso, nonce, vmid) de los recibos 'applied'.
+
+        Sólo lista; no confía en el contenido: `ensure` vuelve a validar el recibo completo antes de actuar.
+        """
+        found=[]
+        with StateStore(self.directory,create=False) as store:
+            for resource in store.identifiers('credential'):
+                row=store.read('credential',resource)
+                if (type(row)is dict and row.get('schema_version')=='nap-isolation/1' and row.get('state')=='applied'
+                        and type(row.get('binding'))is dict and row['binding'].get('resource_uuid')==resource
+                        and type(row['binding'].get('vmid'))is int):found.append(dict(row['binding']))
+        return found
+
     def release(self,identity,*,assert_absent,observe,remove):
         binding={key:identity[key] for key in ('cluster_uuid','resource_uuid','nonce_sha256','vmid')}
         with StateStore(self.directory,create=False) as store:
