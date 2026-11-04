@@ -1,7 +1,7 @@
 # Validación real: acceso SSH a Linux IaaS (feature 017)
 
 Ensayo del 03/11/2026 en el laboratorio frt + pve91, con el paquete de la rama `017-acceso-ssh-iaas-linux` (commit `eda65a0`,
-incluye la `016`). Resultado parcial: **escenarios 2, 3, 5, 6, 8 y 11 comprobados**; faltan 1, 4, 9, 10 y 12 (ver al final).
+incluye la `016`). Resultado parcial: **escenarios 1, 2, 3, 5, 6, 8, 10 y 11 comprobados**; faltan 4, 9 y 12 (ver al final).
 
 ## Instalación
 
@@ -30,16 +30,21 @@ La plantilla `ubuntu-24.04-standard` trae `sshd` (habilitado y activo), `sudo`, 
 
 El detalle de acceso mantiene `metodo: consola` (la consola no cambió).
 
-## Hallazgo del laboratorio: la IP mostrada no es la real
+## Hallazgo del laboratorio: la IP mostrada no era la real (corregido)
 
-El portal muestra `ssh nap@192.168.100.120` (la dirección reservada para la MAC del CT), pero el DHCP de este laboratorio **no respeta las reservas** y
-entregó `192.168.100.17`. Ya había pasado con otros contenedores (reservada `.121`, entregada `.15`). El acceso por la IP real funciona. En un
-entorno donde la reserva DHCP coincida con la asignada, el comando mostrado es correcto. Queda como decisión: o se configura la reserva en el DHCP
-del laboratorio, o el portal informa la dirección observada en el invitado en lugar de la reservada.
+El portal mostraba `ssh nap@192.168.100.122` (la dirección *reservada* para la MAC del CT), pero el DHCP de este laboratorio **no respeta las reservas** y
+entregó `192.168.100.18` (en el #41, `.17`; ya había pasado con otros CT). El comando mostrado daba `No route to host`.
+
+**Corrección** (commit posterior al ensayo): el runner informa la IPv4 real de `eth0` en `configure`/`probe` (`direccion`), el portal la guarda en
+`acceso_metadata.ssh.direccion` y el comando la prefiere a la reservada. Se refresca al **iniciar o reiniciar** el servicio, sin hacer fallar la orden si el nodo
+no responde (se conserva la última conocida). Comprobado en el #42: antes `ssh nap@192.168.100.122`, tras detener e iniciar desde el portal
+`ssh nap@192.168.100.18`, y ese comando entra. Instalado en ambos nodos (2 archivos; el `policy_digest` no cambia).
+
+Límite: la IP se aprende en el despliegue, en un reemplazo de clave y al iniciar/reiniciar. Si el DHCP la cambiara con el servicio en marcha, el portal
+seguiría mostrando la anterior hasta el próximo inicio.
 
 ## Pendiente
 
-- 1 y 4: despliegue nuevo de un Ubuntu con clave **desde la interfaz del portal** y validación de claves inválidas en el formulario.
+- 4: validación de claves inválidas en el formulario (por la interfaz).
 - 9: reinicio de pve91 y reinicio del servicio.
-- 10: baja y nuevo pedido con el mismo `vmid`.
 - 12: regresión de MariaDB y nginx en el portal.
