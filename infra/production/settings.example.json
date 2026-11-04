@@ -34,7 +34,13 @@
   "smtp_password": "",
   "smtp_tls": true,
   "smtp_ssl": false,
-  "console_access_profile": {},
+  "console_access_profile": {
+    "cluster_uuid": "",
+    "pve_version": "",
+    "gate": {"evidencia_ref": "", "sha256": ""},
+    "nodos": {"<nodo>": {"host": "", "port": 8006}},
+    "identities": {}
+  },
   "builder_hosts": {},
   "perfiles_ensayo": {},
   "artifact_registry_directory": ""

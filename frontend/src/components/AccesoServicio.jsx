@@ -18,12 +18,13 @@ export default function AccesoServicio({ servicio, user }) {
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const [consoleURL, setConsoleURL] = useState(null);
+  const [consoleLogin, setConsoleLogin] = useState(null);
   const [sshModal, setSshModal] = useState(false);
   const submitting = useRef(false);
   const admin = user?.rol === 'admin';
   useEffect(() => {
     let active = true;
-    setMetadata(null); setRevealed(null); setError(''); setNotice(''); setConsoleURL(null);
+    setMetadata(null); setRevealed(null); setError(''); setNotice(''); setConsoleURL(null); setConsoleLogin(null);
     getAccesoServicio(servicio.id).then(({ data }) => { if (active) setMetadata(data); })
       .catch((err) => { if (active) setError(mensajeError(err, 'No se pudo consultar el acceso.')); });
     return () => { active = false; };
@@ -44,6 +45,7 @@ export default function AccesoServicio({ servicio, user }) {
     const url = secureLink(data.url);
     if (!url) throw new Error('Destino no confirmado');
     setConsoleURL(url);
+    setConsoleLogin(secureLink(data.login_url));
   });
   const copyPassword = () => act(async () => {
     try { await navigator.clipboard.writeText(revealed.credenciales.password); }
@@ -114,7 +116,11 @@ export default function AccesoServicio({ servicio, user }) {
         </div>
       </section>}
       {method === 'consola' && <div className="row wrap gap-2"><button className="btn btn-secondary" disabled={busy} onClick={queryConsole}>Consultar consola</button>
-        {consoleURL && <a href={consoleURL} target="_blank" rel="noopener noreferrer">Abrir consola de esta instancia</a>}</div>}
+        {consoleURL && <ol className="stack gap-1" aria-label="Pasos para abrir la consola">
+          {consoleLogin && <li>Primero iniciá sesión con tu cuenta personal de consola (dominio «Proxmox VE»):{' '}
+            <a href={consoleLogin} target="_blank" rel="noopener noreferrer">Iniciar sesión</a>. Solo hace falta si no lo hiciste hace poco.</li>}
+          <li><a href={consoleURL} target="_blank" rel="noopener noreferrer">Abrir consola de esta instancia</a></li>
+          <li>Dentro de la consola entrá como <strong>root</strong> con la contraseña de «Revelar acceso inicial». El usuario <strong>nap</strong> sólo entra por SSH con clave.</li></ol>}</div>}
       {metadata.puede_revelar_credenciales && !revealed && <button className="btn btn-primary" disabled={busy} onClick={reveal}>Revelar acceso inicial</button>}
     </>}
     {revealed && <section className="card" aria-label="Credenciales iniciales reveladas">

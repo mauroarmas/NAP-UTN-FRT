@@ -54,6 +54,7 @@ def build_parser():
     ped.add_argument('--dias', type=int, default=14); ped.add_argument('--clave', required=True,
         help='prefijo de las claves de idempotencia (se derivan -pedido y -aprobar)')
     ped.add_argument('--sin-aprobar', action='store_true', help='sólo crear y evaluar')
+    ped.add_argument('--clave-ssh', default=None, help='clave PÚBLICA SSH, en una línea (sólo --aplicacion ubuntu)')
 
     ord_ = sub.add_parser('orden', help='Detener, reiniciar, iniciar o dar de baja un servicio')
     ord_.add_argument('--servicio', type=int, required=True); ord_.add_argument('--accion', choices=ACCIONES_ORDEN, required=True)
@@ -110,7 +111,9 @@ async def _cuenta(a):
 
 
 # Aplicaciones que este script sabe ofrecer: plantilla del catálogo y modelo de servicio.
-APLICACIONES = {'mariadb': {'plantilla': 23, 'modelo': 'paas'}, 'nginx': {'plantilla': 22, 'modelo': 'saas'}}
+APLICACIONES = {'mariadb': {'plantilla': 23, 'modelo': 'paas'}, 'nginx': {'plantilla': 22, 'modelo': 'saas'},
+                # IaaS Linux (Small): necesita --clave-ssh con la clave PÚBLICA de la persona.
+                'ubuntu': {'plantilla': 19, 'modelo': 'iaas'}}
 
 
 def _plantilla(a):
@@ -152,14 +155,22 @@ async def _pedido(a):
         admin = await _usuario(db, admin_email()); titular = await _usuario(db, a.usuario)
         plantilla = await db.get(RecursoTemplate, _plantilla(a))
         vig = _vigencia(a.dias)
-        creado = await solicitud_service.crear(db, actor=titular, clave=a.clave + '-pedido', payload=PedidoCreate.model_validate({
-            'template_id': _plantilla(a), 'modelo_servicio': APLICACIONES[a.aplicacion]['modelo'], 'vigencia': vig, 'catedra_id': a.catedra,
-            'descripcion_requerimientos': 'Pedido operado desde el laboratorio (%s)' % a.clave}))
+        iaas = APLICACIONES[a.aplicacion]['modelo'] == 'iaas'
+        if iaas and not a.clave_ssh:
+            sys.exit('un Linux IaaS requiere --clave-ssh (clave pública)')
+        pedido = {'template_id': _plantilla(a), 'modelo_servicio': APLICACIONES[a.aplicacion]['modelo'], 'vigencia': vig,
+                  'catedra_id': a.catedra, 'descripcion_requerimientos': 'Pedido operado desde el laboratorio (%s)' % a.clave}
+        if iaas:
+            pedido['parametros_extra'] = {'clave_ssh_publica': a.clave_ssh.strip()}
+        creado = await solicitud_service.crear(db, actor=titular, clave=a.clave + '-pedido', payload=PedidoCreate.model_validate(pedido))
         await db.commit()
         pid = creado.resultado.get('id') or creado.resultado.get('pedido_id')
-        cuerpo = {'asignacion': {'template_id': _plantilla(a), 'vcpus': 2, 'ram_mb': 1024, 'disk_gb': 8, 'tamano': 'medium',
-                                 'configuracion_despliegue_id': str(plantilla.configuracion_despliegue_id)},
-                  'destino': {'nodo': a.nodo, 'storage': a.storage}, 'vigencia': vig}
+        if iaas:
+            asignacion = {'template_id': _plantilla(a), 'vcpus': 1, 'ram_mb': 512, 'disk_gb': 4, 'tamano': 'small'}
+        else:
+            asignacion = {'template_id': _plantilla(a), 'vcpus': 2, 'ram_mb': 1024, 'disk_gb': 8, 'tamano': 'medium',
+                          'configuracion_despliegue_id': str(plantilla.configuracion_despliegue_id)}
+        cuerpo = {'asignacion': asignacion, 'destino': {'nodo': a.nodo, 'storage': a.storage}, 'vigencia': vig}
         ev = await evaluacion_service.evaluar(db, pid, actor=admin, payload=PedidoEvaluacion.model_validate(cuerpo))
         await db.commit()
         print('pedido', pid, 'catedra', a.catedra, 'nodo', a.nodo, '| libre_despues', ev.get('libre_despues'))

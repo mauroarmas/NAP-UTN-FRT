@@ -173,20 +173,25 @@ async def consola_del_servicio(servicio_id: int, current_user: Usuario = Depends
             'mensaje': 'El servicio no tiene vigencia autorizada activa'})
     if not servicio.proxmox_vmid or not servicio.proxmox_node:
         raise HTTPException(status_code=400, detail={'codigo': 'sin_vmid', 'mensaje': 'Servicio sin VMID asignado'})
-    from app.services.consola_gate_service import autorizar
+    from app.services.consola_gate_service import autorizar, exigir_gate
+    from app.services.consola_destino_service import resolver_destino
     if current_user.rol == RolUsuario.ADMIN:
-        # El enlace exige iniciar sesión en Proxmox con la cuenta propia del administrador.
-        # No emite tickets ni comparte las credenciales de la API.
+        # La habilitación de la instalación rige para todos los roles; la administración entra a
+        # Proxmox con su cuenta individual (el portal no emite tickets ni comparte credenciales).
+        profile = await exigir_gate(db, servicio)
         from app.models.identidad_infraestructura import IdentidadInfraestructura
         from app.services.identidad_infra_service import observar
         identity = await db.get(IdentidadInfraestructura, servicio.identidad_infraestructura_id) if servicio.identidad_infraestructura_id else None
         if not identity or (await observar(identity)).estado != 'propia':
             raise error(409, 'identidad_no_confirmada', 'No se pudo confirmar la instancia de esta consola.')
     else:
-        await autorizar(db, servicio, current_user)
-    settings = get_settings()
-    console_url = f"https://{settings.proxmox_host}:{settings.proxmox_port}/?console=lxc&xtermjs=1&vmid={servicio.proxmox_vmid}&node={servicio.proxmox_node}"
-    return {"url": console_url, "servicio_id": servicio_id, "vmid": servicio.proxmox_vmid, "node": servicio.proxmox_node}
+        profile = await autorizar(db, servicio, current_user)
+    host, port = await resolver_destino(profile, servicio.proxmox_node)
+    console_url = f"https://{host}:{port}/?console=lxc&xtermjs=1&vmid={servicio.proxmox_vmid}&node={servicio.proxmox_node}"
+    # La página de consola usa la sesión que la persona ya tenga en ese nodo y no muestra login propio:
+    # sin sesión responde "401 no ticket". `login_url` lleva al inicio de sesión del mismo nodo.
+    return {"url": console_url, "login_url": f"https://{host}:{port}/", "servicio_id": servicio_id,
+            "vmid": servicio.proxmox_vmid, "node": servicio.proxmox_node}
 
 
 @router.get("/", response_model=list[ServicioResponse])

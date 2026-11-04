@@ -12,6 +12,7 @@ from app.schemas.evidencia import parse_document
 from app.services.evidencia_service import obtener
 from app.services.acceso_service import usuario_actual, catedras_visibles
 from app.utils.clock import clock, db_utc
+from app.services.consola_destino_service import validar_nodos
 from app.utils.errors import error
 
 
@@ -22,6 +23,7 @@ async def exigir_gate(db, service):
         cluster = settings.infrastructure_profile['cluster_id']
         if profile['cluster_uuid'] != cluster or not profile['pve_version']:
             raise ValueError()
+        validar_nodos(profile.get('nodos'))
         proof, _ = await obtener(db, UUID(profile['gate']['evidencia_ref']), tipo='revocacion_consola')
         document = parse_document(proof.documento_canonico.encode())
         result = document['resultado']
@@ -47,7 +49,7 @@ async def exigir_gate(db, service):
         if getattr(exc, 'status_code', None) == 403:
             raise
         raise error(409, 'consola_no_habilitada',
-            'Falta acreditar aislamiento, identidad y revocación de consola para esta instalación') from None
+            'La consola todavía no está habilitada. Pedíselo a administración.') from None
 
 
 async def autorizar(db, service, actor):
@@ -72,4 +74,5 @@ async def autorizar(db, service, actor):
             if int(key) not in visible or not category or category.revision_admin != revision:
                 raise ValueError()
     except (KeyError, TypeError, ValueError, AttributeError):
-        raise error(409, 'consola_no_habilitada', 'Falta acreditar la identidad nativa individual y sus pools actuales') from None
+        raise error(409, 'consola_no_habilitada', 'La consola todavía no está habilitada para tu cuenta. Pedíselo a administración.') from None
+    return profile
