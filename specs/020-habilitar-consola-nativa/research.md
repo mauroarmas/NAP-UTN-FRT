@@ -4,10 +4,10 @@ Estado del clúster al 2026-11-04 (lectura, sin cambios): `nap-lab`, 2 nodos (`f
 
 ## R1. Rol de la identidad individual
 
-- **Decisión**: crear un rol propio (`NapConsola`) con el mínimo que exige abrir la consola de un contenedor (`VM.Console` y, si el ensayo lo requiere, `VM.Audit` para que la interfaz muestre el recurso). Asignarlo a cada identidad sobre `/pool/catedra-N`, nunca sobre `/`, `/vms` ni `/nodes`.
+- **Decisión**: crear un rol propio (`NapConsola`) con el mínimo que exige abrir la consola de un contenedor (`VM.Console` y `VM.Audit`; ver abajo). Asignarlo a cada identidad sobre `/pool/catedra-N`, nunca sobre `/`, `/vms` ni `/nodes`.
 - **Razón**: `PVEVMUser` agrega permisos de energía y configuración; entregarlos abriría una vía para operar el contenedor fuera del portal y rompería el Principio I (FR-005, FR-006).
 - **Alternativas**: `PVEVMUser` (descartada por exceso); `PVEAuditor` (no permite consola).
-- **A validar en el ensayo**: el conjunto mínimo exacto de privilegios; si hace falta `Sys.Console`/`Sys.Audit` sobre el nodo para que el visor cargue, se documenta y se acota, o se declara la consola inviable.
+- **Resuelto en el ensayo con navegador (2026-11-04)**: `VM.Console` solo **no alcanza**: la página de consola lee `status/current` del contenedor y responde 403 sin `VM.Audit`. El mínimo es `VM.Console` + `VM.Audit`, ambos sobre el pool de la cátedra. Con eso la identidad **lee** estado, configuración y métricas de los contenedores de su pool y los nombres de nodo, pero recibe 403 al detener, reiniciar, cambiar configuración, tomar snapshots o ver el estado del nodo. No requiere `Sys.*`.
 
 ## R2. Dominio de las identidades
 

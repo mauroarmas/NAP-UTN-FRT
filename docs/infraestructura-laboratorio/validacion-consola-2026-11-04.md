@@ -6,7 +6,7 @@ consolas **reales** (ticket de sesión, solicitud de consola y conexión WebSock
 
 ## Configuración probada
 
-- Rol propio `NapConsola` con **sólo** `VM.Console`; identidad individual en el dominio `pve` con ese rol sobre `/pool/catedra-3` y `/pool/catedra-25`.
+- Rol propio `NapConsola` con **`VM.Console` y `VM.Audit`** (el ensayo de protocolo se hizo con sólo `VM.Console`; el navegador exigió `VM.Audit`, ver hallazgo 5); identidad individual en el dominio `pve` con ese rol sobre `/pool/catedra-3` y `/pool/catedra-25`.
 - Con esa identidad: iniciar/detener y leer configuración de un contenedor → 403; almacenamiento y pools → listas vacías; estado de nodo → 403.
   Sólo ve nombres y huellas TLS de los nodos; ningún contenedor ni recurso.
 - La consola se abrió **entrando por un nodo distinto del que aloja el contenedor** (API de frt, contenedor en pve91, y al revés).
@@ -29,6 +29,8 @@ Resultado global: **aprobado** en ambos sentidos.
    abre un `ssh` al nodo del contenedor). Por eso las sesiones se terminan en **cada nodo** del clúster; terminar `termproxy` corta la sesión en menos de 1,5 s.
 3. **Eliminar la identidad invalida sus tickets de sesión** (401) y su inicio de sesión; las consolas abiertas se terminan igual con el paso de sesiones.
 4. Las sesiones de consola no dejan procesos de `termproxy` tras el corte; el servicio `dtach` del contenedor persiste, como es normal en la consola de Proxmox.
+
+5. **La página de consola necesita `VM.Audit`**: lee el estado del contenedor antes de abrir la terminal y con sólo `VM.Console` responde 403. Además exige que el navegador tenga una **sesión de Proxmox en ese nodo** (sin ella, «401 no ticket»); el portal lleva primero al inicio de sesión del mismo nodo (`login_url`). Con `VM.Console`+`VM.Audit` se comprobó 403 en detener, reiniciar, cambiar configuración, snapshots y estado de nodo.
 
 ## Pendiente (no acreditado por este ensayo)
 

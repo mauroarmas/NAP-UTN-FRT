@@ -5,12 +5,14 @@
 #
 #   crear-rol-consola.sh [--aplicar] [--privilegios "VM.Console VM.Audit"]
 #
-# El rol NO incluye energía, configuración, copias ni acceso a nodos o almacenamiento:
-# la excepción de consola de la constitución cubre únicamente la sesión interactiva.
+# VM.Audit es necesario: la página de consola lee el estado del contenedor (status/current) antes de abrir la
+# terminal y sin él responde 403 (ensayo con navegador, 2026-11-04). Es sólo lectura sobre los contenedores del
+# propio pool. El rol NO incluye energía, configuración, copias ni acceso a nodos: la excepción de consola de la
+# constitución cubre únicamente la sesión interactiva.
 set -euo pipefail
 
 ROL="${NAP_ROL_CONSOLA:-NapConsola}"
-PRIVS="VM.Console"
+PRIVS="VM.Console VM.Audit"
 APLICAR=0
 while [ $# -gt 0 ]; do
   case "$1" in
