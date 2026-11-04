@@ -1,7 +1,10 @@
 """El script de arranque reintenta sólo lo que falló y nunca reporta éxito si queda algo sin restaurar."""
 from types import SimpleNamespace
 
+import pytest
+
 from infra.applications.job import restore_boot
+from infra.applications.job.protocol import JobError
 
 
 def runtime_factory(reports, calls):
@@ -54,3 +57,43 @@ def test_success_exit_code_is_zero_even_when_there_is_nothing_to_restore(capsys,
     monkeypatch.setattr(restore_boot, 'restore', lambda: {'restaurados': [], 'vigentes': [], 'obsoletos': [], 'fallidos': [], 'intentos': 1})
     assert restore_boot.main() == 0
     assert '"estado": "ok"' in capsys.readouterr().out
+
+
+OK = {'restaurados': ['a'], 'vigentes': [], 'obsoletos': [], 'fallidos': []}
+
+
+def flaky_factory(errors, calls):
+    """Falla con cada código de `errors` (al construir el runtime) y después funciona."""
+    def factory():
+        calls.append('factory')
+        if len(calls) <= len(errors): raise JobError(errors[len(calls) - 1])
+        class Runtime:
+            node = SimpleNamespace(restore_isolations=lambda: OK)
+            def __enter__(self): return self
+            def __exit__(self, *args): return False
+        return Runtime()
+    return factory
+
+
+def test_retries_when_the_runtime_cannot_be_built_yet_because_proxmox_is_slow_on_a_cold_boot():
+    # Regresión: `pveversion` tardó 7 s en frío (plazo de 5 s) y la unidad murió sin reintentar nunca.
+    calls, pauses = [], []
+    result = restore_boot.restore(flaky_factory(['UNCONFIRMED', 'UNCONFIRMED'], calls), attempts=5, pause=3, sleep=pauses.append)
+    assert result['restaurados'] == ['a'] and result['fallidos'] == [] and result['intentos'] == 3 and pauses == [3, 3]
+
+
+def test_a_definitive_error_building_the_runtime_is_not_retried():
+    calls, pauses = [], []
+    with pytest.raises(JobError) as info:
+        restore_boot.restore(flaky_factory(['IDENTITY_MISMATCH'], calls), attempts=5, pause=3, sleep=pauses.append)
+    assert info.value.code == 'IDENTITY_MISMATCH' and len(calls) == 1 and pauses == []
+
+
+def test_gives_up_when_the_runtime_never_comes_up_and_main_reports_it(capsys, monkeypatch):
+    calls, pauses = [], []
+    with pytest.raises(JobError):
+        restore_boot.restore(flaky_factory(['UNCONFIRMED'] * 9, calls), attempts=3, pause=1, sleep=pauses.append)
+    assert len(calls) == 3 and pauses == [1, 1]
+    def boom(): raise JobError('UNCONFIRMED')
+    monkeypatch.setattr(restore_boot, 'restore', boom)
+    assert restore_boot.main() == 1 and '"estado": "no_confirmado"' in capsys.readouterr().out
