@@ -1,7 +1,7 @@
 # Validación real: acceso SSH a Linux IaaS (feature 017)
 
 Ensayo del 03/11/2026 en el laboratorio frt + pve91, con el paquete de la rama `017-acceso-ssh-iaas-linux` (commit `eda65a0`,
-incluye la `016`). Resultado parcial: **escenarios 1, 2, 3, 5, 6, 8, 10 y 11 comprobados**; faltan 4, 9 y 12 (ver al final).
+incluye la `016`). **Escenarios 1, 2, 3, 5, 6, 8, 9, 10 y 11 comprobados; 4 y 12 parcialmente** (ver al final).
 
 ## Instalación
 
@@ -43,8 +43,29 @@ no responde (se conserva la última conocida). Comprobado en el #42: antes `ssh 
 Límite: la IP se aprende en el despliegue, en un reemplazo de clave y al iniciar/reiniciar. Si el DHCP la cambiara con el servicio en marcha, el portal
 seguiría mostrando la anterior hasta el próximo inicio.
 
-## Pendiente
+## Reinicio de pve91 (escenario 9)
 
-- 4: validación de claves inválidas en el formulario (por la interfaz).
-- 9: reinicio de pve91 y reinicio del servicio.
-- 12: regresión de MariaDB y nginx en el portal.
+Con el Ubuntu #42 en marcha (clave de la notebook, revisión 2 aplicada), `systemctl reboot` en pve91:
+
+| Qué | Resultado |
+|---|---|
+| Nodo | Volvió en ~60 s, con quórum |
+| `nap-isolation-restore` | 23:38:51 → 23:39:05, **antes** de `pve-guests` (23:39:05); `estado: ok`, `fallidos: []`, `restaurados: []` (pve91 no aloja instancias OCI; los 6 `obsoletos` son recibos viejos) |
+| Contenedor | No arrancó solo (sin `onboot`, decisión vigente); el portal mostró `RUNNING` unos instantes y se corrigió solo a `STOPPED` |
+| Iniciar desde el portal | Confirmado; el comando muestra la IP real |
+| Después de iniciar | `sshd` responde; `authorized_keys` con una sola línea (la huella de la notebook); `passwordauthentication no`, `permitrootlogin no`, `allowusers nap` |
+| Conexión | Desde la notebook, `ssh nap@192.168.100.18` entra |
+
+## Escenarios 4 y 12
+
+- **4 (clave inválida en el formulario):** durante el ensayo se pegó por error la salida de `ssh-keygen`, y el formulario la rechazó con el mensaje
+  «Tipo de clave no admitido. Usá ed25519 (recomendado), ecdsa o RSA de 3072 bits o más.» Los demás casos (clave privada, RSA corta, varias líneas) están cubiertos
+  por pruebas automáticas, no se repitieron en la interfaz.
+- **12 (regresión):** la MariaDB #40 (frt) conserva su acceso `mariadb` sin bloque SSH, su tabla `nap011_*` y el 3306 abierto para un cliente permitido.
+  **nginx no se desplegó en vivo** en este ensayo (pve91 aloja un solo servicio a la vez); lo cubren las pruebas automáticas.
+
+## Límites que quedan
+
+- No se probó un corte brusco del nodo ni la caída de ambos nodos.
+- La consola del portal sigue bloqueada para IaaS (decisión de esta feature: no se modifica); el acceso es solo por SSH.
+- Los Linux IaaS **no tienen aislamiento de red por instancia**: la clave es el único control de ingreso.

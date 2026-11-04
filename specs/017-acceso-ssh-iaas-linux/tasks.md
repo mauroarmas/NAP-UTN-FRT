@@ -98,7 +98,7 @@
 - [x] T038 Correr suites completas: `backend` (pytest con PostgreSQL de `docker-compose.test.yml`), `infra/runner/tests`, `infra/applications/tests` y `frontend` (vitest); confirmar 0 regresiones en Docker/OCI, bases y consola IaaS (SC-007)
 - [x] T039 Barrido de seguridad: buscar que ninguna clave completa ni contraseña llega a registros, errores, historial ni `argv` (SC-006); actualizar `.specify`/documentación si corresponde
 - [x] T040 Actualizar `docs/infraestructura-laboratorio/` con el runbook del ensayo (reinstalar el paquete en frt y pve91 con `scripts/actualizar-nodos-011.sh --aplicar`, plan sin cambios en archivos del digest)
-- [ ] T041 _(parcial: escenarios 2, 3, 5, 6, 8 y 11 hechos; ver `docs/infraestructura-laboratorio/validacion-acceso-ssh-2026-11-03.md`)_ Ensayo real en pve91 y frt siguiendo `quickstart.md` (escenarios 1–12), previa verificación R10 (`openssh-server` en la plantilla); registrar resultados y límites en el documento de validación del laboratorio. **Requiere maestros SSH abiertos por Ivan y su aprobación para tocar los nodos**
+- [x] T041 _(escenarios 1, 2, 3, 5, 6, 8, 9, 10 y 11 hechos; 4 y 12 parciales; ver `docs/infraestructura-laboratorio/validacion-acceso-ssh-2026-11-03.md`)_ Ensayo real en pve91 y frt siguiendo `quickstart.md` (escenarios 1–12), previa verificación R10 (`openssh-server` en la plantilla); registrar resultados y límites en el documento de validación del laboratorio. **Requiere maestros SSH abiertos por Ivan y su aprobación para tocar los nodos**
 - [ ] T042 Registrar en memoria y docs el estado final y abrir el PR a `dev` **solo cuando Ivan lo pida**
 
 ## Dependencias y orden
