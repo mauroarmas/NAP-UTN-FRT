@@ -185,6 +185,9 @@ async def aprobar(db, pedido_id, *, actor, payload, clave, pve=None):
             else:
                 from app.schemas.tamanos import TAMANOS
                 assignment.update(origen='proxmox_iaas', product='linux')
+                from app.services import iaas_acceso_service
+                if pedido.tipo != TipoPedido.RENOVACION:
+                    assignment['acceso_ssh'] = iaas_acceso_service.bloque_asignacion(pedido)
                 assignment['minimum_resources'] = dict(TAMANOS['small'])
             destination = {**evaluation['seleccion']['destino'], 'storage_scope': evaluation['storage_scope']}
             service = None

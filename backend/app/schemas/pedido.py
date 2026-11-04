@@ -24,6 +24,7 @@ class DatosSolicitud(Contrato):
     software_solicitado: str | None = Field(default=None, max_length=200)
     referencia_imagen: str | None = Field(default=None, max_length=255)
     instrucciones_uso: str | None = Field(default=None, max_length=2000)
+    clave_ssh_publica: str | None = Field(default=None, max_length=800)
 
     @model_validator(mode='after')
     def validar_referencia_sin_credenciales(self):

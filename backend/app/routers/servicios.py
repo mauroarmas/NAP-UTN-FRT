@@ -44,7 +44,7 @@ from app.utils.soft_delete import excluir_dados_de_baja, vigente_o_404
 logger = logging.getLogger(__name__)
 
 from app.schemas.servicio import RenovacionRequest, ModificacionVigenciaRequest
-from app.schemas.servicio import AccesoServicioResponse, AccesoReveladoResponse, RevelarAccesoRequest, VerificarAccesoRequest
+from app.schemas.servicio import AccesoServicioResponse, AccesoReveladoResponse, RevelarAccesoRequest, VerificarAccesoRequest, AccesoSshRequest
 from app.schemas.regularizacion import EvaluarRegularizacion,ConfirmarRegularizacion,ArchivarDuplicado
 
 router = APIRouter(prefix="/servicios", tags=["Servicios"])
@@ -101,6 +101,22 @@ async def acceso_del_servicio(servicio_id: int, response: Response, current_user
     from app.services import service_access_service
     response.headers['Cache-Control'] = 'no-store'
     return await service_access_service.metadatos(db, actor=current_user, servicio_id=servicio_id)
+
+
+@router.put('/{servicio_id}/acceso-ssh', status_code=202)
+async def registrar_acceso_ssh(servicio_id: int, body: AccesoSshRequest, key: str = Header(alias='Idempotency-Key'),
+    current_user: Usuario = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Registra o reemplaza la clave pública SSH de un servicio Linux; el efecto lo confirma el worker."""
+    from app.services import iaas_acceso_service
+    from app.utils.responses import respuesta_decision
+    try:
+        result = await iaas_acceso_service.registrar_o_reemplazar(db, actor=current_user, servicio_id=servicio_id,
+            clave=body.clave_publica, idempotency_key=key)
+        await db.commit()
+        return respuesta_decision(result)
+    except Exception:
+        await db.rollback()
+        raise
 
 
 @router.post('/{servicio_id}/abrir-aplicacion')

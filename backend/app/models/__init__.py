@@ -62,3 +62,4 @@ from app.models.secreto_despliegue import SecretoDespliegue
 from app.models.intento_despliegue import IntentoDespliegue
 from app.models.consola_operacion import ConsolaOperacion, ConsolaFragmento
 from app.models.reserva_red_aplicacion import ReservaRedAplicacion
+from app.models.clave_acceso_servicio import ClaveAccesoServicio

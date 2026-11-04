@@ -77,6 +77,9 @@ async def _context(db, actor, service_id):
         'metodo': method, 'direccion': metadata.get('endpoint'), 'puerto': metadata.get('port'),
         'puede_revelar_credenciales': may_reveal, 'estado_entrega': state, 'instrucciones': instructions}
     result.update(acceso_con_nap=gateway, puede_abrir_con_nap=may_open)
+    if raw_iaas:
+        from app.services import iaas_acceso_service
+        result['acceso_ssh'] = await iaas_acceso_service.bloque_acceso(db, service, cubierto=covered)
     if gateway:
         result['direccion'] = origen(service.id)
     if actor.rol == RolUsuario.ADMIN and preparation and not gateway:

@@ -36,6 +36,7 @@ from app.services import (
 from app.utils.clock import clock
 from app.utils.secretos import configured_keyring
 from app.worker import procesar_una
+from tests.iaas_ssh_helpers import RunnerSsh, nueva_clave
 from tests import factories
 from tests.auth_helpers import headers_para
 from tests.capacity_helpers import aprobar_http, perfil_capacidad  # noqa: F401
@@ -144,6 +145,7 @@ async def test_regresion_iaas_ciclo_completo_y_consola(
             "modelo_servicio": "iaas",
             "catedra_id": catedra.id,
             "descripcion_requerimientos": f"Prácticas de sistemas sobre {iaas_template_name}.",
+            "parametros_extra": {"clave_ssh_publica": nueva_clave()},
             "vigencia": {
                 "tipo": "personalizado",
                 "desde": today.isoformat(),
@@ -161,7 +163,7 @@ async def test_regresion_iaas_ciclo_completo_y_consola(
 
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     for _ in range(8):
-        await procesar_una(sessions, pve=proxmox)
+        await procesar_una(sessions, pve=proxmox, runner=RunnerSsh())
 
     await db.refresh(pedido)
     assert pedido.estado == EstadoPedido.ACTIVO
@@ -322,6 +324,7 @@ async def test_regresion_renovacion_extiende_vigencia_sin_recrear_instancia(
             "modelo_servicio": "iaas",
             "catedra_id": catedra.id,
             "descripcion_requerimientos": "Prácticas de SO.",
+            "parametros_extra": {"clave_ssh_publica": nueva_clave()},
             "vigencia": {
                 "tipo": "personalizado",
                 "desde": today.isoformat(),
@@ -335,7 +338,7 @@ async def test_regresion_renovacion_extiende_vigencia_sin_recrear_instancia(
 
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     for _ in range(8):
-        await procesar_una(sessions, pve=proxmox)
+        await procesar_una(sessions, pve=proxmox, runner=RunnerSsh())
 
     await db.refresh(pedido)
     servicio = await db.get(Servicio, pedido.servicio_id)
@@ -385,7 +388,7 @@ async def test_regresion_renovacion_extiende_vigencia_sin_recrear_instancia(
 
     # Procesar ciclo worker si aplica
     for _ in range(4):
-        await procesar_una(sessions, pve=proxmox)
+        await procesar_una(sessions, pve=proxmox, runner=RunnerSsh())
 
     await db.refresh(servicio)
     # Conservación estricta de la instancia
@@ -426,6 +429,7 @@ async def test_regresion_no_interferencia_y_conservacion_entre_servicios(
             "modelo_servicio": "iaas",
             "catedra_id": catedra.id,
             "descripcion_requerimientos": "Servicio A",
+            "parametros_extra": {"clave_ssh_publica": nueva_clave()},
             "vigencia": {
                 "tipo": "personalizado",
                 "desde": today.isoformat(),
@@ -439,7 +443,7 @@ async def test_regresion_no_interferencia_y_conservacion_entre_servicios(
 
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     for _ in range(8):
-        await procesar_una(sessions, pve=proxmox)
+        await procesar_una(sessions, pve=proxmox, runner=RunnerSsh())
 
     await db.refresh(pedido_a)
     serv_a = await db.get(Servicio, pedido_a.servicio_id)
@@ -459,6 +463,7 @@ async def test_regresion_no_interferencia_y_conservacion_entre_servicios(
             "modelo_servicio": "iaas",
             "catedra_id": otra_catedra.id,
             "descripcion_requerimientos": "Servicio B",
+            "parametros_extra": {"clave_ssh_publica": nueva_clave()},
             "vigencia": {
                 "tipo": "personalizado",
                 "desde": today.isoformat(),
@@ -471,7 +476,7 @@ async def test_regresion_no_interferencia_y_conservacion_entre_servicios(
     await db.commit()
 
     for _ in range(8):
-        await procesar_una(sessions, pve=proxmox)
+        await procesar_una(sessions, pve=proxmox, runner=RunnerSsh())
 
     await db.refresh(pedido_b)
     serv_b = await db.get(Servicio, pedido_b.servicio_id)
@@ -487,7 +492,7 @@ async def test_regresion_no_interferencia_y_conservacion_entre_servicios(
     await db.commit()
 
     for _ in range(4):
-        await procesar_una(sessions, pve=proxmox)
+        await procesar_una(sessions, pve=proxmox, runner=RunnerSsh())
 
     await db.refresh(serv_a)
     await db.refresh(serv_b)
