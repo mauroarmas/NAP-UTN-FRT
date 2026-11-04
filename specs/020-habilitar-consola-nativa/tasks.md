@@ -44,7 +44,7 @@
 - [x] T012 [P] [US1] Agregar `nodos` con marcadores a `infra/production/settings.example.json` dentro de `console_access_profile` y mantener el contrato `specs/020-habilitar-consola-nativa/contracts/console-profile.md` alineado
 - [x] T013 [US1] Ejecutar `pytest backend/tests/test_consola_destino_020.py backend/tests/test_consola_gate_020.py backend/tests/test_revocacion_consola_009.py backend/tests/test_convergencia_seguridad_009.py` y la prueba de vitest de T011; todo en verde antes de pasar al laboratorio
 - [x] T014 [LAB] [US1] Preparar en el clúster: crear el rol (T003) en un nodo (los roles son de clúster), la identidad individual de prueba (T004) con ACL sobre `/pool/catedra-3`, y comprobar con la propia identidad que no ve nodos, almacenamiento ni acciones de energía (FR-005, SC-004)
-- [ ] T015 [LAB] [US1] Tener un Linux IaaS `RUNNING` con vigencia en **frt** y otro en **pve91** (pedido por la interfaz, aprobación de administración por Ivan)
+- [x] T015 [LAB] [US1] Tener un Linux IaaS `RUNNING` con vigencia en **frt** y otro en **pve91** (pedido por la interfaz, aprobación de administración por Ivan)
 
 **Checkpoint**: backend y frontend verdes; identidad de prueba creada; un Linux por nodo.
 
@@ -75,9 +75,9 @@
 
 **Independent Test**: un revisor sin acceso al lab confirma que cada paso nombra el dato propio necesario y que T001 pasa.
 
-- [ ] T023 [US4] Escribir `docs/runbook-consola-nativa.md`: inventario previo, dominio e identidades, rol y ACL por pool, alcance de red y certificados por nodo (research R7), ensayo de revocación con criterios de aprobación y salida si falla, registro de evidencia, carga de `console_access_profile` con `nodos`, verificación y retiro; sólo marcadores (`<nodo>`, `<usuario>@<dominio>`)
-- [ ] T024 [P] [US4] Escribir `docs/infraestructura-laboratorio/scripts/consola/README.md` (uso de los scripts T003–T005 y T016, requisitos, ejemplos con marcadores) y enlazar el runbook desde `docs/conexion-infraestructura.md` y `docs/manual-administrador.md`
-- [ ] T025 [US4] Ejecutar `pytest backend/tests/test_sin_datos_lab_020.py` (T001) y corregir cualquier dato del laboratorio hallado en archivos versionados
+- [x] T023 [US4] Escribir `docs/runbook-consola-nativa.md`: inventario previo, dominio e identidades, rol y ACL por pool, alcance de red y certificados por nodo (research R7), ensayo de revocación con criterios de aprobación y salida si falla, registro de evidencia, carga de `console_access_profile` con `nodos`, verificación y retiro; sólo marcadores (`<nodo>`, `<usuario>@<dominio>`)
+- [x] T024 [P] [US4] Escribir `docs/infraestructura-laboratorio/scripts/consola/README.md` (uso de los scripts T003–T005 y T016, requisitos, ejemplos con marcadores) y enlazar el runbook desde `docs/conexion-infraestructura.md` y `docs/manual-administrador.md`
+- [x] T025 [US4] Ejecutar `pytest backend/tests/test_sin_datos_lab_020.py` (T001) y corregir cualquier dato del laboratorio hallado en archivos versionados
 
 ## Phase 7: Polish & cross-cutting
 
