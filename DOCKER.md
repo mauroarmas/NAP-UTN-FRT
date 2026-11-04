@@ -77,7 +77,9 @@ Solicita usuario, nombre, correo y contraseña sin mostrarla. Rechaza recrear ad
 docker compose --env-file /ruta/privada/compose.env -f docker-compose.production.yml up -d --no-build api proxy
 ```
 
-Comprobar DNS/certificado desde el equipo visitante y el recorrido de ambos roles. El proxy sirve la SPA compilada y `/api/` bajo el mismo origen HTTPS, admite Upgrade de WebSocket y vuelve a resolver la API cuando cambia su dirección Docker. Sobrescribe cabeceras de proxy con el origen observado. Las decisiones llevan `no-store`; los assets con hash permiten caché inmutable. Cookies HttpOnly/Secure/SameSite y Origin/CSRF siguen siendo responsabilidad del backend.
+El proxy usa el certificado de `NAP_TLS_DIR` y no pide ni renueva certificados por su cuenta (sin ACME ni API de administración); si el certificado vence o se renueva, reemplazar los archivos y reiniciar `proxy`. Un nombre distinto de `NAP_PUBLIC_HOST`, por HTTP o HTTPS, recibe un corte de conexión sin respuesta. Sólo se admiten TLS 1.2 y 1.3, sin HTTP/3.
+
+Comprobar DNS/certificado desde el equipo visitante y el recorrido de ambos roles. El proxy (Caddy, configuración en `infra/proxy/Caddyfile`) sirve la SPA compilada y `/api/` bajo el mismo origen HTTPS, admite Upgrade de WebSocket y vuelve a resolver la API cuando cambia su dirección Docker. Sobrescribe cabeceras de proxy con el origen observado. Las decisiones llevan `no-store`; los assets con hash permiten caché inmutable. Cookies HttpOnly/Secure/SameSite y Origin/CSRF siguen siendo responsabilidad del backend.
 
 Los logs de acceso del proxy excluyen parámetros de URL. Uvicorn no duplica el registro de acceso; la auditoría de negocio/seguridad persiste en la base. No activar trazas SQL ni imprimir configuración privada para diagnosticar errores.
 
@@ -109,7 +111,7 @@ El ensayo Docker/HTTPS aislado se documenta en [docs/evidencia/009/produccion.md
 - [Preparación de Restauración](docs/preparar-restauracion.md)
 - [Modelo de Base de Datos](docs/diagrama_bd.md)
 
-Referencias técnicas consultadas: [secretos de Compose](https://docs.docker.com/compose/how-tos/use-secrets/), [proxy WebSocket de Nginx](https://nginx.org/en/docs/http/websocket.html), [privilegios PostgreSQL 16](https://www.postgresql.org/docs/16/sql-grant.html).
+Referencias técnicas consultadas: [secretos de Compose](https://docs.docker.com/compose/how-tos/use-secrets/), [reverse_proxy de Caddy](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy), [privilegios PostgreSQL 16](https://www.postgresql.org/docs/16/sql-grant.html).
 
 La preparación por lote del pool de aplicaciones y la compuerta de consola por instalación se describen en [conexion-infraestructura.md](docs/conexion-infraestructura.md). Mantener la consola cerrada mientras falten evidencia e identidades/scopes actuales.
 

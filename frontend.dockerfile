@@ -36,11 +36,12 @@ EXPOSE 5173
 
 CMD ["serve", "-s", "dist", "-l", "5173"]
 
-FROM nginxinc/nginx-unprivileged:stable-alpine@sha256:f5116ed4606f3eb015dd4a8e28cb9b351476dc0ad4bc6e9f93b19cec130cdf03 AS production
+FROM caddy:2-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5 AS production
 
-USER root
-RUN rm -f /etc/nginx/conf.d/default.conf
-COPY --from=builder /app/dist /usr/share/nginx/html
-COPY infra/proxy/nginx.conf /etc/nginx/templates/default.conf.template
+# El binario oficial trae la capacidad de enlazar puertos bajos; el proxy usa 8080/8443 y corre sin capacidades.
+RUN setcap -r /usr/bin/caddy
+COPY --from=builder /app/dist /usr/share/caddy
+COPY infra/proxy/Caddyfile /etc/caddy/Caddyfile
 USER 101:101
 EXPOSE 8080 8443
+CMD ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
