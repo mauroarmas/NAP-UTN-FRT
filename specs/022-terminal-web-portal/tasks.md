@@ -52,7 +52,7 @@
 - [x] T018 [US1] `backend/app/routers/terminal.py`: `GET /servicios/{id}/terminal` (WebSocket) con sesión del portal, validación de `Origin`, admisión del contrato y cierre con códigos; registrar el router en `app/main.py`
 - [x] T019 [P] [US1] `frontend/src/components/TerminalConsola.jsx` (xterm + fit, WebSocket binario, redimensionado, avisos y cierre) integrado en `AccesoServicio.jsx` como «Abrir terminal»; quitar el enlace a Proxmox de la persona (mantener «Consultar consola» sólo como respaldo de administración); pruebas `frontend/tests/terminal-consola-022.test.jsx` con doble de WebSocket
 - [x] T020 [US1] Ejecutar las suites de T014 más `backend/tests/test_terminal_022.py` y los vitest de T019; en verde
-- [ ] T021 [LAB] [US1] Verificación real en frt y pve91: abrir la terminal desde un cliente que sólo llega al portal (sin ruta a los nodos), un Linux por nodo, iniciar sesión como `nap`, `sudo`; confirmar con Ivan en el navegador; comprobar que no aparece ninguna pantalla de Proxmox
+- [x] T021 [LAB] [US1] (verificada también en el navegador por Ivan) Verificación real en frt y pve91: abrir la terminal desde un cliente que sólo llega al portal (sin ruta a los nodos), un Linux por nodo, iniciar sesión como `nap`, `sudo`; confirmar con Ivan en el navegador; comprobar que no aparece ninguna pantalla de Proxmox
 
 ## Phase 5: User Story 3 - Sesiones acotadas y auditables (P1)
 
