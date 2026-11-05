@@ -221,3 +221,83 @@ async def test_cambiar_la_clave_de_un_servicio_no_actualizado_no_toca_las_contra
     assert nuevos and all('password_consola' not in c for c in nuevos)
     servicio = await db.get(Servicio, sid, populate_existing=True)
     assert servicio.acceso_metadata['username'] == 'root' and _guest_password(servicio) == vieja
+
+
+# --- US3: la contraseña no aparece fuera de «Revelar acceso inicial» -------------------------------
+
+async def _todo_lo_que_hay_en_la_base(db):
+    """Texto de TODAS las filas de TODAS las tablas: la contraseña en claro no debe estar en ninguna."""
+    from sqlalchemy import text
+    from app.database import Base
+    partes = []
+    for tabla in Base.metadata.sorted_tables:
+        for fila in (await db.execute(text(f'select * from "{tabla.name}"'))).fetchall():
+            partes.append(f'{tabla.name}: {fila!r}')
+    return '\n'.join(partes)
+
+
+async def test_la_contrasena_no_aparece_en_ninguna_tabla_ni_registro_ni_respuesta(client, db, engine, proxmox, entorno,
+        auth_catedra, auth_admin, catedra, caplog):
+    import logging
+    caplog.set_level(logging.DEBUG)
+    runner = RunnerSsh()
+    respuestas = []
+    sid, vieja = await _entregado_legacy(client, db, engine, proxmox, auth_catedra, auth_admin, catedra, runner)
+    respuestas.append((await _post(client, sid, auth_admin)).text)
+    await procesar(engine, proxmox, runner)
+    respuestas.append((await _post(client, sid, auth_admin, clave='otra')).text)
+    respuestas.append((await client.get(f'/servicios/{sid}/acceso', headers=auth_catedra)).text)
+    respuestas.append((await client.get(f'/servicios/{sid}', headers=auth_catedra)).text)
+    servicio = await db.get(Servicio, sid, populate_existing=True)
+    nueva = _guest_password(servicio)
+    revelado = await client.post(f'/servicios/{sid}/acceso/revelar', headers=auth_catedra, json={})
+    assert nueva in revelado.text            # sólo aquí aparece
+    base = await _todo_lo_que_hay_en_la_base(db)
+    for secreto in (nueva, vieja):
+        assert secreto not in base, 'la contraseña quedó en claro en la base'
+        assert secreto not in caplog.text, 'la contraseña apareció en un registro'
+        assert all(secreto not in texto for texto in respuestas), 'la contraseña apareció en una respuesta'
+
+
+@pytest.mark.parametrize('error', ['SUDO_UNAVAILABLE', 'IDENTITY_MISMATCH', 'INVALID_REQUEST'])
+async def test_un_fallo_forzado_no_filtra_la_contrasena(client, db, engine, proxmox, entorno,
+        auth_catedra, auth_admin, catedra, caplog, error):
+    import logging
+    caplog.set_level(logging.DEBUG)
+    sid, vieja = await _entregado_legacy(client, db, engine, proxmox, auth_catedra, auth_admin, catedra, RunnerSsh())
+    assert (await _post(client, sid, auth_admin)).status_code == 202
+    await procesar(engine, proxmox, RunnerSsh(error=error))
+    operacion = await db.scalar(select(OperacionInfraestructura).where(
+        OperacionInfraestructura.servicio_id == sid, OperacionInfraestructura.motivo.like('%consola%')))
+    await db.refresh(operacion)
+    pendiente = configured_keyring().decrypt(operacion.contexto_seguro['acceso_consola']['password_cifrada'],
+        context=f'operacion:{operacion.id}:consola')['password']
+    base = await _todo_lo_que_hay_en_la_base(db)
+    assert pendiente not in base and pendiente not in caplog.text
+    assert vieja not in base and vieja not in caplog.text
+
+
+async def test_la_revelacion_queda_auditada_sin_el_valor(client, db, engine, proxmox, entorno, auth_catedra, auth_admin, catedra):
+    from app.models.evento_seguridad import EventoSeguridad
+    pedido, sid = await _desplegado(client, db, engine, proxmox, auth_catedra, auth_admin, catedra, RunnerSsh())
+    servicio = await db.get(Servicio, sid, populate_existing=True)
+    clave = _guest_password(servicio)
+    assert (await client.post(f'/servicios/{sid}/acceso/revelar', headers=auth_catedra, json={})).status_code == 200
+    eventos = (await db.scalars(select(EventoSeguridad).where(EventoSeguridad.accion == 'revelar_acceso_servicio',
+        EventoSeguridad.referencia == f'servicio:{sid}'))).all()
+    assert len(eventos) == 1 and eventos[0].resultado == 'completado'
+    assert clave not in repr(eventos[0].__dict__)
+
+
+async def test_una_catedra_ajena_no_puede_revelar_el_acceso(client, db, engine, proxmox, entorno,
+        auth_catedra, auth_admin, catedra, usuario_catedra):
+    from app.models.catedra import Catedra
+    from app.models.usuario import RolUsuario
+    from tests import factories
+    from tests.auth_helpers import headers_para
+    pedido, sid = await _desplegado(client, db, engine, proxmox, auth_catedra, auth_admin, catedra, RunnerSsh())
+    otro = await factories.crear_usuario(db, username='ajeno21', rol=RolUsuario.CATEDRA_ADMIN)
+    await factories.crear_catedra(db, nombre='Otra cátedra 21', titular_id=otro.id)
+    respuesta = await client.post(f'/servicios/{sid}/acceso/revelar', headers=await headers_para(db, otro), json={})
+    assert respuesta.status_code in {403, 404}
+    assert 'password' not in respuesta.text

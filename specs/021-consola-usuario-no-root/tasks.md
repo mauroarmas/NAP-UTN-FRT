@@ -53,7 +53,7 @@
 - [x] T017 [P] [US2] Acción «Actualizar acceso de consola» para administración en `frontend/src/components/AccesoServicio.jsx` (visible si `consola_usuario` es `root` en un Linux IaaS), con aviso de que la persona debe volver a revelar el acceso, y prueba en `frontend/tests/acceso-consola-021.test.jsx`
 - [x] T018 [P] [US2] Comando `actualizar-consola --servicio N --clave K` en `docs/infraestructura-laboratorio/scripts/portal/portal_ops.py` (misma lógica que el endpoint, para operar el laboratorio sin navegador)
 - [x] T019 [US2] Ejecutar las suites de T010 más las de T013; en verde
-- [ ] T020 [LAB] [US2] Actualizar el #42 (con un archivo de prueba dentro): comprobar que el archivo, la clave SSH y la dirección siguen iguales, que `nap` entra por consola con la contraseña nueva, que `root` quedó bloqueado, y repetir la actualización 3 veces sin que cambie la contraseña de `nap` (SC-003, SC-004)
+- [x] T020 [LAB] [US2] Actualizar el #42 (con un archivo de prueba dentro): comprobar que el archivo, la clave SSH y la dirección siguen iguales, que `nap` entra por consola con la contraseña nueva, que `root` quedó bloqueado, y repetir la actualización 3 veces sin que cambie la contraseña de `nap` (SC-003, SC-004)
 
 ## Phase 5: User Story 3 - Secretos sólo en «Revelar acceso inicial» (P2)
 
@@ -61,9 +61,9 @@
 
 **Independent Test**: provocar fallos en despliegue y actualización y buscar el valor en respuestas, registros y auditoría.
 
-- [ ] T021 [P] [US3] Pruebas de higiene en `backend/tests/test_acceso_consola_021.py` e `infra/runner/tests/test_iaas_access.py`: forzar fallos y excepciones del runner y del portal y comprobar que la contraseña (y su hash) no aparece en respuestas, `caplog`, historial ni eventos de seguridad; la revelación queda auditada sin valor; una cátedra ajena sigue rechazada (FR-009, FR-010)
-- [ ] T022 [US3] Corregir cualquier fuga que T021 detecte en `backend/app/services/*` o `infra/runner/iaas_access.py`
-- [ ] T023 [LAB] [US3] Tras los ensayos reales, buscar la contraseña en los registros del portal (`docker logs api`/`worker`), del runner y del nodo (journal) y en la base (historial y eventos); sin coincidencias (SC-005)
+- [x] T021 [P] [US3] Pruebas de higiene en `backend/tests/test_acceso_consola_021.py` e `infra/runner/tests/test_iaas_access.py`: forzar fallos y excepciones del runner y del portal y comprobar que la contraseña (y su hash) no aparece en respuestas, `caplog`, historial ni eventos de seguridad; la revelación queda auditada sin valor; una cátedra ajena sigue rechazada (FR-009, FR-010)
+- [x] T022 [US3] Corregir cualquier fuga que T021 detecte en `backend/app/services/*` o `infra/runner/iaas_access.py`
+- [x] T023 [LAB] [US3] Tras los ensayos reales, buscar la contraseña en los registros del portal (`docker logs api`/`worker`), del runner y del nodo (journal) y en la base (historial y eventos); sin coincidencias (SC-005)
 
 ## Phase 6: Polish & cross-cutting
 
