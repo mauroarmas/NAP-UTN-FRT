@@ -35,7 +35,7 @@
 - [x] T008 [US1] Agregar `consola_usuario` (`nap`|`root`) a `GET /servicios/{id}/acceso` en `backend/app/services/service_access_service.py` y `backend/app/schemas/servicio.py` (contracts/api-acceso-consola.md)
 - [x] T009 [P] [US1] En `frontend/src/components/AccesoServicio.jsx`, la indicación dentro de la consola nombra al usuario según `consola_usuario` (sin mencionar `root` cuando es `nap`) y prueba en `frontend/tests/acceso-consola-021.test.jsx` (FR-011)
 - [x] T010 [US1] Ejecutar `pytest infra/runner/tests backend/tests/test_acceso_consola_021.py backend/tests/test_acceso_ssh.py backend/tests/test_iaas_access_protocol.py backend/tests/test_iaas_access_client.py backend/tests/test_regresion_servicios_011.py` y el vitest de T009; todo en verde antes de tocar los nodos
-- [x] T011 [LAB] [US1] (frt hecho; **pve91 pendiente**: el instalador se niega por un job `ejecutando` residual del gate interrumpido de las 13:54, que no se edita a mano) Reinstalar el paquete de nodo en frt y pve91 (`git archive HEAD` + `install.py --source-root` + `infra/runner/install.sh`), confirmar que el `policy_digest` y los perfiles Docker siguen vigentes (T001), y recrear api/worker del portal
+- [x] T011 [LAB] [US1] (frt y pve91 hechos; en pve91 el instalador se negó por un job `ejecutando` residual del gate interrumpido de las 13:54: sin vía soportada para liberarlo, se cerró a mano con respaldo previo y por la API de estado del motor, con autorización de Ivan) Reinstalar el paquete de nodo en frt y pve91 (`git archive HEAD` + `install.py --source-root` + `infra/runner/install.sh`), confirmar que el `policy_digest` y los perfiles Docker siguen vigentes (T001), y recrear api/worker del portal
 - [x] T012 [LAB] [US1] (en frt, servicio #47; verificación de login real con `scripts/consola/verificar-login-consola.py`) Desplegar un Linux nuevo y comprobar de punta a punta: «Revelar acceso inicial» muestra `nap`; inicio de sesión real por la consola como `nap` (verificado con una identidad de ensayo por el protocolo de consola y con confirmación en navegador); `sudo` funciona; `root` rechazado; SSH por contraseña rechazado y por clave entra; la acción privilegiada queda a nombre de `nap` en el registro
 
 **Checkpoint**: servicios nuevos usan `nap`; nodos y portal en la versión nueva.
@@ -68,9 +68,9 @@
 ## Phase 6: Polish & cross-cutting
 
 - [x] T024 [P] Actualizar `docs/runbook-consola-nativa.md` (se entra como `nap`, `root` bloqueado), `docs/infraestructura-laboratorio/scripts/consola/README.md` si corresponde, y anotar la actualización de servicios existentes y el orden nodos→portal
-- [ ] T025 Ejecutar las suites completas (`pytest backend/tests infra/runner/tests` en segundo plano; `vitest` en una copia del frontend en el scratchpad); sin regresiones
+- [x] T025 Ejecutar las suites completas (`pytest backend/tests infra/runner/tests` en segundo plano; `vitest` en una copia del frontend en el scratchpad); sin regresiones
 - [x] T026 [LAB] Limpiar: dar de baja los servicios de prueba creados, dejar el #42 en su estado previo (detenido), cuenta semilla inactiva, identidades y contenedores temporales borrados
-- [ ] T027 Actualizar este `tasks.md`, `spec.md` (Status) y la memoria del proyecto; abrir el PR a `dev` (sin co-autor en los commits; el PR sólo con tu OK)
+- [x] T027 Actualizar este `tasks.md`, `spec.md` (Status) y la memoria del proyecto; abrir el PR a `dev` (sin co-autor en los commits; el PR sólo con tu OK)
 
 ## Dependencies & Execution Order
 

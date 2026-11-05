@@ -106,7 +106,7 @@ Recrear api y worker. Cambiar el clúster, la versión, la evidencia o una revis
 2. Dentro de la consola entra como **`nap`** con la contraseña de «Revelar acceso inicial» y usa `sudo` para lo privilegiado (queda registrado a nombre de `nap`). `root` no tiene contraseña utilizable y SSH sigue sin aceptar contraseñas. `scripts/consola/verificar-login-consola.py` lo comprueba por el protocolo de consola: `nap` con su contraseña entra; `root` y contraseñas incorrectas son rechazados.
 3. Repetir con un contenedor de **cada** nodo; con una cuenta de **otra** cátedra (debe rechazarse), con una persona sin identidad (mensaje claro) y tras cambiar una revisión (se cierra).
 
-Errores frecuentes: `401 no ticket` → falta iniciar sesión en ese nodo; `403` al abrir → el rol no tiene `VM.Audit` o falta la ACL del pool; consola «no habilitada» → falta
+Errores frecuentes: la **primera apertura** de la consola tras iniciar un contenedor puede cortarse una vez (Proxmox cierra la conexión) y la siguiente funciona; reintentar; `401 no ticket` → falta iniciar sesión en ese nodo; `403` al abrir → el rol no tiene `VM.Audit` o falta la ACL del pool; consola «no habilitada» → falta
 el perfil, el nodo no figura en `nodos` o una revisión cambió.
 
 ## 8. Retirar a una persona

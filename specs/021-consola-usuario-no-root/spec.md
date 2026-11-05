@@ -4,7 +4,7 @@
 
 **Created**: 2026-11-04
 
-**Status**: Implementada y verificada en el laboratorio (frt). Pendiente: instalar el paquete en pve91 (ver tasks.md T011)
+**Status**: Implementada y verificada en el laboratorio (frt y pve91)
 
 **Input**: User description: "Usuario no root para el acceso por consola de servicios IaaS Linux. Hoy, al abrir la consola de un Linux IaaS, la persona entra al contenedor como root con la contraseña del «acceso inicial» (la que genera el portal al desplegar y aplica el bootstrap del servicio Linux a root); el usuario nap, creado por la feature 017 con sudo, tiene la contraseña bloqueada y sólo sirve por SSH con clave. Eso es inconsistente con el endurecimiento de la 017 (sin root por SSH) y obliga a usar la cuenta root directamente. Se quiere que la consola use el usuario nap: que el acceso inicial que muestra el portal sea la contraseña de nap, que root quede sin contraseña utilizable, que sshd siga sin aceptar contraseñas (la contraseña sólo sirve en la consola) y que las acciones privilegiadas pasen por sudo a nombre de nap. Debe aplicar a servicios nuevos y a los ya entregados (por la operación de reparación existente, sin crear un servicio nuevo ni perder datos), con la contraseña nunca visible en registros ni errores y entregada sólo por Revelar acceso inicial. Fuera de alcance: la compuerta de consola y las identidades de Proxmox (feature 020), terminal web propio, nuevos usuarios además de nap, cambios a servicios Docker/OCI, rotación periódica de contraseñas."
 
