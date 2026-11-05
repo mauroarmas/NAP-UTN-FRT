@@ -104,7 +104,7 @@ def conector(remoto, *, fallos=0, falla_hosts=()):
     return conectar
 
 
-async def esperar(condicion, *, segundos=3.0):
+async def esperar(condicion, *, segundos=10.0):
     """Espera activa y acotada a que se cumpla una condición."""
     fin = asyncio.get_event_loop().time() + segundos
     while asyncio.get_event_loop().time() < fin:

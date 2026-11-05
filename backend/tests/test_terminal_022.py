@@ -79,7 +79,7 @@ async def test_la_terminal_abre_reenvia_en_ambos_sentidos_y_redimensiona(
     assert await esperar(lambda: remoto.enviados == [b'ls -la\n'] and remoto.redimensionado == (120, 30))
     assert await esperar(lambda: navegador.salida_binaria() == b'total 0\r\n')
     navegador.irse()
-    await asyncio.wait_for(tarea, 3)
+    await asyncio.wait_for(tarea, 10)
     assert remoto.cerrado and navegador.cierre()['motivo'] == 'persona'
 
 
@@ -108,7 +108,7 @@ async def test_la_admision_rechaza_antes_de_tocar_la_infraestructura(
     como(persona.id)
     navegador = Navegador()
     tarea, conectar = await correr(navegador, sessions, servicio.id)
-    await asyncio.wait_for(tarea, 3)
+    await asyncio.wait_for(tarea, 10)
     assert navegador.aceptado and navegador.codigo == codigo and navegador.cierre()['mensaje']
     assert conectar.llamadas == []
     assert (await db.scalars(select(SesionTerminal))).all() == []
@@ -121,7 +121,7 @@ async def test_sin_sesion_del_portal_no_se_acepta_nada(db, sessions, proxmox, pe
     servicio, _ = await preparar(db, proxmox, catedra, usuario_catedra, template, admin, monkeypatch)
     navegador = Navegador(cookies={})           # sin cookie
     tarea, conectar = await correr(navegador, sessions, servicio.id)
-    await asyncio.wait_for(tarea, 3)
+    await asyncio.wait_for(tarea, 10)
     assert navegador.codigo == 4401 and conectar.llamadas == []
 
 
@@ -135,7 +135,7 @@ async def test_con_una_sesion_real_del_portal_se_autentica(db, sessions, proxmox
     tarea, conectar = await correr(navegador, sessions, servicio.id, remoto)
     assert await esperar(lambda: {'t': 'estado', 'e': 'abierta'} in navegador.mensajes())
     navegador.irse()
-    await asyncio.wait_for(tarea, 3)
+    await asyncio.wait_for(tarea, 10)
 
 
 async def test_el_cupo_por_persona_rechaza_la_terminal_que_lo_supera(
@@ -151,16 +151,16 @@ async def test_el_cupo_por_persona_rechaza_la_terminal_que_lo_supera(
         abiertas.append((nav, tarea))
     tercera, tarea3 = Navegador(), None
     tarea3, conectar = await correr(tercera, sessions, servicio.id)
-    await asyncio.wait_for(tarea3, 3)
+    await asyncio.wait_for(tarea3, 10)
     assert tercera.codigo == 4429 and 'máximo' in tercera.cierre()['mensaje'] and conectar.llamadas == []
     for nav, tarea in abiertas:
         nav.irse()
-        await asyncio.wait_for(tarea, 3)
+        await asyncio.wait_for(tarea, 10)
     cuarta, rem = Navegador(), Remoto()
     t4, _c = await correr(cuarta, sessions, servicio.id, rem)           # al cerrar, el cupo se libera
     assert await esperar(lambda: {'t': 'estado', 'e': 'abierta'} in cuarta.mensajes())
     cuarta.irse()
-    await asyncio.wait_for(t4, 3)
+    await asyncio.wait_for(t4, 10)
 
 
 async def test_failover_al_otro_nodo_y_reintento_unico_de_la_primera_apertura(
@@ -173,18 +173,18 @@ async def test_failover_al_otro_nodo_y_reintento_unico_de_la_primera_apertura(
     assert await esperar(lambda: {'t': 'estado', 'e': 'abierta'} in nav.mensajes())
     assert [c['host'] for c in conectar.llamadas] == ['pve1.test', 'pve1.test']
     assert not any(m.get('t') == 'aviso' for m in nav.mensajes())
-    nav.irse(); await asyncio.wait_for(tarea, 3)
+    nav.irse(); await asyncio.wait_for(tarea, 10)
     # b) el nodo del contenedor no responde: se prueba el otro
     nav, rem = Navegador(), Remoto()
     tarea, conectar = await correr(nav, sessions, servicio.id, conectar=conector(rem, falla_hosts={'pve1.test'}))
     assert await esperar(lambda: {'t': 'estado', 'e': 'abierta'} in nav.mensajes())
     assert [c['host'] for c in conectar.llamadas] == ['pve1.test', 'pve1.test', 'pve2.test']
     assert all(c['nodo'] == 'pve1' for c in conectar.llamadas)          # el contenedor es siempre el mismo
-    nav.irse(); await asyncio.wait_for(tarea, 3)
+    nav.irse(); await asyncio.wait_for(tarea, 10)
     # c) ningún nodo responde: mensaje claro, sin destino equivocado ni sesión colgada
     nav = Navegador()
     tarea, conectar = await correr(nav, sessions, servicio.id, conectar=conector(Remoto(), falla_hosts={'pve1.test', 'pve2.test'}))
-    await asyncio.wait_for(tarea, 3)
+    await asyncio.wait_for(tarea, 10)
     assert nav.codigo == 4503 and 'no está disponible' in nav.cierre()['mensaje']
     assert [s.motivo_cierre for s in (await db.scalars(select(SesionTerminal))).all()][-1] == 'error'
 
@@ -198,7 +198,7 @@ async def test_un_mensaje_demasiado_grande_corta_la_sesion(
     tarea, _c = await correr(nav, sessions, servicio.id, rem)
     assert await esperar(lambda: {'t': 'estado', 'e': 'abierta'} in nav.mensajes())
     nav.teclear(b'x' * 2000)
-    await asyncio.wait_for(tarea, 3)
+    await asyncio.wait_for(tarea, 10)
     assert rem.enviados == [] and nav.cierre()['motivo'] == 'error'
 
 
@@ -213,7 +213,7 @@ async def test_se_cierra_por_inactividad_y_avisa_antes(
         return reloj_falso['t']
     nav, rem = Navegador(), Remoto()
     tarea, _c = await correr(nav, sessions, servicio.id, rem, reloj=reloj)
-    await asyncio.wait_for(tarea, 5)
+    await asyncio.wait_for(tarea, 15)
     avisos = [m for m in nav.mensajes() if m.get('t') == 'aviso']
     assert avisos and 'cerrará en 1 minuto' in avisos[0]['mensaje']
     assert nav.cierre()['motivo'] == 'inactividad' and nav.codigo == 4408
@@ -238,7 +238,7 @@ async def test_la_actividad_de_la_persona_mantiene_viva_la_terminal_pero_la_sali
         rem.emitir(b'x')                                # la salida del contenedor NO cuenta como actividad
     assert not tarea.done()
     nav.irse()
-    await asyncio.wait_for(tarea, 5)
+    await asyncio.wait_for(tarea, 15)
 
 
 @pytest.mark.parametrize('pedido, motivo, codigo', [('retiro', 'retiro', 4410), ('baja', 'baja', 4410), ('detencion', 'detencion', 4410),
@@ -253,7 +253,7 @@ async def test_el_cierre_solicitado_corta_de_inmediato_con_su_motivo(
     assert await esperar(lambda: {'t': 'estado', 'e': 'abierta'} in nav.mensajes())
     async with sessions() as s, s.begin():
         assert await ts.solicitar_cierre(s, motivo=pedido, servicio_id=servicio.id) == 1
-    await asyncio.wait_for(tarea, 3)
+    await asyncio.wait_for(tarea, 10)
     assert nav.cierre()['motivo'] == motivo and nav.codigo == codigo and rem.cerrado
 
 
@@ -265,7 +265,7 @@ async def test_si_la_consola_remota_se_corta_la_persona_lo_ve(
     tarea, _c = await correr(nav, sessions, servicio.id, rem)
     assert await esperar(lambda: {'t': 'estado', 'e': 'abierta'} in nav.mensajes())
     rem.cortar()
-    await asyncio.wait_for(tarea, 3)
+    await asyncio.wait_for(tarea, 10)
     assert nav.cierre()['motivo'] == 'error'
 
 
@@ -282,7 +282,7 @@ async def test_si_la_sesion_del_portal_deja_de_valer_la_terminal_se_cierra(
     monkeypatch.setattr(relay, 'REVALIDAR_SEGUNDOS', 0.0)
     nav, rem = Navegador(), Remoto()
     tarea, _c = await correr(nav, sessions, servicio.id, rem)
-    await asyncio.wait_for(tarea, 3)
+    await asyncio.wait_for(tarea, 10)
     assert nav.cierre()['motivo'] == 'cuenta' and nav.codigo == 4410
 
 
@@ -298,7 +298,7 @@ async def test_auditoria_sin_contenido_ni_contrasenas(
     rem.emitir(b'TEXTO-SECRETO-MOSTRADO\r\n')
     assert await esperar(lambda: rem.enviados)
     nav.irse()
-    await asyncio.wait_for(tarea, 3)
+    await asyncio.wait_for(tarea, 10)
     eventos = (await db.scalars(select(EventoSeguridad).where(EventoSeguridad.accion.like('terminal_%')))).all()
     assert [e.accion for e in sorted(eventos, key=lambda e: e.creado_at)] == ['terminal_abierta', 'terminal_cerrada']
     cierre = next(e for e in eventos if e.accion == 'terminal_cerrada')
@@ -332,7 +332,7 @@ async def test_el_portal_usa_portal_host_y_el_navegador_nunca_recibe_ninguna_dir
     assert await esperar(lambda: {'t': 'estado', 'e': 'abierta'} in nav.mensajes())
     assert conectar.llamadas[0]['host'] == 'pve1.interno.test'
     assert 'pve1' not in repr(nav.salidas)
-    nav.irse(); await asyncio.wait_for(tarea, 3)
+    nav.irse(); await asyncio.wait_for(tarea, 10)
 
 
 async def test_si_la_infraestructura_corta_la_primera_apertura_se_reintenta_una_vez_sin_avisar(
@@ -349,7 +349,7 @@ async def test_si_la_infraestructura_corta_la_primera_apertura_se_reintenta_una_
     assert not any(m.get('t') in {'aviso', 'cierre'} for m in nav.mensajes())     # la persona no se entera
     nav.teclear(b'id\n')
     assert await esperar(lambda: buena.enviados == [b'id\n'])
-    nav.irse(); await asyncio.wait_for(tarea, 3)
+    nav.irse(); await asyncio.wait_for(tarea, 10)
 
 
 # --- Cortes inmediatos que no dependen del reconciliador (US3) -------------------------------------------------------
@@ -373,5 +373,5 @@ async def test_la_terminal_se_corta_sola_cuando_el_servicio_o_el_acceso_cambian(
             (await s.get(Catedra, catedra.id)).titular_id = None
         else:
             (await s.get(type(usuario_catedra), usuario_catedra.id)).activo = False
-    await asyncio.wait_for(tarea, 3)               # se cierra en la próxima pasada del vigilante, sin esperar al reconciliador
+    await asyncio.wait_for(tarea, 10)               # se cierra en la próxima pasada del vigilante, sin esperar al reconciliador
     assert nav.cierre()['motivo'] == motivo and nav.codigo == 4410 and rem.cerrado

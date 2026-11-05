@@ -77,8 +77,8 @@
 
 ## Phase 7: Polish & cross-cutting
 
-- [ ] T031 Ejecutar las suites completas (`pytest backend/tests infra/runner/tests infra/applications/tests` en segundo plano; `vitest` en una copia del frontend) y comparar con la línea base conocida (3 fallas previas por orden de ejecución en `caplog`); sin regresiones nuevas
-- [ ] T032 [LAB] Limpiar el laboratorio: servicios y personas de prueba, identidades temporales, cuenta semilla inactiva, archivos con contraseñas destruidos
+- [x] T031 Ejecutar las suites completas (`pytest backend/tests infra/runner/tests infra/applications/tests` en segundo plano; `vitest` en una copia del frontend) y comparar con la línea base conocida (3 fallas previas por orden de ejecución en `caplog`); sin regresiones nuevas
+- [x] T032 [LAB] Limpiar el laboratorio: servicios y personas de prueba, identidades temporales, cuenta semilla inactiva, archivos con contraseñas destruidos (quedan #48 y #42 por dar de baja: requiere la clave de la persona)
 - [ ] T033 Actualizar este `tasks.md`, `spec.md` (Status) y la memoria del proyecto; abrir el PR a `master` (sin co-autor en los commits; el PR sólo con el OK de Ivan)
 
 ## Dependencies & Execution Order
