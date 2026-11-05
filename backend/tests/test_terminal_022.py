@@ -319,3 +319,16 @@ def test_un_origen_no_permitido_se_rechaza_antes_de_aceptar_el_websocket():
             with cliente.websocket_connect('/api/v1/servicios/1/terminal', headers=cabeceras):
                 pass
         assert exc.value.code == 1008
+
+
+async def test_el_portal_usa_portal_host_y_el_navegador_nunca_recibe_ninguna_direccion(
+        db, sessions, proxmox, perfil_capacidad, catedra, usuario_catedra, template, admin, monkeypatch, como):
+    servicio, _ = await preparar(db, proxmox, catedra, usuario_catedra, template, admin, monkeypatch)
+    get_settings().console_access_profile['nodos']['pve1']['portal_host'] = 'pve1.interno.test'
+    como(usuario_catedra.id)
+    nav, rem = Navegador(), Remoto()
+    tarea, conectar = await correr(nav, sessions, servicio.id, rem)
+    assert await esperar(lambda: {'t': 'estado', 'e': 'abierta'} in nav.mensajes())
+    assert conectar.llamadas[0]['host'] == 'pve1.interno.test'
+    assert 'pve1' not in repr(nav.salidas)
+    nav.irse(); await asyncio.wait_for(tarea, 3)

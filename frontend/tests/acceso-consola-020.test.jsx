@@ -17,7 +17,8 @@ beforeEach(() => {
 });
 
 async function consultar() {
-  render(<AccesoServicio servicio={{ id: 7 }} user={{ rol: 'catedra_admin' }} />);
+  render(<AccesoServicio servicio={{ id: 7 }} user={{ rol: 'admin' }} />);
+  await userEvent.click(await screen.findByText('Respaldo de administración'));      // sólo administración, plegado por omisión
   await userEvent.click(await screen.findByRole('button', { name: 'Consultar consola' }));
 }
 

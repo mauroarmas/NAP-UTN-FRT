@@ -16,13 +16,14 @@ def validar_nodos(nodos):
     for name, entry in nodos.items():
         if not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9._-]{1,64}', name):
             raise ValueError('nodos')
-        if not isinstance(entry, dict) or set(entry) - {'host', 'port'} or 'host' not in entry:
+        if not isinstance(entry, dict) or set(entry) - {'host', 'port', 'portal_host'} or 'host' not in entry:
             raise ValueError('nodos')
         host, port = entry['host'], entry.get('port', 8006)
-        if not isinstance(host, str) or not _HOST.fullmatch(host):
-            raise ValueError('nodos')
-        if _IPV4.fullmatch(host) and any(int(part) > 255 for part in host.split('.')):
-            raise ValueError('nodos')
+        for direccion in (host, entry.get('portal_host', host)):
+            if not isinstance(direccion, str) or not _HOST.fullmatch(direccion):
+                raise ValueError('nodos')
+            if _IPV4.fullmatch(direccion) and any(int(part) > 255 for part in direccion.split('.')):
+                raise ValueError('nodos')
         if type(port) is not int or not 1 <= port <= 65535:
             raise ValueError('nodos')
     return nodos

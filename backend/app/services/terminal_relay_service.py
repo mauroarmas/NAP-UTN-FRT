@@ -128,7 +128,9 @@ async def abrir_consola_remota(host, puerto, nodo_ct, vmid, identidad, password,
 def _candidatos(profile, nodo_ct):
     nodos = profile.get('nodos') or {}
     orden = [nodo_ct] + sorted(n for n in nodos if n != nodo_ct)
-    return [(nodos[n]['host'], nodos[n].get('port', 8006)) for n in orden if n in nodos]
+    # `portal_host` (opcional): la dirección con la que el PORTAL alcanza el nodo (y con la que su certificado se verifica);
+    # `host` es la del navegador (sólo el respaldo de administración).
+    return [(nodos[n].get('portal_host', nodos[n]['host']), nodos[n].get('port', 8006)) for n in orden if n in nodos]
 
 
 async def conectar_con_reintento(profile, nodo_ct, vmid, identidad, password, *, conectar=abrir_consola_remota):
