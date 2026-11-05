@@ -28,6 +28,7 @@ class Nodo:
         self.pool = pool
         self.marker = marker or {'resource_uuid': RESOURCE, 'pool': 'catedra-3', 'nonce_sha256': hashlib.sha256(NONCE.encode()).hexdigest()}
         self.fail_on = None
+        self.shadow = {'nap': '*', 'root': '$6$sal$hashviejo'}   # lo que hay en /etc/shadow del invitado
         self.salida_ip = b'2: eth0    inet 192.168.100.18/24 metric 1024 brd 192.168.100.255 scope global dynamic eth0\n       valid_lft 3000sec\n'
 
     def __call__(self, argv, *, input=None, timeout=30, accepted_codes=(0,)):
@@ -46,8 +47,20 @@ class Nodo:
             return self.salida_ip
         if inner[:2] == ['/bin/sh', '-c'] and inner[3] == 'nap-test':
             return b'si\n' if inner[4] in self.installed else b''
+        if inner[:2] == ['/bin/sh', '-c'] and inner[3] == 'nap-comparar':
+            return b'si\n' if self.shadow.get(inner[4]) == '$6$sal$' + input.rstrip(b'\0').decode() else b'no\n'
         if inner[:2] == ['/bin/sh', '-c']:
             self.files[inner[4]] = input.decode()
+            return b''
+        if inner[0] == '/usr/bin/getent' and inner[1] == 'shadow':
+            h = self.shadow.get(inner[2])
+            return (inner[2] + ':' + h + ':20000:0:99999:7:::\n').encode() if h is not None else b''
+        if inner[0] == '/usr/sbin/chpasswd':
+            usuario, clave = input.decode().rstrip('\n').split(':', 1)
+            self.shadow[usuario] = '$6$sal$' + clave
+            return b''
+        if inner[0] == '/usr/sbin/usermod' and inner[1] == '-p':
+            self.shadow[inner[3]] = inner[2]
             return b''
         if inner[0] == '/usr/bin/getent':
             return b'nap:*:1000:1000::/home/nap:/bin/bash\n' if self.user else b''
@@ -65,11 +78,13 @@ class Nodo:
         return b''
 
 
-def pedido(accion='configure', clave=None, huella=None):
+def pedido(accion='configure', clave=None, huella=None, password=None):
     valor = {'protocol': 'nap-iaas-access/1', 'operation_id': str(uuid4()), 'action': accion, 'cluster_uuid': str(uuid4()),
         'resource_uuid': RESOURCE, 'node': 'pve91', 'vmid': VMID, 'pool': 'catedra-3', 'nonce': NONCE, 'revision': 2, 'usuario': 'nap'}
     if accion == 'configure':
         valor['clave_publica'] = clave
+        if password is not None:
+            valor['password_consola'] = password
     else:
         valor['huella'] = huella
     return json.dumps(valor).encode()
@@ -187,3 +202,87 @@ def test_sin_una_ipv4_valida_no_inventa_direccion(salida):
     nodo.salida_ip = salida
     respuesta = handle_iaas_access_request(pedido(clave=clave), executor=ejecutor(nodo))
     assert respuesta['status'] == 'succeeded' and 'direccion' not in respuesta['result']
+
+
+# --- Contraseña de consola para `nap` y `root` sin contraseña (feature 021) -------------------------------------
+
+PASSWORD = 'Xk3_' + 'a1B2c3D4' * 4          # 36 caracteres válidos
+
+
+def _configurar(nodo, password=PASSWORD, clave=None):
+    return handle_iaas_access_request(pedido(clave=clave or nueva_clave(), password=password), executor=ejecutor(nodo))
+
+
+def test_configure_con_password_fija_la_contrasena_de_nap_y_bloquea_root():
+    nodo = Nodo()
+    respuesta = _configurar(nodo)
+    assert respuesta['status'] == 'succeeded' and respuesta['result']['consola'] == 'aplicada'
+    assert nodo.shadow['nap'] == '$6$sal$' + PASSWORD
+    assert nodo.shadow['root'] == '*'
+
+
+def test_la_contrasena_viaja_solo_por_stdin_y_nunca_aparece_en_argv():
+    nodo = Nodo()
+    _configurar(nodo)
+    assert not any(PASSWORD in parte for argv, _ in nodo.calls for parte in argv)
+    assert any(entrada and PASSWORD.encode() in entrada for _, entrada in nodo.calls)
+
+
+def test_repetir_con_la_misma_contrasena_no_cambia_nada():
+    nodo = Nodo()
+    _configurar(nodo)
+    antes = dict(nodo.shadow)
+    chpasswd = sum(1 for argv, _ in nodo.calls if argv[4:5] == ['/usr/sbin/chpasswd'])
+    segunda = _configurar(nodo)
+    assert segunda['status'] == 'succeeded' and segunda['result']['consola'] == 'sin_cambios'
+    assert nodo.shadow == antes
+    assert sum(1 for argv, _ in nodo.calls if argv[4:5] == ['/usr/sbin/chpasswd']) == chpasswd
+
+
+def test_no_pisa_la_contrasena_que_la_persona_cambio():
+    nodo = Nodo()
+    _configurar(nodo)
+    nodo.shadow['nap'] = '$6$sal$otra-que-puso-la-persona'
+    respuesta = _configurar(nodo)
+    assert respuesta['result']['consola'] == 'conservada'
+    assert nodo.shadow['nap'] == '$6$sal$otra-que-puso-la-persona'
+
+
+def test_root_con_contrasena_se_bloquea_aunque_nap_ya_la_tenga():
+    nodo = Nodo()
+    _configurar(nodo)
+    nodo.shadow['root'] = '$6$sal$volvio'
+    assert _configurar(nodo)['status'] == 'succeeded'
+    assert nodo.shadow['root'] == '*'
+
+
+def test_sin_password_el_comportamiento_de_la_017_no_cambia():
+    nodo = Nodo()
+    nodo.shadow['root'] = '$6$sal$conserva'
+    respuesta = handle_iaas_access_request(pedido(clave=nueva_clave()), executor=ejecutor(nodo))
+    assert respuesta['status'] == 'succeeded' and 'consola' not in respuesta['result']
+    assert nodo.shadow['nap'] == '*' and nodo.shadow['root'] == '$6$sal$conserva'
+
+
+def test_un_fallo_al_fijar_la_contrasena_queda_sin_confirmar_y_no_filtra_nada():
+    nodo = Nodo()
+    nodo.fail_on = '/usr/sbin/chpasswd'
+    respuesta = _configurar(nodo)
+    assert respuesta['status'] == 'unconfirmed'
+    assert PASSWORD not in json.dumps(respuesta) and PASSWORD not in repr(respuesta)
+    assert nodo.shadow['nap'] == '*'
+
+
+def test_la_respuesta_nunca_lleva_la_contrasena_ni_su_hash():
+    nodo = Nodo()
+    texto = json.dumps(_configurar(nodo))
+    assert PASSWORD not in texto and '$6$' not in texto
+
+
+def test_probe_no_toca_contrasenas():
+    nodo, clave = Nodo(), nueva_clave()
+    _configurar(nodo, clave=clave)
+    antes = dict(nodo.shadow)
+    huella = modulo.validar_clave(clave)[2]
+    respuesta = handle_iaas_access_request(pedido('probe', huella=huella), executor=ejecutor(nodo))
+    assert respuesta['status'] == 'succeeded' and nodo.shadow == antes

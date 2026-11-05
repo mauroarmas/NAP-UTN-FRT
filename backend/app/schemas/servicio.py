@@ -144,6 +144,7 @@ class AccesoServicioResponse(Contrato):
     puede_abrir_con_nap: bool = False
     verificacion_instancia: dict | None = None
     acceso_ssh: AccesoSshResponse | None = None
+    consola_usuario: Literal['nap', 'root'] | None = None
 
 
 class AccesoReveladoResponse(Contrato):

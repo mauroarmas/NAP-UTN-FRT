@@ -103,13 +103,24 @@ Recrear api y worker. Cambiar el clúster, la versión, la evidencia o una revis
 
 1. La persona abre **Ver acceso → Consultar consola**. El portal le lleva primero a **iniciar sesión en Proxmox** en el mismo nodo (dominio de la identidad) y luego a abrir la consola. Sin
    sesión previa en ese nodo, la página de consola responde «401 no ticket»; la sesión dura unas 2 horas y es por nodo.
-2. Dentro de la consola entra con el usuario del contenedor. En esta versión del servicio es `root` con el «acceso inicial» del portal; `nap` sólo entra por SSH con clave.
+2. Dentro de la consola entra como **`nap`** con la contraseña de «Revelar acceso inicial» y usa `sudo` para lo privilegiado (queda registrado a nombre de `nap`). `root` no tiene contraseña utilizable y SSH sigue sin aceptar contraseñas. `scripts/consola/verificar-login-consola.py` lo comprueba por el protocolo de consola: `nap` con su contraseña entra; `root` y contraseñas incorrectas son rechazados.
 3. Repetir con un contenedor de **cada** nodo; con una cuenta de **otra** cátedra (debe rechazarse), con una persona sin identidad (mensaje claro) y tras cambiar una revisión (se cierra).
 
-Errores frecuentes: `401 no ticket` → falta iniciar sesión en ese nodo; `403` al abrir → el rol no tiene `VM.Audit` o falta la ACL del pool; consola «no habilitada» → falta
+Errores frecuentes: la **primera apertura** de la consola tras iniciar un contenedor puede cortarse una vez (Proxmox cierra la conexión) y la siguiente funciona; reintentar; `401 no ticket` → falta iniciar sesión en ese nodo; `403` al abrir → el rol no tiene `VM.Audit` o falta la ACL del pool; consola «no habilitada» → falta
 el perfil, el nodo no figura en `nodos` o una revisión cambió.
 
 ## 8. Retirar a una persona
 
 Iniciar el trámite de retiro desde el portal (bloquea primero), aplicar `retirar-acceso.sh` (`acl`, `identidad` si ya no le queda ningún pool, y `sesiones` en **cada** nodo para cada
 contenedor afectado), probar que una consola abierta y un ticket guardado quedan inutilizados, registrar la evidencia y confirmar el trámite. Si falla, registrar el motivo: el trámite queda abierto y no se transfiere nada.
+
+## 9. Servicios entregados antes de que la consola usara `nap`
+
+Un Linux entregado antes de este cambio entra por consola como `root` con su contraseña anterior. Para pasarlo al modelo nuevo **sin darlo de baja** (conserva disco, datos, clave SSH y dirección):
+
+1. **Orden de instalación**: primero el paquete de nodo en **todos** los nodos y después el portal. Un nodo sin actualizar rechaza el pedido con `INVALID_REQUEST`.
+2. En el servicio encendido, administración usa **Actualizar acceso de consola** en «Ver acceso» (o `POST /servicios/{id}/acceso-consola`). El portal genera una contraseña **nueva** para `nap`, la guarda cifrada antes de enviarla y, con la confirmación del nodo, la convierte en el acceso inicial; `root` queda sin contraseña.
+3. La persona debe **volver a revelar** el acceso inicial: la contraseña anterior de `root` deja de servir.
+4. Repetir la acción no cambia nada. Un resultado incierto se reintenta con la misma contraseña.
+5. Un servicio sin clave SSH registrada (anterior a la feature de acceso SSH) responde `409 sin_clave`: la persona debe agregar su clave primero.
+6. Si la persona cambió su propia contraseña de `nap` dentro del servicio, el portal no la pisa: lo que muestra es el acceso *inicial* y puede no coincidir.

@@ -230,7 +230,8 @@ async def _dispatch(sessions, lease, action, *, pve, after_dispatch):
             if not encrypted:
                 encrypted = keyring.encrypt({'guest_password': secrets.token_urlsafe(32)}, context=f'operacion:{op.id}:iaas')
                 op.contexto_seguro = {**op.contexto_seguro, 'credenciales_iaas': encrypted}
-            config['password'] = keyring.decrypt(encrypted, context=f'operacion:{op.id}:iaas')['guest_password']
+            # Desde la feature 021 el contenedor se crea SIN contraseña de root: el `guest_password` guardado es la
+            # contraseña de `nap` para la consola y la aplica el runner en `configure`.
         deadline = time.monotonic() + max(0, (db_utc(op.lease_until) - clock.now()).total_seconds())
         await _cas(db, lease, fase='dispatch_started', dispatch_started_at=clock.now(), upid=None,
             deadline_at=clock.now() + timedelta(seconds=180 if action == 'crear' else 60),
@@ -553,11 +554,13 @@ async def procesar_lease(sessions, lease, *, pve=None, runner=None, after_dispat
                     except iaas_acceso_service.AccesoSshRechazado as exc:
                         await _finish_failure(sessions, lease, exc.codigo)
                         return
+                    consola = ssh.pop('consola', None) if ssh else None
                     # Una operación de reparación no trae la reserva de red: se conserva la dirección ya conocida.
                     addresses = [allocation['address']] if allocation.get('address') else list((service.acceso_metadata or {}).get('addresses', []))
                     preparation = {'identity_verified': True, 'local_health': True, 'acceso_metadata': {
                         'preparacion_id': str(op.id), 'local_health': True, 'producto': 'linux',
-                        'origen': 'proxmox_iaas', 'metodo': 'consola', 'username': 'root',
+                        'origen': 'proxmox_iaas', 'metodo': 'consola', 'username': 'nap' if consola else 'root',
+                        **({'consola': {'usuario': 'nap', 'aplicado_at': clock.now().isoformat()}} if consola else {}),
                         'endpoint': f'/servicios/{service.id}/consola', 'addresses': addresses,
                         'nonce_sha256': hashlib.sha256(nonce.encode()).hexdigest(), **({'ssh': ssh} if ssh else {})}}
                 else:

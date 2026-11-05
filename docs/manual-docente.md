@@ -35,7 +35,7 @@ Consultá el avance desde **Pedidos**:
 
 En **Servicios** (`/servicios`) aparecen los recursos activos de tus cátedras:
 - **Acceso web seguro a aplicaciones**: Pulsá **«Ver acceso»** y luego **«Abrir aplicación»**. El sistema abre la herramienta mediante el gateway HTTPS protegido de NAP vinculado a tu sesión académica, sin exponer contraseñas en el navegador ni requerir complementos.
-- **Acceso a infraestructura Linux (IaaS)**: En servicios Ubuntu o Debian, usá **«Ver acceso»** para revelar de forma segura las credenciales SSH (`root`) generadas por el sistema o consultar el enlace directo a la consola interactiva.
+- **Acceso a infraestructura Linux (IaaS)**: En servicios Ubuntu o Debian, usá **«Ver acceso»** para conectarte por SSH con tu clave (`ssh nap@…`), para revelar la contraseña inicial del usuario **`nap`** (sirve sólo en la consola, nunca por SSH) o para abrir la consola interactiva. Dentro del servicio trabajás como `nap` y usás `sudo` para las tareas de administración; `root` no tiene contraseña.
 - **Ciclo de vida**: Podés iniciar, detener o reiniciar tus servicios según la actividad del curso. El reinicio o detención conserva intactos todos los datos guardados en los volúmenes del contenedor.
 
 | Servicio | Acceso y uso |

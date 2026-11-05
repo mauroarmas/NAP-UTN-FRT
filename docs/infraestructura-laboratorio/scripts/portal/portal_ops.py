@@ -64,6 +64,9 @@ def build_parser():
     r.add_argument('--pedido', type=int, required=True); r.add_argument('--clave', required=True)
     r.add_argument('--motivo', default='Reparación operada desde el laboratorio')
 
+    ac = sub.add_parser('actualizar-consola', help='Pasa un Linux IaaS ya entregado a que la consola use nap con contraseña nueva (administración)')
+    ac.add_argument('--servicio', type=int, required=True); ac.add_argument('--clave', required=True)
+
     rv = sub.add_parser('revelar', help='Revela el acceso inicial como lo haría la cátedra; lo guarda en un archivo 0600')
     rv.add_argument('--servicio', type=int, required=True); rv.add_argument('--usuario', required=True)
     rv.add_argument('--salida', required=True, help='archivo JSON (modo 0600); la contraseña nunca se imprime')
@@ -209,6 +212,16 @@ async def _reparar(a):
         print(r.status_code, r.resultado.get('estado'), r.resultado.get('operation_id'))
 
 
+async def _actualizar_consola(a):
+    from app.database import AsyncSessionLocal
+    from app.services import iaas_acceso_service
+    async with AsyncSessionLocal() as db:
+        admin = await _usuario(db, admin_email())
+        r = await iaas_acceso_service.actualizar_acceso_consola(db, actor=admin, servicio_id=a.servicio, idempotency_key=a.clave)
+        await db.commit()
+    print('actualizar-consola', r.status_code, json.dumps({k: v for k, v in r.resultado.items() if k != 'mensaje'}))
+
+
 async def _revelar(a):
     from fastapi import HTTPException
     from app.database import AsyncSessionLocal
@@ -278,7 +291,7 @@ async def _catedra_sintetica(a):
 
 
 COMANDOS = {'cuenta': _cuenta, 'oferta': _oferta, 'pedido': _pedido, 'orden': _orden, 'reparar': _reparar,
-            'revelar': _revelar, 'capacidad': _capacidad, 'catedra-sintetica': _catedra_sintetica}
+            'actualizar-consola': _actualizar_consola, 'revelar': _revelar, 'capacidad': _capacidad, 'catedra-sintetica': _catedra_sintetica}
 
 if __name__ == '__main__':
     args = build_parser().parse_args()

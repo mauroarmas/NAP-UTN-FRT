@@ -36,6 +36,9 @@ SSHD_CONTENIDO = ('# Gestionado por NAP; no editar.\nPasswordAuthentication no\n
 ESCRIBIR = 'set -e; umask 077; cat > "$1.nap-new"; chmod "$2" "$1.nap-new"; chown "$3" "$1.nap-new"; mv "$1.nap-new" "$1"'
 DIRECCION = 'ip -4 -o addr show dev eth0 scope global'
 BANNER = 'exec 3<>/dev/tcp/127.0.0.1/22 && IFS= read -r -t 5 linea <&3 && printf "%s" "${linea:0:8}"'
+# Compara la contraseña recibida con la de la cuenta sin sacar el hash del contenedor: unix_chkpwd lee la contraseña
+# (terminada en NUL) por stdin. Código constante; el valor nunca llega a la línea de comandos.
+COMPARAR = '/usr/sbin/unix_chkpwd "$1" nullok >/dev/null 2>&1 && echo si || echo no'
 SIN_EFECTO = {'IDENTITY_MISMATCH', 'GUEST_NOT_RUNNING', 'SSHD_UNAVAILABLE', 'SUDO_UNAVAILABLE', 'INVALID_REQUEST'}
 
 
@@ -87,6 +90,40 @@ class IaasAccessExecutor:
     def _present(self, request, path):
         return bool(self._exec(request, ['/bin/sh', '-c', 'test -x "$1" && echo si', 'nap-test', path], accepted=(0, 1)).strip())
 
+    def _hash(self, request, usuario):
+        """Campo de contraseña de /etc/shadow; sólo se compara en memoria, nunca se registra ni se devuelve."""
+        fila = self._exec(request, ['/usr/bin/getent', 'shadow', usuario], accepted=(0, 2)).decode(errors='replace').strip()
+        partes = fila.split(':')
+        return partes[1] if len(partes) > 1 else None
+
+    @staticmethod
+    def _bloqueado(valor):
+        return valor is None or valor == '' or valor[0] in '*!'
+
+    def _coincide(self, request, password):
+        salida = self._exec(request, ['/bin/sh', '-c', COMPARAR, 'nap-comparar', USUARIO], input=password.encode() + b'\0')
+        return salida.strip() == b'si'
+
+    def _consola(self, request, password):
+        """Contraseña de `nap` para la consola y `root` sin contraseña utilizable (feature 021). Idempotente."""
+        actual = self._hash(request, USUARIO)
+        if actual is None:
+            raise RunnerError('PROBE_FAILED')
+        if self._bloqueado(actual):
+            self.effect = True   # un fallo aquí queda sin confirmar y se reintenta con la misma contraseña
+            self._exec(request, ['/usr/sbin/chpasswd'], input=(USUARIO + ':' + password + '\n').encode())
+            estado = 'aplicada'
+        elif self._coincide(request, password):
+            estado = 'sin_cambios'
+        else:
+            estado = 'conservada'   # la persona cambió su contraseña: no se pisa
+        if not self._bloqueado(self._hash(request, 'root')):
+            self.effect = True
+            self._exec(request, ['/usr/sbin/usermod', '-p', '*', 'root'])
+        if self._bloqueado(self._hash(request, USUARIO)) or not self._bloqueado(self._hash(request, 'root')):
+            raise RunnerError('PROBE_FAILED')
+        return estado
+
     def direccion(self, request):
         """IPv4 que el contenedor tiene realmente en eth0 (puede diferir de la reservada si el DHCP no la respeta)."""
         salida = self._exec(request, ['/bin/sh', '-c', DIRECCION], accepted=(0, 1, 2)).decode(errors='replace')
@@ -109,8 +146,13 @@ class IaasAccessExecutor:
         if not self._exec(request, ['/usr/bin/getent', 'passwd', USUARIO], accepted=(0, 2)).strip():
             self.effect = True
             self._exec(request, ['/usr/sbin/useradd', '-m', '-s', '/bin/bash', USUARIO])
-        # '*' (no '!'): la cuenta no tiene contraseña válida, pero sshd no la trata como bloqueada.
-        self._exec(request, ['/usr/sbin/usermod', '-p', '*', USUARIO])
+        password = request.get('password_consola')
+        consola = None
+        if password is None:
+            # '*' (no '!'): la cuenta no tiene contraseña válida, pero sshd no la trata como bloqueada.
+            self._exec(request, ['/usr/sbin/usermod', '-p', '*', USUARIO])
+        else:
+            consola = self._consola(request, password)
         self._exec(request, ['/usr/bin/install', '-d', '-m', '700', '-o', USUARIO, '-g', USUARIO, HOME + '/.ssh'])
         self._write(request, AUTHORIZED, request['clave_publica'] + '\n', '600', USUARIO + ':' + USUARIO)
         self._write(request, SUDOERS, SUDOERS_CONTENIDO, '440', 'root:root')
@@ -119,7 +161,10 @@ class IaasAccessExecutor:
         self._exec(request, ['/usr/bin/systemctl', 'enable', 'ssh'])
         self._exec(request, ['/usr/bin/systemctl', 'restart', 'ssh'])
         self.verify(request)
-        return self.probe(request, reintentos=5)
+        resultado = self.probe(request, reintentos=5)
+        if consola is not None:
+            resultado['consola'] = consola
+        return resultado
 
     def probe(self, request, *, reintentos=1):
         if not self._running(request):

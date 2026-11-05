@@ -191,6 +191,7 @@ export const registrarEvidencia = (documento, clave = crypto.randomUUID()) => ap
 export const getAccesoServicio = (id) => api.get(`/servicios/${id}/acceso`);
 export const abrirAplicacionServicio = (id) => api.post(`/servicios/${id}/abrir-aplicacion`, {});
 export const revelarAccesoServicio = (id) => api.post(`/servicios/${id}/acceso/revelar`, {});
+export const actualizarAccesoConsola = (id, clave = crypto.randomUUID()) => api.post(`/servicios/${id}/acceso-consola`, null, ordenHeaders(clave));
 export const registrarAccesoSsh = (id, clavePublica, clave = crypto.randomUUID()) => api.put(`/servicios/${id}/acceso-ssh`, { clave_publica: clavePublica }, ordenHeaders(clave));
 export const verificarAccesoServicio = (id, data, clave = crypto.randomUUID()) => api.post(`/servicios/${id}/verificar-acceso`, data, ordenHeaders(clave));
 export const getConsolaServicio = (id) => api.get(`/servicios/${id}/consola`);

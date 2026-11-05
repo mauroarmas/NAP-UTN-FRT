@@ -85,3 +85,25 @@ def test_la_respuesta_acepta_una_direccion_ipv4_y_rechaza_cualquier_otra_cosa():
     for malo in ['no-es-ip', '999.1.1.1', 5, None, '::1', '1.2.3.4; rm -rf /']:
         with pytest.raises(RunnerError):
             parse_response(respuesta(malo), pedido)
+
+
+def test_configure_acepta_la_contrasena_de_consola_opcional():
+    sin = parse_request(_raw(_base()))
+    assert 'password_consola' not in sin
+    con = parse_request(_raw(_base(password_consola='A' * 43)))
+    assert con['password_consola'] == 'A' * 43
+
+
+@pytest.mark.parametrize('valor', ['', 'corta', 'A' * 31, 'A' * 129, 'con espacio' + 'A' * 30, 'ñ' * 40, 'a$b' + 'A' * 40,
+    None, 123, ['A' * 43], 'A' * 40 + '\n'])
+def test_rechaza_contrasenas_de_consola_invalidas(valor):
+    with pytest.raises(RunnerError) as exc:
+        parse_request(_raw(_base(password_consola=valor)))
+    assert exc.value.code == 'INVALID_REQUEST'
+
+
+def test_probe_no_acepta_la_contrasena_de_consola():
+    probe = {k: v for k, v in _base().items() if k != 'clave_publica'} | {'action': 'probe', 'huella': 'SHA256:' + 'A' * 43}
+    parse_request(_raw(probe))
+    with pytest.raises(RunnerError):
+        parse_request(_raw(probe | {'password_consola': 'A' * 43}))
