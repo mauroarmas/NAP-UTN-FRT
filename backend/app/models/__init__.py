@@ -63,3 +63,5 @@ from app.models.intento_despliegue import IntentoDespliegue
 from app.models.consola_operacion import ConsolaOperacion, ConsolaFragmento
 from app.models.reserva_red_aplicacion import ReservaRedAplicacion
 from app.models.clave_acceso_servicio import ClaveAccesoServicio
+from app.models.identidad_consola import IdentidadConsola
+from app.models.sesion_terminal import SesionTerminal
