@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { getAccesoServicio, getConsolaServicio, revelarAccesoServicio, abrirAplicacionServicio } from '../services/api';
+import { getAccesoServicio, getConsolaServicio, revelarAccesoServicio, abrirAplicacionServicio, actualizarAccesoConsola } from '../services/api';
 import { mensajeError } from '../utils/errors';
 import CambiarClaveSshModal from './CambiarClaveSshModal';
 
@@ -61,6 +61,11 @@ export default function AccesoServicio({ servicio, user }) {
     catch { setError('No se pudo copiar el comando. Podés seleccionarlo y copiarlo manualmente.'); return; }
     setNotice('Comando copiado.');
   });
+  const updateConsole = () => act(async () => {
+    await actualizarAccesoConsola(servicio.id);
+    setNotice('Estamos actualizando el acceso de consola. Cuando termine, la persona debe volver a revelar el acceso inicial: ahora se entra como nap.');
+    await refresh();
+  });
   const downloadCA = () => {
     const url = URL.createObjectURL(new Blob([revealed.credenciales.ca_pem], { type: 'application/x-pem-file' }));
     const anchor = document.createElement('a');
@@ -115,6 +120,9 @@ export default function AccesoServicio({ servicio, user }) {
             {metadata.acceso_ssh.estado === 'sin_clave' ? 'Agregar clave' : 'Cambiar clave'}</button>}
         </div>
       </section>}
+      {admin && metadata.consola_usuario === 'root' && <div className="row wrap gap-2">
+        <button className="btn btn-secondary" disabled={busy} onClick={updateConsole}>Actualizar acceso de consola</button>
+        <span className="muted">La consola pasará a usar el usuario nap con una contraseña nueva; la de root dejará de servir.</span></div>}
       {method === 'consola' && <div className="row wrap gap-2"><button className="btn btn-secondary" disabled={busy} onClick={queryConsole}>Consultar consola</button>
         {consoleURL && <ol className="stack gap-1" aria-label="Pasos para abrir la consola">
           {consoleLogin && <li>Primero iniciá sesión con tu cuenta personal de consola (dominio «Proxmox VE»):{' '}

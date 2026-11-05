@@ -119,6 +119,22 @@ async def registrar_acceso_ssh(servicio_id: int, body: AccesoSshRequest, key: st
         raise
 
 
+@router.post('/{servicio_id}/acceso-consola', status_code=202)
+async def actualizar_acceso_consola(servicio_id: int, key: str = Header(alias='Idempotency-Key'),
+    current_user: Usuario = Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    """Pasa un servicio Linux ya entregado a que la consola use `nap` con contraseña nueva (sólo administración)."""
+    from app.services import iaas_acceso_service
+    from app.utils.responses import respuesta_decision
+    try:
+        result = await iaas_acceso_service.actualizar_acceso_consola(db, actor=current_user, servicio_id=servicio_id,
+            idempotency_key=key)
+        await db.commit()
+        return respuesta_decision(result)
+    except Exception:
+        await db.rollback()
+        raise
+
+
 @router.post('/{servicio_id}/abrir-aplicacion')
 async def abrir_aplicacion(servicio_id: int, request: Request, body: RevelarAccesoRequest,
     current_user: Usuario = Depends(get_current_user), db: AsyncSession = Depends(get_db)):

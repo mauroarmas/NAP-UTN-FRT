@@ -1,6 +1,6 @@
 #!/bin/bash
 # EN LA PC DEL OPERADOR. Ejecuta portal_ops.py dentro del contenedor api del portal del laboratorio.
-# Uso: portal.sh <cuenta|oferta|pedido|orden|reparar|revelar|capacidad|catedra-sintetica> [opciones]   (ver --help)
+# Uso: portal.sh <cuenta|oferta|pedido|orden|reparar|actualizar-consola|revelar|capacidad|catedra-sintetica> [opciones]   (ver --help)
 # Variables: CONTENEDOR (por defecto nap-handoff-api-1), NAP_ADMIN_EMAIL.
 # `revelar --salida RUTA`: el archivo con las credenciales se genera dentro del contenedor, se copia a RUTA con modo 0600
 # y se borra del contenedor; la contraseña nunca pasa por la salida estándar.
