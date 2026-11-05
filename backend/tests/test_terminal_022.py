@@ -13,6 +13,7 @@ from app.models.identidad_consola import IdentidadConsola
 from app.models.servicio import EstadoServicio
 from app.models.sesion_terminal import SesionTerminal
 from app.services import terminal_relay_service as relay
+from app.utils.clock import clock
 from app.utils.secretos import configured_keyring
 from tests.capacity_helpers import materializado, perfil_capacidad  # noqa: F401
 from tests.terminal_helpers import Navegador, Remoto, conector, conector_secuencial, esperar
@@ -349,3 +350,28 @@ async def test_si_la_infraestructura_corta_la_primera_apertura_se_reintenta_una_
     nav.teclear(b'id\n')
     assert await esperar(lambda: buena.enviados == [b'id\n'])
     nav.irse(); await asyncio.wait_for(tarea, 3)
+
+
+# --- Cortes inmediatos que no dependen del reconciliador (US3) -------------------------------------------------------
+
+@pytest.mark.parametrize('cambio, motivo', [('detener', 'detencion'), ('baja', 'baja'), ('sin_catedra', 'retiro'), ('cuenta_inactiva', 'retiro')])
+async def test_la_terminal_se_corta_sola_cuando_el_servicio_o_el_acceso_cambian(
+        db, sessions, proxmox, perfil_capacidad, catedra, usuario_catedra, template, admin, monkeypatch, como, cambio, motivo):
+    from app.models.catedra import Catedra
+    from app.models.servicio import Servicio
+    servicio, _ = await preparar(db, proxmox, catedra, usuario_catedra, template, admin, monkeypatch)
+    como(usuario_catedra.id)
+    nav, rem = Navegador(), Remoto()
+    tarea, _c = await correr(nav, sessions, servicio.id, rem)
+    assert await esperar(lambda: {'t': 'estado', 'e': 'abierta'} in nav.mensajes())
+    async with sessions() as s, s.begin():
+        if cambio == 'detener':
+            (await s.get(Servicio, servicio.id)).estado = EstadoServicio.STOPPED
+        elif cambio == 'baja':
+            (await s.get(Servicio, servicio.id)).deleted_at = clock.now()
+        elif cambio == 'sin_catedra':
+            (await s.get(Catedra, catedra.id)).titular_id = None
+        else:
+            (await s.get(type(usuario_catedra), usuario_catedra.id)).activo = False
+    await asyncio.wait_for(tarea, 3)               # se cierra en la próxima pasada del vigilante, sin esperar al reconciliador
+    assert nav.cierre()['motivo'] == motivo and nav.codigo == 4410 and rem.cerrado

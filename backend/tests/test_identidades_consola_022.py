@@ -317,3 +317,19 @@ async def test_la_adopcion_registra_la_identidad_manual_anterior_sin_perderla(db
     [anterior] = usuario_catedra.inventario_consola_historial
     assert anterior['identidad_anterior'] == 'docente@pve' and anterior['por'] == usuario_catedra.identidad_consola
     assert 'docente@pve' not in str(runner.pedidos)        # el portal jamás le pide nada al nodo sobre la identidad manual
+
+
+async def test_el_retiro_pide_cerrar_las_terminales_abiertas_de_la_persona_sobre_lo_retirado(db, sessions, catedra, usuario_catedra, template):
+    from app.services import terminal_sesiones_service as ts
+    segunda = await factories.crear_catedra(db, nombre='Segunda', titular_id=usuario_catedra.id)
+    runner = RunnerConsola(pools=[f'catedra-{catedra.id}', f'catedra-{segunda.id}'])
+    s1 = await factories.crear_servicio(db, catedra.id, template.id, proxmox_vmid='101')
+    s2 = await factories.crear_servicio(db, segunda.id, template.id, proxmox_vmid='202')
+    await svc.reconciliar_usuario(sessions, usuario_catedra.id, runner=runner)
+    a = await ts.abrir(sessions, usuario_id=usuario_catedra.id, servicio_id=s1.id, nodo='pve1', limite=5)
+    b = await ts.abrir(sessions, usuario_id=usuario_catedra.id, servicio_id=s2.id, nodo='pve1', limite=5)
+    (await db.get(Catedra, segunda.id)).titular_id = None
+    await db.commit()
+    await svc.reconciliar_usuario(sessions, usuario_catedra.id, runner=runner)
+    assert (await ts.consultar(sessions, b))['motivo_solicitud'] == 'retiro'          # la de la cátedra retirada se corta
+    assert (await ts.consultar(sessions, a))['cierre_solicitado_at'] is None          # la otra sigue

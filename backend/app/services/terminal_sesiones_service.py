@@ -63,12 +63,17 @@ async def latido(sessions, sesion_id, *, ultima_entrada=None):
 
 
 async def consultar(sessions, sesion_id):
-    """(cierre_solicitado_at, motivo_solicitud, cerrada) — lo que el relay revisa cada pocos segundos."""
+    """Lo que el relay revisa cada pocos segundos: cierre pedido, y estado/pertenencia del servicio al que está atada la sesión."""
     async with sessions() as db:
-        sesion = await db.scalar(select(SesionTerminal).where(SesionTerminal.id == sesion_id).execution_options(populate_existing=True))
-        if sesion is None:
-            return None, None, True
-        return sesion.cierre_solicitado_at, sesion.motivo_solicitud, sesion.cerrada_at is not None
+        fila = (await db.execute(select(SesionTerminal, Servicio).join(Servicio, Servicio.id == SesionTerminal.servicio_id)
+            .where(SesionTerminal.id == sesion_id).execution_options(populate_existing=True))).first()
+        if fila is None:
+            return {'cerrada': True}
+        sesion, servicio = fila
+        return {'cerrada': sesion.cerrada_at is not None, 'cierre_solicitado_at': sesion.cierre_solicitado_at,
+                'motivo_solicitud': sesion.motivo_solicitud, 'servicio_estado': servicio.estado,
+                'servicio_borrado': servicio.deleted_at is not None, 'catedra_id': servicio.catedra_id,
+                'usuario_id': sesion.usuario_id}
 
 
 async def cerrar(sessions, sesion_id, motivo):

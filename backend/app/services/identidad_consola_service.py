@@ -168,6 +168,15 @@ async def _guardar(sessions, usuario_id, **cambios):
         fila.reconciliada_at = clock.now()
 
 
+async def _cortar_terminales(sessions, usuario_id, pools, motivo):
+    """Pide cerrar las terminales abiertas de la persona sobre los pools retirados (las de servicios que ya no le corresponden)."""
+    if not pools:
+        return
+    from app.services import terminal_sesiones_service
+    async with sessions() as db, db.begin():
+        await terminal_sesiones_service.solicitar_cierre(db, motivo=motivo, usuario_id=usuario_id, catedra_ids=_ids(pools))
+
+
 async def _inventario(sessions, usuario_id, identidad):
     """El inventario de consola de la 009 refleja la identidad gestionada: con ella, reducir acceso exige el trámite."""
     async with sessions() as db, db.begin():
@@ -235,6 +244,7 @@ async def reconciliar_usuario(sessions, usuario_id, *, runner=None):
             if datos['estado'] == 'retirada':
                 return 'retirada'
             await _en_algun_nodo(runner, _pedido('retire', datos))
+            await _cortar_terminales(sessions, usuario_id, quitados, 'retiro')
             await terminar_sesiones(sessions, runner, quitados)
             if (await _en_algun_nodo(runner, _pedido('probe', datos)))['existe']:
                 raise RunnerError('PROBE_FAILED')
@@ -246,6 +256,7 @@ async def reconciliar_usuario(sessions, usuario_id, *, runner=None):
             fila = await db.scalar(select(IdentidadConsola).where(IdentidadConsola.usuario_id == usuario_id))
             password = _descifrar(fila)
         resultado = await _en_algun_nodo(runner, _pedido('ensure', datos, password_consola=password, pools=deseados))
+        await _cortar_terminales(sessions, usuario_id, quitados, 'retiro')
         await terminar_sesiones(sessions, runner, quitados)
         await _guardar(sessions, usuario_id, estado='lista', pools_aplicados=sorted(resultado['pools_aplicados']),
                        ultimo_error_seguro=None)

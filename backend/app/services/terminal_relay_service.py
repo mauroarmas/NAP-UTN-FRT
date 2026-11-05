@@ -198,6 +198,16 @@ async def admitir(sessions, usuario_id, servicio_id):
 
 # -- servicio de una sesión -------------------------------------------------------------------------------------------
 
+async def _sigue_autorizado(sessions, usuario_id, catedra_id):
+    from app.models.usuario import Usuario
+    from app.services.acceso_service import catedras_visibles
+    async with sessions() as db:
+        usuario = await db.get(Usuario, usuario_id, populate_existing=True)
+        if usuario is None or not usuario.activo:
+            return False
+        return catedra_id in await catedras_visibles(db, usuario)
+
+
 async def _aviso(navegador, texto):
     await navegador.send_text(json.dumps({'t': 'aviso', 'mensaje': texto}))
 
@@ -309,11 +319,19 @@ async def _retransmitir(navegador, remoto, sessions, sesion_id, usuario_id, *, r
             except asyncio.TimeoutError:
                 pass
             ahora = reloj()
-            solicitado, motivo_pedido, cerrada = await sesiones.consultar(sessions, sesion_id)
-            if cerrada:
+            datos = await sesiones.consultar(sessions, sesion_id)
+            if datos['cerrada']:
                 return 'error'
-            if solicitado is not None:
-                return motivo_pedido or 'retiro'
+            if datos.get('cierre_solicitado_at') is not None:
+                return datos.get('motivo_solicitud') or 'retiro'
+            # Cortes inmediatos que no dependen del reconciliador: el servicio se dio de baja o se detuvo, o la persona
+            # ya no pertenece a la cátedra (o su cuenta se desactivó): en la próxima pasada (< 5 s) se cierra la terminal.
+            if datos['servicio_borrado']:
+                return 'baja'
+            if datos['servicio_estado'] != EstadoServicio.RUNNING:
+                return 'detencion'
+            if not await _sigue_autorizado(sessions, datos['usuario_id'], datos['catedra_id']):
+                return 'retiro'
             inactivo = ahora - estado['ultima_entrada']
             if inactivo >= limite_inactividad:
                 return 'inactividad'

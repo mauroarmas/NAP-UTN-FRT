@@ -46,3 +46,36 @@ async def reintentar(usuario_id: int, key: str = Header(alias='Idempotency-Key')
         raise
     return JSONResponse(status_code=202, content={'usuario_id': usuario_id, 'estado': 'reintento_solicitado'},
                         headers={'Cache-Control': 'no-store'})
+
+
+router_sesiones = APIRouter(prefix='/admin/sesiones-terminal', tags=['Sesiones de terminal'])
+
+
+@router_sesiones.get('')
+async def listar_sesiones(current_user: Usuario = Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    from app.services import terminal_sesiones_service
+    return JSONResponse(content=jsonable_encoder(await terminal_sesiones_service.abiertas(db)), headers={'Cache-Control': 'no-store'})
+
+
+@router_sesiones.post('/{sesion_id}/cerrar', status_code=202)
+async def cerrar_sesion(sesion_id: str, key: str = Header(alias='Idempotency-Key'),
+                        current_user: Usuario = Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    from uuid import UUID
+    from sqlalchemy import select as _select
+    from app.models.sesion_terminal import SesionTerminal
+    from app.utils.clock import clock
+    try:
+        identidad = UUID(sesion_id)
+    except ValueError:
+        raise error(404, 'sesion_no_encontrada', 'La terminal no existe o ya se cerró')
+    try:
+        sesion = await db.scalar(_select(SesionTerminal).where(SesionTerminal.id == identidad, SesionTerminal.cerrada_at.is_(None)).with_for_update())
+        if sesion is None:
+            raise error(404, 'sesion_no_encontrada', 'La terminal no existe o ya se cerró')
+        if sesion.cierre_solicitado_at is None:
+            sesion.cierre_solicitado_at, sesion.motivo_solicitud = clock.now(), 'administracion'
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
+    return JSONResponse(status_code=202, content={'id': sesion_id, 'estado': 'cierre_solicitado'}, headers={'Cache-Control': 'no-store'})
