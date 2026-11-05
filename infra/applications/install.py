@@ -30,6 +30,8 @@ SOURCES.update({
     '/opt/nap/runner/iaas_access.py': 'infra/runner/iaas_access.py',
     '/opt/nap/runner/iaas_protocol.py': 'backend/app/schemas/iaas_access.py',
     '/opt/nap/runner/ssh_keys.py': 'backend/app/utils/ssh_keys.py',
+    '/opt/nap/runner/console_identity.py': 'infra/runner/console_identity.py',
+    '/opt/nap/runner/console_identity_protocol.py': 'backend/app/schemas/console_identity.py',
     '/usr/local/sbin/nap-guest-runner': 'infra/runner/nap-guest-runner',
     '/etc/systemd/system/nap-isolation-restore.service': 'infra/runner/nap-isolation-restore.service',
 })

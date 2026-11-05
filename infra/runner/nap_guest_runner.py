@@ -237,6 +237,23 @@ def is_iaas_access_request(raw):
         return False
 
 
+def is_console_identity_request(raw):
+    """Despacho explícito por protocolo `nap-console-identity/1` (feature 022)."""
+    try:
+        value = parse_json(raw, limit=65536)
+        return isinstance(value, dict) and value.get('protocol') == 'nap-console-identity/1'
+    except Exception:
+        return False
+
+
+def handle_console_identity_request(raw, *, executor=None):
+    if __package__:
+        from infra.runner.console_identity import handle_console_identity_request as handle
+    else:
+        from console_identity import handle_console_identity_request as handle
+    return handle(raw, executor=executor)
+
+
 def handle_iaas_access_request(raw, *, executor=None):
     if __package__:
         from infra.runner.iaas_access import handle_iaas_access_request as handle
@@ -288,6 +305,9 @@ def main():
         return
     if is_iaas_access_request(raw):
         print(canonical(handle_iaas_access_request(raw)))
+        return
+    if is_console_identity_request(raw):
+        print(canonical(handle_console_identity_request(raw)))
         return
     try:
         registry = parse_json(trusted_file('/etc/nap/runner/registry.json'), limit=2097152)

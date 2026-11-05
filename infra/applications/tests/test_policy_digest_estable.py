@@ -8,7 +8,8 @@ from pathlib import Path
 
 from infra.applications.docker import runtime
 
-FEATURE_017 = {'iaas_access.py', 'iaas_protocol.py', 'ssh_keys.py', 'nap_guest_runner.py'}
+FEATURE_017 = {'iaas_access.py', 'iaas_protocol.py', 'ssh_keys.py', 'nap_guest_runner.py',
+               'console_identity.py', 'console_identity_protocol.py'}   # feature 022: identidades de consola
 
 
 def test_los_archivos_del_acceso_ssh_no_entran_al_policy_digest(monkeypatch):
