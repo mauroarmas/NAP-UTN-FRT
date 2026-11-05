@@ -276,3 +276,31 @@ async def test_repetir_la_pasada_no_duplica_evidencias(db, sessions, admin, cate
     await svc.ciclo(sessions, runner=runner)
     await db.rollback()
     assert len((await db.scalars(select(Evidencia))).all()) == 1
+
+
+# --- Bucle del worker -----------------------------------------------------------------------------------------------
+
+async def test_el_trabajo_del_worker_esta_registrado_y_converge_tras_un_reinicio(db, sessions, catedra, usuario_catedra, monkeypatch):
+    from app import worker
+    from app.services import scheduler
+    registrados = {}
+    monkeypatch.setattr(scheduler, 'registrar', lambda nombre, funcion, **kw: registrados.update({nombre: (funcion, kw)}))
+    worker.registrar_trabajos()
+    funcion, kw = registrados['reconciliar_identidades_consola']
+    assert kw == {'cada_segundos': 30} and funcion is worker.reconciliar_identidades_consola
+
+    runner = RunnerConsola(pools=[f'catedra-{catedra.id}'])
+    monkeypatch.setattr('app.services.guest_runner_client.GuestRunnerClient', lambda *a, **k: runner)
+    monkeypatch.setattr(get_settings(), 'console_access_profile', {'cluster_uuid': 'x'}, raising=False)
+    assert (await funcion(db)) == {'afectados': 1}
+    assert (await fila(db, usuario_catedra)).estado == 'lista'
+    # "reinicio": nada vuelve a pedirse al nodo cuando todo coincide
+    await db.rollback()
+    n = len(runner.pedidos)
+    assert (await funcion(db)) == {'afectados': 0} and len(runner.pedidos) == n
+
+
+async def test_sin_consola_habilitada_el_bucle_no_hace_nada(db, monkeypatch):
+    from app import worker
+    monkeypatch.setattr(get_settings(), 'console_access_profile', {}, raising=False)
+    assert (await worker.reconciliar_identidades_consola(db)) == {'afectados': 0}
