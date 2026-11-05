@@ -1,6 +1,8 @@
+from uuid import UUID
+from sqlalchemy import Uuid, UniqueConstraint
 from datetime import datetime
 
-from sqlalchemy import String, DateTime, ForeignKey, Text
+from sqlalchemy import String, DateTime, ForeignKey, Text, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -19,6 +21,8 @@ class ServicioHistorial(Base):
 
     __tablename__ = "servicios_historial"
 
+    __table_args__ = (UniqueConstraint('servicio_id', 'evento_clave', name='uq_historial_servicio_evento'),)
+
     id: Mapped[int] = mapped_column(primary_key=True)
     servicio_id: Mapped[int] = mapped_column(
         ForeignKey("servicios.id"), nullable=False
@@ -32,6 +36,11 @@ class ServicioHistorial(Base):
         ForeignKey("usuarios.id"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    operacion_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey('operaciones_infraestructura.id'))
+    evento_clave: Mapped[str | None] = mapped_column(String(200))
+    actor_tipo: Mapped[str | None] = mapped_column(String(10))
+    decision_metadata: Mapped[dict | None] = mapped_column(JSON)
 
     # Relaciones
     servicio: Mapped["Servicio"] = relationship(back_populates="historial")

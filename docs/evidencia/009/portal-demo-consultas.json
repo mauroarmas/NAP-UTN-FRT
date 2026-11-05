@@ -1,0 +1,109 @@
+{
+  "sesiones": "Temporales de diagnóstico creadas por operador local, no acreditan contraseña del usuario",
+  "consultas": [
+    {
+      "usuario": "mauro_admin",
+      "ruta": "/auth/me",
+      "status": 200
+    },
+    {
+      "usuario": "mauro_admin",
+      "ruta": "/auth/csrf",
+      "status": 200
+    },
+    {
+      "usuario": "mauro_admin",
+      "ruta": "/catedras/",
+      "status": 200,
+      "cantidad": 24
+    },
+    {
+      "usuario": "mauro_admin",
+      "ruta": "/pedidos/",
+      "status": 200,
+      "cantidad": 16
+    },
+    {
+      "usuario": "mauro_admin",
+      "ruta": "/servicios/",
+      "status": 200,
+      "cantidad": 2
+    },
+    {
+      "usuario": "mauro_admin",
+      "ruta": "/templates/",
+      "status": 200,
+      "cantidad": 6
+    },
+    {
+      "usuario": "mauro_admin",
+      "ruta": "/definiciones/",
+      "status": 200,
+      "cantidad": 0
+    },
+    {
+      "usuario": "mauro_admin",
+      "ruta": "/calendarios/",
+      "status": 404,
+      "codigo": "no_encontrado"
+    },
+    {
+      "usuario": "mauro_admin",
+      "ruta": "/usuarios/",
+      "status": 200,
+      "cantidad": 5
+    },
+    {
+      "usuario": "mauro_catedra",
+      "ruta": "/auth/me",
+      "status": 200
+    },
+    {
+      "usuario": "mauro_catedra",
+      "ruta": "/auth/csrf",
+      "status": 200
+    },
+    {
+      "usuario": "mauro_catedra",
+      "ruta": "/catedras/",
+      "status": 200,
+      "cantidad": 3
+    },
+    {
+      "usuario": "mauro_catedra",
+      "ruta": "/pedidos/",
+      "status": 200,
+      "cantidad": 7
+    },
+    {
+      "usuario": "mauro_catedra",
+      "ruta": "/servicios/",
+      "status": 200,
+      "cantidad": 2
+    },
+    {
+      "usuario": "mauro_catedra",
+      "ruta": "/templates/",
+      "status": 200,
+      "cantidad": 0
+    },
+    {
+      "usuario": "mauro_catedra",
+      "ruta": "/definiciones/",
+      "status": 200,
+      "cantidad": 0
+    },
+    {
+      "usuario": "mauro_catedra",
+      "ruta": "/calendarios/",
+      "status": 404,
+      "codigo": "no_encontrado"
+    },
+    {
+      "usuario": "mauro_catedra",
+      "ruta": "/usuarios/",
+      "status": 403,
+      "codigo": "sin_permisos"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "scope": "laboratorio_local",
+  "state": "probe_failed",
+  "phase": "probing",
+  "resource_absent": true,
+  "profiles_enabled": [],
+  "runner_code": "UNSAFE_APPARMOR",
+  "previous_probe_cleaned": true,
+  "runtime_tested": false,
+  "post_check_probe_absent": true,
+  "post_check_existing_service_running": true
+}

@@ -1,0 +1,19 @@
+[Unit]
+Description=NAP: restaurar el aislamiento de red de las instancias tras el arranque del nodo
+# Las tablas nftables nap011_* viven en el kernel y se pierden al reiniciar. Esta unidad las recrea ANTES de que
+# pve-guests (o el portal, o un administrador) arranque ningún invitado. No inicia ni detiene invitados.
+After=local-fs.target pve-cluster.service pvedaemon.service pvestatd.service
+Wants=pve-cluster.service
+Before=pve-guests.service
+ConditionPathExists=/etc/nap/applications-011/runner.json
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/python3 -I /opt/nap/applications/job/restore_boot.py
+TimeoutStartSec=180
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -9,32 +9,23 @@ La distinción no necesita campos ni estados nuevos: sale del par (estado
 anterior, autor), que ya se registra en cada entrada (R4).
 """
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import pytest
 from sqlalchemy import select
 
+from app.models.compromiso_capacidad import CompromisoCapacidad
 from app.models.pedido import EstadoPedido, PedidoHistorial
 from app.services import capacidad_service
+from app.utils.clock import clock
 from tests import factories
-
-NODO = [
-    {
-        "node": "pve1",
-        "status": "online",
-        "cpu": 0.1,
-        "maxcpu": 16,
-        "maxmem": 32 * 1024**3,
-        "maxdisk": 200 * 1024**3,
-    }
-]
+from tests.capacity_helpers import aprobar_http, perfil_capacidad  # noqa:F401
 
 MOTIVO = "Me confundí de cátedra al aprobar"
 
 
 @pytest.fixture(autouse=True)
-def cluster(proxmox):
-    proxmox.nodos = NODO
+def cluster(proxmox, perfil_capacidad):
     return proxmox
 
 
@@ -77,24 +68,26 @@ async def test_el_historial_distingue_las_tres_formas_de_llegar_a_rechazado(
         await client.post(
             f"/pedidos/{rechazado.id}/rechazar",
             json={"motivo": "el template no corresponde a la materia"},
-            headers=auth_admin,
+            headers=auth_admin | {"Idempotency-Key": f"rechazar:{rechazado.id}"},
         )
     ).status_code == 200
 
     # 2. Aprobado y después revertido por una persona.
-    await client.post(f"/pedidos/{revertido.id}/aprobar", json={}, headers=auth_admin)
+    assert (await aprobar_http(client, revertido, template, auth_admin)).status_code == 200
     assert (
         await client.post(
             f"/pedidos/{revertido.id}/revertir-aprobacion",
             json={"motivo": MOTIVO},
-            headers=auth_admin,
+            headers=auth_admin | {"Idempotency-Key": f"revertir:{revertido.id}"},
         )
     ).status_code == 200
 
     # 3. Aprobado y liberado solo por el sistema al vencer la reserva.
-    await client.post(f"/pedidos/{vencido.id}/aprobar", json={}, headers=auth_admin)
-    await db.refresh(vencido)
-    vencido.reserva_expira_at = datetime.utcnow() - timedelta(minutes=1)
+    assert (await aprobar_http(client, vencido, template, auth_admin)).status_code == 200
+    ledger = await db.scalar(
+        select(CompromisoCapacidad).where(CompromisoCapacidad.pedido_id == vencido.id)
+    )
+    ledger.expira_at = clock.now() - timedelta(minutes=1)
     await db.commit()
     await capacidad_service.expirar_reservas(db)
 
@@ -133,12 +126,12 @@ async def test_la_entrada_de_la_aprobacion_original_sobrevive_a_la_reversion(
     Principio V queda a medias.
     """
     pedido = await _pedido(db, catedra, usuario_catedra, template)
-    await client.post(f"/pedidos/{pedido.id}/aprobar", json={}, headers=auth_admin)
+    assert (await aprobar_http(client, pedido, template, auth_admin)).status_code == 200
     assert (
         await client.post(
             f"/pedidos/{pedido.id}/revertir-aprobacion",
             json={"motivo": MOTIVO},
-            headers=auth_admin,
+            headers=auth_admin | {"Idempotency-Key": f"revertir-sobrevive:{pedido.id}"},
         )
     ).status_code == 200
 
@@ -172,12 +165,14 @@ async def test_el_detalle_del_pedido_expone_el_historial_completo(
 ):
     """La distinción tiene que llegar a quien la mira, no quedarse en la base."""
     pedido = await _pedido(db, catedra, usuario_catedra, template)
-    await client.post(f"/pedidos/{pedido.id}/aprobar", json={}, headers=auth_admin)
-    await client.post(
-        f"/pedidos/{pedido.id}/revertir-aprobacion",
-        json={"motivo": MOTIVO},
-        headers=auth_admin,
-    )
+    assert (await aprobar_http(client, pedido, template, auth_admin)).status_code == 200
+    assert (
+        await client.post(
+            f"/pedidos/{pedido.id}/revertir-aprobacion",
+            json={"motivo": MOTIVO},
+            headers=auth_admin | {"Idempotency-Key": f"revertir-detalle:{pedido.id}"},
+        )
+    ).status_code == 200
 
     r = await client.get(f"/pedidos/{pedido.id}", headers=auth_catedra)
 

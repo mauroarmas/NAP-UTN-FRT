@@ -1,12 +1,15 @@
+import { mensajeError } from '../utils/errors.js';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { login, getMe } from '../services/api';
+import { Eye, EyeOff } from 'lucide-react';
+import { login } from '../services/api';
 import useTheme from '../hooks/useTheme';
 import utnLogo from '../assets/utn-logo.jpeg';
 
 export default function Login({ onLogin }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [mostrarPassword, setMostrarPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
@@ -17,16 +20,12 @@ export default function Login({ onLogin }) {
     setError('');
     setLoading(true);
     try {
-      const { data: tokenData } = await login(username, password);
-      localStorage.setItem('token', tokenData.access_token);
-
-      const { data: userData } = await getMe();
-      localStorage.setItem('user', JSON.stringify(userData));
-
-      onLogin(userData);
+      const { data } = await login(username, password);
+      setPassword('');
+      await onLogin(data);
       navigate('/');
     } catch (err) {
-      setError(err.response?.data?.detail || 'Error al iniciar sesión');
+      setError(mensajeError(err, 'Error al iniciar sesión'));
     } finally {
       setLoading(false);
     }
@@ -48,32 +47,45 @@ export default function Login({ onLogin }) {
           <h2>NAP - Nube Académica Personal</h2>
           <p className="login__sub">Gestión de servicios por cátedra</p>
 
-          {error && <div className="login__error">{error}</div>}
+          {error && <div role="alert" className="login__error">{error}</div>}
 
           <div className="field">
-            <label htmlFor="login-user">Usuario</label>
+            <label htmlFor="login-user">Usuario o Correo</label>
             <input
               id="login-user"
               className="input"
               type="text"
-              placeholder="usuario"
+              placeholder="usuario o correo"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               required
+              autoComplete="username"
               autoFocus
             />
           </div>
           <div className="field">
             <label htmlFor="login-pass">Contraseña</label>
-            <input
-              id="login-pass"
-              className="input"
-              type="password"
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
+            <div className="input-password">
+              <input
+                id="login-pass"
+                className="input"
+                type={mostrarPassword ? 'text' : 'password'}
+                autoComplete="current-password"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+              <button
+                type="button"
+                className="input-password__toggle"
+                onClick={() => setMostrarPassword((prev) => !prev)}
+                aria-label={mostrarPassword ? 'Ocultar clave' : 'Mostrar clave'}
+                title={mostrarPassword ? 'Ocultar contraseña' : 'Ver contraseña'}
+              >
+                {mostrarPassword ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}
+              </button>
+            </div>
           </div>
 
           <button type="submit" className="btn btn-primary btn-block" disabled={loading}>
@@ -82,7 +94,10 @@ export default function Login({ onLogin }) {
 
           <hr className="hr" />
           <p className="login__foot">
-            ¿Problemas para acceder? Contactá a Mesa de Ayuda TIC — FRT.
+            ¿Problemas para acceder? Contactá a Transformación Digital:{' '}
+            <a href="mailto:transformaciondigital@frt.utn.edu.ar" style={{ color: 'inherit', textDecoration: 'underline' }}>
+              transformaciondigital@frt.utn.edu.ar
+            </a>
           </p>
         </form>
       </div>

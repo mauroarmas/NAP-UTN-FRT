@@ -1,0 +1,22 @@
+{
+  "fecha": "2026-10-21",
+  "estado": "recuperacion_revisada_preparada_no_ejecutada",
+  "instalador_sha256": "8dd475d11d00e50aba972a542784a039184b6e81e0b18238e87b3d1757b31dc2",
+  "lanzador": "/home/mauro/.local/share/nap009/preparar-api-ensayos-en-proxmox.sh",
+  "token_id": "nap009lab@pve!ensayos",
+  "pool": "nap009-staging",
+  "vencimiento_dias": 30,
+  "plan": "api-ensayo-plan.json",
+  "copia_privada": "/home/mauro/.local/share/nap009/api-ensayos/configurar_api_ensayo-8dd475d11d00.py",
+  "cuenta_sin_password": true,
+  "sin_contenedores_nuevos": true,
+  "configuracion_backend_sin_cambios": true,
+  "respuesta_local_bytes": 0,
+  "corrige_certificado_por_ip": false,
+  "recarga_pveproxy": false,
+  "respaldo_solo_root": true,
+  "snapshot_sha256": "6895e238aa8b33d77c4279c27399c8aaf7ecf8f9f7926d4c87c9b1656143a629",
+  "cuenta_existente_deshabilitada": true,
+  "roles_y_pool_se_conservan": true,
+  "token_orfano_se_reemplaza_solo_si_no_quedo_guardado": true
+}

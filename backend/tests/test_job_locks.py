@@ -80,12 +80,21 @@ async def test_un_lock_reciente_no_se_pisa(db):
 
 async def test_los_cuatro_trabajos_estan_registrados():
     """Si alguno se cae del registro, deja de ejecutarse en silencio."""
-    assert set(scheduler.TRABAJOS) == {
+    from app.worker import registrar_trabajos
+    registrar_trabajos()
+    assert {
         "expirar_reservas",
         "aplicar_vencimientos",
         "evaluar_inactividad",
         "recolectar_metricas",
-    }
+        "evaluar_alertas",
+        "agregar_y_purgar_metricas",
+        "procesar_notificaciones",
+        "limpiar_autenticacion",
+        "reconciliar_operaciones",
+        "procesar_operaciones",
+    }.issubset(set(scheduler.TRABAJOS))
+    assert "capturar_metricas" not in scheduler.TRABAJOS
 
 
 async def test_ejecutar_un_trabajo_inexistente_falla_claro(db):

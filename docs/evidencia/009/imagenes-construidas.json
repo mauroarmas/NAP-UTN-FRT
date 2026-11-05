@@ -1,0 +1,53 @@
+[
+  {
+    "producto": "linux",
+    "definition_key": "linux-lab-009",
+    "recipe_revision": "20ba2a308ae6d79b781c35d9800f1bb51f109638",
+    "image_sha256": "75cb130ed4614ab728b05905716dd4d93ad361cf54221ae5416361d75e761d21",
+    "recipe_sha256": "efe8d3e20e65b39319530742a11c6a5f6d000df24b8481e164df57c886ce6eeb",
+    "bytes_imagen": 58906401,
+    "paquetes": 149,
+    "checks_artefacto_local": {
+      "digest": true,
+      "sin_cache_apt": true,
+      "sin_claves_host": true,
+      "sin_datos_aplicacion": true,
+      "cuentas_bloqueadas": true
+    },
+    "estado": "borrador_saneado_sin_ensayos_pve"
+  },
+  {
+    "producto": "postgresql",
+    "definition_key": "postgresql-lab-009",
+    "recipe_revision": "20ba2a308ae6d79b781c35d9800f1bb51f109638",
+    "image_sha256": "362727e170795f0d19f7c0b909e2ea1edd68294d5656496f91440429bcac5aaa",
+    "recipe_sha256": "7f55836f8f05ee7945bd56f58f5eea5772c8ee243703313e39a0ee72824870bb",
+    "bytes_imagen": 149334940,
+    "paquetes": 169,
+    "checks_artefacto_local": {
+      "digest": true,
+      "sin_cache_apt": true,
+      "sin_claves_host": true,
+      "sin_datos_aplicacion": true,
+      "cuentas_bloqueadas": true
+    },
+    "estado": "borrador_saneado_sin_ensayos_pve"
+  },
+  {
+    "producto": "bookstack",
+    "definition_key": "bookstack-lab-009",
+    "recipe_revision": "20ba2a308ae6d79b781c35d9800f1bb51f109638",
+    "image_sha256": "54803740dffdf49b6a575557fe36fbb5d253c2c856bb562917ce332f536b413a",
+    "recipe_sha256": "625f14c83b0563292bf3b06a2584b445d8d8407fa185ea64b5ed0738d0801e56",
+    "bytes_imagen": 171276813,
+    "paquetes": 250,
+    "checks_artefacto_local": {
+      "digest": true,
+      "sin_cache_apt": true,
+      "sin_claves_host": true,
+      "sin_datos_aplicacion": true,
+      "cuentas_bloqueadas": true
+    },
+    "estado": "borrador_saneado_sin_ensayos_pve"
+  }
+]

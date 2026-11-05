@@ -42,6 +42,15 @@
 
 [Gates determined based on constitution file]
 
+- Principio VII: justificar cada campo y paso del recorrido normal; elegir la alternativa más
+  sencilla que satisface la necesidad acordada, sin añadir opciones hipotéticas.
+- Para ofertas reutilizables, el alta valida la configuración sin crear instancias ni reservar
+  capacidad; la instalación ocurre al desplegar el pedido aprobado y con vigencia habilitada.
+- Separar la configuración inicial de infraestructura de las tareas diarias de ambos roles.
+  Los detalles técnicos se resuelven internamente y los estados tienen feedback comprensible.
+- Usar esta plantilla sólo cuando corresponde Spec Kit; no exigir un plan nuevo para una
+  corrección o mejora acotada ya autorizada.
+
 ## Project Structure
 
 ### Documentation (this feature)

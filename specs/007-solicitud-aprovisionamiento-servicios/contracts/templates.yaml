@@ -1,0 +1,117 @@
+openapi: 3.0.3
+info:
+  title: API de Gestión de Plantillas (Templates) - NAP
+  version: 1.0.0
+  description: Contratos para el ABM de templates de recursos computacionales.
+
+paths:
+  /api/v1/templates:
+    get:
+      summary: Listar plantillas de recursos
+      parameters:
+        - name: solo_activos
+          in: query
+          schema:
+            type: boolean
+            default: true
+        - name: modelo_servicio
+          in: query
+          schema:
+            type: string
+            enum: [iaas, paas, saas]
+      responses:
+        '200':
+          description: Lista de plantillas disponibles.
+    post:
+      summary: Crear nueva plantilla (solo Admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - nombre
+                - modelo_servicio
+                - default_vcpus
+                - default_ram_mb
+                - default_disk_gb
+              properties:
+                nombre:
+                  type: string
+                descripcion:
+                  type: string
+                modelo_servicio:
+                  type: string
+                  enum: [iaas, paas, saas]
+                tipo_virtualizacion:
+                  type: string
+                  enum: [lxc, qemu]
+                default_vcpus:
+                  type: integer
+                  minimum: 1
+                default_ram_mb:
+                  type: integer
+                  minimum: 256
+                default_disk_gb:
+                  type: integer
+                  minimum: 1
+                justificacion_disco:
+                  type: string
+                  description: Obligatoria si default_disk_gb > 8.
+                os_template:
+                  type: string
+                activo:
+                  type: boolean
+                  default: true
+      responses:
+        '201':
+          description: Plantilla creada exitosamente.
+        '422':
+          description: Error de validación (ej. disco > 8 GB sin justificación).
+
+  /api/v1/templates/{id}:
+    put:
+      summary: Modificar plantilla existente (solo Admin)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                nombre:
+                  type: string
+                descripcion:
+                  type: string
+                default_vcpus:
+                  type: integer
+                default_ram_mb:
+                  type: integer
+                default_disk_gb:
+                  type: integer
+                justificacion_disco:
+                  type: string
+                activo:
+                  type: boolean
+      responses:
+        '200':
+          description: Plantilla modificada.
+    delete:
+      summary: Desactivar plantilla (baja lógica, solo Admin)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Plantilla desactivada (activo=false).
+

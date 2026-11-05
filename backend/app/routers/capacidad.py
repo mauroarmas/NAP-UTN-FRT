@@ -7,7 +7,7 @@ física del clúster, que no puede accionar.
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -21,16 +21,20 @@ logger = logging.getLogger(__name__)
 
 @router.get("/")
 async def obtener_capacidad(
+    response: Response,
     current_user: Usuario = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Capacidad física, comprometida y libre, recalculada en el momento."""
     try:
+        response.headers['Cache-Control'] = 'no-store'
         return await capacidad_service.panorama(db)
-    except Exception as exc:
+    except HTTPException:
+        raise
+    except Exception:
         # Sin capacidad real no se puede decidir. El sistema no inventa un valor
         # por defecto: aprobar a ciegas es justo lo que hay que evitar.
-        logger.warning("No se pudo consultar la capacidad del clúster: %s", exc)
+        logger.warning("Inventario de capacidad no verificable")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="No se pudo consultar la capacidad del clúster Proxmox",

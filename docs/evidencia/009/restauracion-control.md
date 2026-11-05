@@ -1,0 +1,22 @@
+# Control de restauración — T130
+
+Fecha: 2026-10-21. Implementación y ensayo de los controles de recuperación; **no acredita T131**, ni una copia externa configurada ni una restauración real de las tres aplicaciones. El clúster/red están en armado y el destino/custodios externos siguen por definir con el cliente.
+
+Se agregaron `Restauracion` y `AccesoInicialRestaurado`, migración `009_14_restauracion`, servicio y CLI de mantenimiento. Procedimiento: [preparar-restauracion.md](../../preparar-restauracion.md). El CLI exige configuración privada, nombre de copia explícito, referencia externa nueva y esquema actualizado. El modo inicial es de sólo lectura; las mutaciones requieren `--aplicar` y operador. La habilitación exige atestación privada de ensayo separado, hash revisado y nueva comprobación de datos/inventario. No hay endpoint ni botón de forzar, migración automática o creación de cuentas.
+
+Preparación indivisible e idempotente bajo locks 4001/5003: descifrado completo antes de mutar, SID/desafíos/códigos invalidados, versiones avanzadas, hashes de contraseña y MFA activo conservados. Se borran secretos de inscripción y temporales, se cancelan correos pendientes/fallidos/en envío y se invalidan sus leases. Una contraseña inicial del corte requiere reemplazo autorizado; el único administrador existente tiene reemisión interactiva institucional sin desactivar su factor. Las operaciones abiertas conservan UPID y contexto, pasan a incertidumbre con generación nueva y capacidad retenida.
+
+La habilitación bloquea operaciones abiertas, identidades/compromisos inciertos, recursos NAP fuera del corte, propiedad no comprobada, diferencias de asignación/estado, capacidad insuficiente y recursos encendidos sin cobertura. Comprueba también LXC no privilegiado/sin mounts adicionales. Ausencias/fallos no liberan ni adoptan recursos. La atestación declara comprobaciones del operador respaldadas por evidencia; no sustituye pruebas de aplicaciones ni certifica su contenido automáticamente. Producción rechaza una atestación simulada.
+
+## Resultados
+
+- Línea base T121 ampliada: ocho fallos esperados antes de crear el servicio, 2,77 s.
+- 37 regresiones de restauración/auth/outbox/recuperación de operaciones/jobs/alta de usuarios aprobadas, 24,87 s.
+- 44 pruebas finales de controles estrictos, comparación de corte, MFA/contraseña preservados y configuración aprobadas, 13,03 s. Incluyen rechazo de confirmaciones que no sean booleanos `true`, marcadores ajenos, LXC privilegiado, bind mount y estado cambiado.
+- Revalidación posterior: 30 pruebas de restauración/autenticación aprobaron, 18,86 s. Se vuelve a consultar el bloqueo después de adquirir la fila de usuario para no emitir una sesión si la preparación confirmó mientras login esperaba ese lock.
+- Nueve pruebas PostgreSQL de migración/control/concurrencia/arranque/esquema aprobadas, 13,65 s; ocho adicionales de CLI/arranque/control aprobadas, 9,88 s (hay cobertura superpuesta, no se suman como pruebas únicas). La concurrencia usa sesiones independientes: misma referencia devuelve el mismo control/revoca una vez; distinta referencia deja un único pendiente y devuelve conflicto.
+- Docker real aislado con PostgreSQL tmpfs y rol runtime restringido: migración, permisos, bootstrap explícito fixture, HTTPS verificado/login/cambio inicial/2FA opcional y preparación por CLI aprobados. Una API ya arrancada rechaza login con 503 tras preparar; un nuevo arranque con rol limitado rechaza el corte pendiente. [Resultado estructurado](restauracion-control-smoke.json). Worker no iniciado, sin PVE/SMTP reales, sin ensayo de dump/restore.
+
+Las pruebas detectaron que el CHECK inicial de T126 impedía asignar `servicio_id` a un alta materializada. Se corrigieron modelo, preflight y migraciones: un alta admite el vínculo al servicio creado; renovación exige destino. 009_14 corrige también una copia que hubiera aplicado la primera definición de 009_13. Las tres regresiones de reanudación antes fallidas aprobaron; una prueba PostgreSQL reproduce el upgrade de esa definición y conserva el rechazo de renovación sin destino.
+
+La última imagen/ensayo está registrada en el JSON. El proyecto Docker temporal se cerró al finalizar y no se modificaron la base operativa, las bases de laboratorio/carga ni Proxmox. No se ha ejecutado el preparador sobre una instalación real. T131 mantiene pendientes dumps/restauración separada de portal+keyring, dato PostgreSQL y libro/imagen/adjunto/cuentas/permisos BookStack, RTO/RPO observados y aceptación institucional.

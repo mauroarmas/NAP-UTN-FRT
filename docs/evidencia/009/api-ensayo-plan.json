@@ -1,0 +1,51 @@
+{
+  "estado": "plan_sin_cambios",
+  "usuario": "nap009lab@pve",
+  "token_id": "nap009lab@pve!ensayos",
+  "pool": "nap009-staging",
+  "roles": {
+    "NAP009LabAudit": [
+      "VM.Audit",
+      "Sys.Audit",
+      "Datastore.Audit"
+    ],
+    "NAP009LabGuest": [
+      "Pool.Audit",
+      "VM.Audit",
+      "VM.Allocate",
+      "VM.PowerMgmt",
+      "VM.Config.CPU",
+      "VM.Config.Memory",
+      "VM.Config.Disk",
+      "VM.Config.Network",
+      "VM.Config.Options"
+    ],
+    "NAP009LabDisk": [
+      "Datastore.AllocateSpace"
+    ],
+    "NAP009LabBridge": [
+      "SDN.Use"
+    ]
+  },
+  "grants": {
+    "/": "NAP009LabAudit",
+    "/pool/nap009-staging": "NAP009LabGuest",
+    "/storage/local-lvm": "NAP009LabDisk",
+    "/sdn/zones/localnetwork/vmbr0": "NAP009LabBridge"
+  },
+  "privsep": 1,
+  "vigencia_dias": 30,
+  "inventario_solo_lectura": [
+    {
+      "vmid": 101,
+      "type": "lxc",
+      "status": "stopped"
+    },
+    {
+      "vmid": 103,
+      "type": "lxc",
+      "status": "stopped"
+    }
+  ],
+  "consolas_y_ensayos_no_acreditados": true
+}

@@ -1,12 +1,16 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Header
+from fastapi.responses import JSONResponse
+from app.schemas.aplicacion import AgregarAplicacion, RevisarAplicacion
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
+from types import SimpleNamespace
+from typing import Literal
 
 from app.database import get_db
 from app.models.recurso_template import RecursoTemplate, TipoRecurso
 from app.models.usuario import Usuario, RolUsuario
 from app.routers.auth import get_current_user, require_admin
-from app.models.pedido import Pedido, EstadoPedido
+from app.models.pedido import Pedido, EstadoPedido, ModeloServicio
 from app.models.servicio import Servicio
 from app.schemas.template import (
     AlcanceDelCambio,
@@ -14,14 +18,48 @@ from app.schemas.template import (
     TemplateResponse,
     TemplateUpdate,
 )
-from app.services.limites_service import validar_disco
+from app.services.perfiles_service import exigir_definicion, anexar_disponibilidad
+from app.utils.errors import error
+from app.schemas.tamanos import TAMANOS, validar_tamano
 
 router = APIRouter(prefix="/templates", tags=["Templates"])
+
+
+@router.get('/tamanos')
+async def listar_tamanos(current_user: Usuario = Depends(require_admin)):
+    return [{'id': name, 'nombre': name.title(), **resources} for name, resources in TAMANOS.items()]
+
+
+@router.post('/sincronizar-iaas')
+async def sincronizar_iaas(current_user: Usuario = Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    from app.services.bases_iaas_service import sincronizar
+    count = await sincronizar(db)
+    await db.commit()
+    return {'disponibles': count}
+
+
+@router.post('/aplicaciones',status_code=201)
+async def agregar_aplicacion(data:AgregarAplicacion,clave:str=Header(alias='Idempotency-Key'),
+        current_user:Usuario=Depends(require_admin),db:AsyncSession=Depends(get_db)):
+    from app.services.configuracion_despliegue_service import change
+    result=await change(db,actor=current_user,body=data,clave=clave)
+    await db.commit()
+    return JSONResponse(result.resultado,status_code=result.status_code,headers={'Cache-Control':'no-store'})
+
+
+@router.post('/{template_id}/configuracion')
+async def cambiar_configuracion_aplicacion(template_id:int,data:RevisarAplicacion,clave:str=Header(alias='Idempotency-Key'),
+        current_user:Usuario=Depends(require_admin),db:AsyncSession=Depends(get_db)):
+    from app.services.configuracion_despliegue_service import change
+    result=await change(db,actor=current_user,body=data,clave=clave,template_id=template_id)
+    await db.commit()
+    return JSONResponse(result.resultado,status_code=result.status_code,headers={'Cache-Control':'no-store'})
 
 
 @router.get("/", response_model=list[TemplateResponse])
 async def listar_templates(
     incluir_retiradas: bool = False,
+    modelo_servicio: Literal['iaas', 'paas', 'saas'] | None = None,
     current_user: Usuario = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -31,12 +69,31 @@ async def listar_templates(
     `incluir_retiradas` las trae todas, y es lo que le permite al administrador
     encontrar una plantilla que retiró para volver a habilitarla. Sin eso, retirar
     sería un camino de ida desde la interfaz.
+    `modelo_servicio` permite filtrar plantillas por iaas, paas o saas.
     """
     consulta = select(RecursoTemplate)
     if not (incluir_retiradas and current_user.rol == RolUsuario.ADMIN):
         consulta = consulta.where(RecursoTemplate.activo == True)
+    if modelo_servicio:
+        consulta = consulta.where(RecursoTemplate.modelo_servicio == modelo_servicio.lower())
     result = await db.execute(consulta)
-    return result.scalars().all()
+    rows = [
+        row for row in result.scalars().all()
+        if not (isinstance(row.config_extra, dict) and row.config_extra.get("archivado"))
+    ]
+    templates = await anexar_disponibilidad(db, rows)
+    if current_user.rol != RolUsuario.ADMIN:
+        templates = [row for row in templates if row.oferta_disponible]
+    return [_presentar(row, current_user) for row in templates]
+
+
+def _presentar(template, user):
+    response = TemplateResponse.model_validate(template)
+    if user.rol != RolUsuario.ADMIN:
+        response.os_template = None
+        response.config_extra = None
+        response.configuracion_actualizacion = None
+    return response
 
 
 @router.get("/{template_id}", response_model=TemplateResponse)
@@ -49,7 +106,17 @@ async def obtener_template(
     template = await db.get(RecursoTemplate, template_id)
     if not template:
         raise HTTPException(status_code=404, detail="Template no encontrado")
-    return template
+    await anexar_disponibilidad(db, [template])
+    if current_user.rol != RolUsuario.ADMIN and not template.oferta_disponible:
+        from app.services.acceso_service import catedras_visibles
+        visible = await catedras_visibles(db, current_user)
+        requested = await db.scalar(select(Pedido.id).where(Pedido.template_id == template.id,
+            Pedido.catedra_id.in_(visible)).limit(1))
+        delivered = await db.scalar(select(Servicio.id).where(Servicio.template_id == template.id,
+            Servicio.catedra_id.in_(visible)).limit(1))
+        if not requested and not delivered:
+            raise error(403, 'sin_permisos', 'La plantilla histórica no está disponible para esta cátedra')
+    return _presentar(template, current_user)
 
 
 @router.post("/", response_model=TemplateResponse, status_code=201)
@@ -66,12 +133,20 @@ async def crear_template(
     if result.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Ya existe un template con ese nombre")
 
-    # Tope de disco por contenedor: superarlo exige justificación registrada.
-    validar_disco(data.default_disk_gb, data.justificacion_disco)
+    modelo_enum = ModeloServicio.IAAS
+    if data.modelo_servicio:
+        try:
+            modelo_enum = ModeloServicio(data.modelo_servicio.lower())
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Modelo de servicio inválido: {data.modelo_servicio}. Debe ser iaas, paas o saas",
+            )
 
     template = RecursoTemplate(
         nombre=data.nombre,
         descripcion=data.descripcion,
+        modelo_servicio=modelo_enum,
         tipo=TipoRecurso(data.tipo),
         default_vcpus=data.default_vcpus,
         default_ram_mb=data.default_ram_mb,
@@ -79,13 +154,16 @@ async def crear_template(
         justificacion_disco=data.justificacion_disco,
         os_template=data.os_template,
         config_extra=data.config_extra,
+        definicion_version_id=data.definicion_version_id,
+        activo=True,
     )
-
+    await exigir_definicion(db, template, bloquear=True)
     db.add(template)
     await db.commit()
     await db.refresh(template)
 
-    return template
+    await anexar_disponibilidad(db, [template])
+    return _presentar(template, current_user)
 
 
 async def _alcance_del_cambio(db: AsyncSession, template_id: int) -> AlcanceDelCambio:
@@ -135,11 +213,21 @@ async def actualizar_template(
     guardan sus propios recursos) ni los pedidos ya aprobados (que se despliegan
     con lo que reservaron). Rige de acá en adelante.
     """
-    template = await db.get(RecursoTemplate, template_id)
+    template = await db.scalar(select(RecursoTemplate).where(RecursoTemplate.id == template_id)
+        .with_for_update().execution_options(populate_existing=True))
     if not template:
         raise HTTPException(status_code=404, detail="Template no encontrado")
 
     cambios = data.model_dump(exclude_unset=True)
+    tamano = cambios.pop('tamano', None)
+    if tamano:
+        try:
+            validar_tamano(tamano, {key: cambios.get('default_' + key, getattr(template, 'default_' + key))
+                                   for key in ['vcpus', 'ram_mb', 'disk_gb']})
+        except ValueError as exc:
+            raise error(422, 'tamano_incompatible', str(exc)) from None
+    if template.tipo == TipoRecurso.QEMU and cambios != {'activo': False}:
+        raise error(422, 'tipo_historico', 'La plantilla QEMU histórica admite lectura o retiro')
 
     # `tipo` no se acepta ni siquiera si el cliente lo manda: cambiar un LXC por
     # una VM altera lo que ya se aprobó sobre esta plantilla (regla T4).
@@ -161,19 +249,90 @@ async def actualizar_template(
                 status_code=409, detail="Ya existe otra plantilla con ese nombre"
             )
 
-    # El tope de disco rige igual que en el alta. Se evalúa contra los valores
-    # que quedarían después de aplicar el cambio, no contra los enviados: subir
-    # el disco y agregar la justificación en la misma operación es válido.
-    disco = cambios.get("default_disk_gb", template.default_disk_gb)
-    justificacion = cambios.get("justificacion_disco", template.justificacion_disco)
-    validar_disco(disco, justificacion)
+    if "modelo_servicio" in cambios and cambios["modelo_servicio"]:
+        try:
+            cambios["modelo_servicio"] = ModeloServicio(cambios["modelo_servicio"].lower())
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Modelo de servicio inválido: {cambios['modelo_servicio']}",
+            )
 
+    relevant = {'definicion_version_id', 'default_vcpus', 'default_ram_mb', 'default_disk_gb',
+        'modelo_servicio', 'os_template', 'config_extra', 'activo', 'configuracion_despliegue_id'}
+    prospective = SimpleNamespace(**{**{field: getattr(template, field) for field in relevant | {'tipo'}}, **cambios})
+    if prospective.activo and (template.definicion_version_id or relevant & cambios.keys()):
+        await exigir_definicion(db, prospective, bloquear=True)
     for campo, valor in cambios.items():
         setattr(template, campo, valor)
 
+    if cambios:
+        template.revision += 1
+
     await db.commit()
     await db.refresh(template)
+    await anexar_disponibilidad(db, [template])
+    respuesta = _presentar(template, current_user)
+    respuesta.alcance_del_cambio = await _alcance_del_cambio(db, template_id)
+    return respuesta
 
-    respuesta = TemplateResponse.model_validate(template)
+
+@router.delete("/{template_id}", response_model=TemplateResponse)
+async def desactivar_template(
+    template_id: int,
+    definitivo: bool = False,
+    current_user: Usuario = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Desactiva (retira) una plantilla del catálogo o elimina una ya retirada."""
+    template = await db.scalar(select(RecursoTemplate).where(RecursoTemplate.id == template_id)
+        .with_for_update().execution_options(populate_existing=True))
+    if not template:
+        raise HTTPException(status_code=404, detail="Template no encontrado")
+
+    if definitivo:
+        if template.activo:
+            raise error(409, 'plantilla_activa', 'Retirá el servicio del catálogo antes de eliminarlo definitivamente')
+        active_order = await db.scalar(
+            select(Pedido.id).where(
+                Pedido.template_id == template_id,
+                Pedido.deleted_at.is_(None),
+                Pedido.estado.notin_([EstadoPedido.CANCELADO, EstadoPedido.RECHAZADO]),
+            ).limit(1)
+        )
+        active_service = await db.scalar(
+            select(Servicio.id).where(
+                Servicio.template_id == template_id,
+                Servicio.deleted_at.is_(None),
+            ).limit(1)
+        )
+        if active_order or active_service:
+            raise error(409, 'plantilla_en_uso', 'No se puede eliminar porque tiene pedidos o servicios activos asociados')
+        await anexar_disponibilidad(db, [template])
+        respuesta = _presentar(template, current_user)
+        respuesta.alcance_del_cambio = await _alcance_del_cambio(db, template_id)
+        closed_orders = list((await db.scalars(select(Pedido).where(Pedido.template_id == template_id))).all())
+        for order in closed_orders:
+            order.template_id = None
+        from app.models.publicacion_oferta import PublicacionOferta
+        has_history_refs = bool(
+            await db.scalar(select(Servicio.id).where(Servicio.template_id == template_id).limit(1))
+            or await db.scalar(select(PublicacionOferta.id).where(PublicacionOferta.template_id == template_id).limit(1))
+        )
+        if has_history_refs:
+            template.nombre = f"{template.nombre[:70]} [archivado-{template.id}]"
+            template.config_extra = {**(template.config_extra or {}), "archivado": True}
+            template.revision += 1
+        else:
+            await db.delete(template)
+        await db.commit()
+        return respuesta
+
+    template.activo = False
+    template.revision += 1
+    await db.commit()
+    await db.refresh(template)
+    await anexar_disponibilidad(db, [template])
+    respuesta = _presentar(template, current_user)
     respuesta.alcance_del_cambio = await _alcance_del_cambio(db, template_id)
     return respuesta

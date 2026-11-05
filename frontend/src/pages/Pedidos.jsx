@@ -1,26 +1,26 @@
-import { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Search, Send, Info } from 'lucide-react';
+import { mensajeError } from '../utils/errors.js';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import useRemoteData from '../hooks/useRemoteData';
+import EstadoConsulta from '../components/EstadoConsulta';
+import ProgresoDespliegue from '../components/ProgresoDespliegue';
+import useOperacion, { operacionAbierta, textoOperacion } from '../hooks/useOperacion';
 import {
-  getPedidos, getPedido, cambiarEstadoPedido, desplegarPedido, reintentarPedido,
-  getTemplates, getCatedras, getCatedrasMias, evaluarPedido, aprobarPedido, rechazarPedido,
-  revertirAprobacion,
+  Search, Send, Info, CheckCircle2, XCircle, AlertTriangle, RefreshCw,
+  Clock, History, Calendar, Server, Users, FileText, ChevronDown, ChevronUp,
+} from 'lucide-react';
+import {
+  getPedidos, getPedido, desplegarPedido, reintentarPedido,
+  getTemplates, getCatedras, getCatedrasMias, rechazarPedido,
+  revertirAprobacion, cancelarPedido,
 } from '../services/api';
-import PanelCapacidad from '../components/PanelCapacidad';
-import { PageHead, StatusPill, Dialog, Empty } from '../components/ui';
+import NuevoPedidoModal from '../components/NuevoPedidoModal';
+import AprobarPedidoModal from '../components/AprobarPedidoModal';
+import AjustePedidoModal from '../components/AjustePedidoModal';
+import ReenviarPedidoModal from '../components/ReenviarPedidoModal';
+import ConsolaOperacion from '../components/ConsolaOperacion';
+import { PageHead, StatusPill, Dialog, Empty, ConfirmDialog, AlertDialog } from '../components/ui';
 import { ESTADO_PEDIDO_CONFIG as ESTADO_CONFIG, PASOS_PEDIDO } from '../constants/estados';
-
-// Transiciones que decide un admin a mano. "en_despliegue" no aparece nunca acá:
-// es transitorio y solo lo asigna el orquestador durante un despliegue real.
-const TRANSICIONES = {
-  solicitado:    [],
-  aprobado:      [],
-  en_despliegue: [],
-  activo:        ['suspendido'],
-  error:         ['rechazado'],
-  suspendido:    ['activo'],
-  rechazado:     [],
-};
 
 // Una aprobación revertida y un rechazo original terminan en el mismo estado.
 // Para la cátedra no son lo mismo: un pedido que estaba aprobado y deja de
@@ -30,6 +30,7 @@ const TRANSICIONES = {
 // La fuente autoritativa es el historial —una transición de aprobado a
 // rechazado con autor persona—, pero el listado no lo trae. Ahí se cae al
 // prefijo que el backend antepone al motivo, fijado en el contrato de la 005.
+const EMPTY = [];
 const PREFIJO_REVERSION = 'Aprobación revertida';
 
 const entradaDeReversion = (historial) =>
@@ -66,55 +67,193 @@ const PILL_KIND = { info: 'accent', success: 'ok', warning: 'warn', error: 'bad'
 const kindDe = (estado) => PILL_KIND[ESTADO_CONFIG[estado]?.badge] || 'off';
 
 const specsDe = (p, template) => {
-  const [v, r, d] = [p.reserva_vcpus, p.reserva_ram_mb, p.reserva_disk_gb];
-  if (v || r || d) return `${v} vCPU · ${r} MB · ${d} GB`;
-  if (template) return `${template.default_vcpus} vCPU · ${template.default_ram_mb} MB · ${template.default_disk_gb} GB`;
-  return '';
+  const snapshot = p.asignacion_snapshot;
+  if (snapshot) return `${snapshot.vcpus} vCPU · ${snapshot.ram_mb} MiB · ${snapshot.disk_gb} GiB`;
+  if (template && ['solicitado', 'requiere_ajuste'].includes(p.estado)) return `Referencia del perfil: ${template.default_vcpus} vCPU · ${template.default_ram_mb} MiB · ${template.default_disk_gb} GiB`;
+  return 'Asignación histórica pendiente de regularización';
 };
 
-const tipoTemplate = (t) => (t?.tipo === 'qemu' ? 'Máquina Virtual' : t?.tipo === 'lxc' ? 'Contenedor LXC' : 'Servicio');
+const tipoTemplate = (t, modelo) => {
+  if (t?.tipo === 'qemu') return 'Máquina Virtual';
+  if (t?.tipo === 'lxc') return 'Contenedor LXC';
+  if (modelo === 'saas') return 'Software (SaaS)';
+  if (modelo === 'paas') return 'Plataforma (PaaS)';
+  return 'Servicio';
+};
+
+const formatFechaCorta = (fechaStr) => {
+  if (!fechaStr) return '';
+  const parts = String(fechaStr).split(/[-T ]/);
+  if (parts.length >= 3 && parts[0].length === 4) {
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+  return fechaStr;
+};
+
+const vigenciaLabel = (p) => {
+  const tipo = p?.vigencia?.tipo || p?.vigencia_tipo;
+  if (!tipo) return null;
+  const labels = {
+    primer_cuatrimestre: '1° Cuatrimestre',
+    segundo_cuatrimestre: '2° Cuatrimestre',
+    anual: 'Ciclo Anual',
+    personalizado:
+      p.vigencia?.desde && p.vigencia?.hasta
+        ? `${formatFechaCorta(p.vigencia.desde)} al ${formatFechaCorta(p.vigencia.hasta)}`
+        : 'Personalizado',
+  };
+  const year = p.vigencia?.anio_lectivo || p.anio_lectivo;
+  return `${labels[tipo] || tipo}${year ? ` ${year}` : ''}`;
+};
+
+function VigenciaPedido({ pedido, formatDate }) {
+  const period = pedido.vigencia_aprobada;
+  return <div className="col gap-1 card-meta">
+    {period && <span>Período aprobado: {formatFechaCorta(period.desde)} al {formatFechaCorta(period.hasta)}, inclusive ({period.zona_horaria}).</span>}
+    {pedido.tipo === 'alta' && pedido.estado === 'aprobado' && <>
+      <span>{pedido.compromiso_capacidad?.estado === 'reservado' && pedido.compromiso_capacidad.expira_at
+        ? `Reserva hasta ${formatDate(pedido.compromiso_capacidad.expira_at)}.` : 'Sin reserva vigente comprobada.'}</span>
+      <span>{pedido.despliegue_habilitado ? 'Fecha habilitada: administración puede solicitar el despliegue.' : period ? `Despliegue sujeto a la fecha inicial (${formatFechaCorta(period.desde)}) y a una reserva vigente.` : 'La vigencia requiere regularización antes del despliegue.'} El despliegue requiere una acción explícita.</span>
+    </>}
+  </div>;
+}
+
+const modeloServicioBadge = (modelo) => {
+  const m = (modelo || 'iaas').toLowerCase();
+  if (m === 'saas') return { label: 'SaaS', kind: 'accent' };
+  if (m === 'paas') return { label: 'PaaS', kind: 'warn' };
+  return { label: 'IaaS', kind: 'neutral' };
+};
+
+const parseDescripcionPedido = (p) => {
+  const raw = (
+    p?.descripcion_requerimientos ||
+    p?.parametros_extra?.justificacion_uso ||
+    p?.parametros_extra?.descripcion ||
+    p?.parametros_extra?.justificacion ||
+    ''
+  ).trim();
+
+  let titulo = p?.parametros_extra?.titulo || null;
+  let software = p?.parametros_extra?.software_solicitado || null;
+  let justificacion = raw;
+
+  // Extraer [Servicio Solicitado: ...]
+  const servMatch = justificacion.match(/\[Servicio Solicitado:\s*([^\]]+)\]/i);
+  if (servMatch) {
+    if (!software) software = servMatch[1].trim();
+    justificacion = justificacion.replace(servMatch[0], '').trim();
+  }
+
+  // Extraer [Propósito: ...]
+  const propMatch = justificacion.match(/\[Propósito:\s*([^\]]+)\]/i);
+  if (propMatch) {
+    if (!titulo) titulo = propMatch[1].trim();
+    justificacion = justificacion.replace(propMatch[0], '').trim();
+  }
+
+  return {
+    titulo,
+    software,
+    justificacion,
+    raw,
+  };
+};
+
+const descripcionPedido = (p) => {
+  const parsed = parseDescripcionPedido(p);
+  if (parsed.titulo && parsed.justificacion) {
+    return `${parsed.titulo} — ${parsed.justificacion}`;
+  }
+  return parsed.titulo || parsed.justificacion || parsed.raw;
+};
 
 export default function Pedidos({ user }) {
+  const location = useLocation();
   const navigate = useNavigate();
-  const [pedidos, setPedidos] = useState([]);
-  const [templates, setTemplates] = useState([]);
-  const [catedras, setCatedras] = useState([]);
-  const [misCatedras, setMisCatedras] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const pedidoDesdeAviso = Number(new URLSearchParams(location.search).get('pedido'));
   const [filtroEstado, setFiltroEstado] = useState('');
   const [query, setQuery] = useState('');
+  const [modalNuevoAbierto, setModalNuevoAbierto] = useState(false);
+  const [modalAprobarAbierto, setModalAprobarAbierto] = useState(false);
+  const [modalAjusteAbierto, setModalAjusteAbierto] = useState(false);
+  const [modalReenviarAbierto, setModalReenviarAbierto] = useState(false);
+  const [consolaOperationId, setConsolaOperationId] = useState(null);
 
   const [detalle, setDetalle] = useState(null);
   const [transicionando, setTransicionando] = useState(false);
-  const [comentario, setComentario] = useState('');
   const [motivoRechazo, setMotivoRechazo] = useState('');
-  const [evaluacion, setEvaluacion] = useState(null);
-  const [justificacion, setJustificacion] = useState('');
+  const [operationIds, setOperationIds] = useState([]);
+  const [notice, setNotice] = useState('');
+  const [detalleSinActualizar, setDetalleSinActualizar] = useState(false);
+  const pendingPedidos = useRef(false);
+  const intentKeys = useRef({});
+  const busyRef = useRef(false);
+  const claveIntencion = (tipo, id, payload = '') => {
+    const target = `${tipo}:${id}`;
+    if (intentKeys.current[target]?.payload !== payload) intentKeys.current[target] = { payload, key: crypto.randomUUID() };
+    return intentKeys.current[target].key;
+  };
+  const registrarOrden = (data) => {
+    if (data?.operation_id) setOperationIds((current) => [...new Set([...current, data.operation_id])]);
+  };
   const [motivoReversion, setMotivoReversion] = useState('');
+  const [confirmacion, setConfirmacion] = useState(null);
+  const [avisoModal, setAvisoModal] = useState(null);
+  const [cancelandoPedido, setCancelandoPedido] = useState(null);
 
-  const isAdmin = user?.rol === 'admin';
+  const handleCancelarPedido = (pedidoId) => {
+    if (busyRef.current) return;
+    setCancelandoPedido({ id: pedidoId, motivo: '' });
+  };
 
-  const fetchPedidos = async () => {
+  const ejecutarCancelacion = async (pedidoId, motivo) => {
+    if (busyRef.current) return;
+    setCancelandoPedido(null);
+    busyRef.current = true;
+    setTransicionando(true);
     try {
-      const { data } = await getPedidos(filtroEstado || null);
-      setPedidos(data);
+      await cancelarPedido(pedidoId, motivo, claveIntencion('cancelar', pedidoId, motivo));
+      delete intentKeys.current[`cancelar:${pedidoId}`];
+      await actualizarDetalle(pedidoId);
     } catch (err) {
-      console.error(err);
+      setAvisoModal({
+        title: 'Error al cancelar',
+        message: mensajeError(err, 'Error al cancelar el pedido'),
+        tone: 'bad',
+      });
     } finally {
-      setLoading(false);
+      busyRef.current = false;
+      setTransicionando(false);
     }
   };
 
+  const isAdmin = user?.rol === 'admin';
+
+  const scope = `${user?.id || ''}:${user?.rol || ''}`;
+  const pedidosRemote = useRemoteData((options) => getPedidos(filtroEstado || null, options), {
+    key: `pedidos:${scope}:${filtroEstado}`, refreshMs: 5000,
+    canRefresh: () => pendingPedidos.current && !busyRef.current && !modalAprobarAbierto && !modalAjusteAbierto && !modalReenviarAbierto,
+    errorMessage: 'No se pudieron consultar los pedidos.' });
+  const pedidos = pedidosRemote.data || EMPTY;
+  pendingPedidos.current = pedidos.some((p) => p.estado === 'en_despliegue' || p.operation_id);
+  const loading = pedidosRemote.loading && !pedidosRemote.data;
+  const fetchPedidos = pedidosRemote.reload;
   useEffect(() => {
-    fetchPedidos();
-    getTemplates().then(({ data }) => setTemplates(data)).catch(console.error);
-    if (isAdmin) getCatedras().then(({ data }) => setCatedras(data)).catch(console.error);
-    else getCatedrasMias().then(({ data }) => setMisCatedras(data)).catch(console.error);
-  }, [filtroEstado]);
+    if (pedidosRemote.data) setOperationIds((current) => [...new Set([...current,
+      ...pedidosRemote.data.map((p) => p.operation_id || p.ultima_operacion_id).filter(Boolean)])]);
+  }, [pedidosRemote.data]);
+  const templatesRemote = useRemoteData((options) => getTemplates(true, null, options), {
+    key: `perfiles-pedidos:${scope}`, errorMessage: 'No se pudieron consultar los perfiles.' });
+  const categoriesRemote = useRemoteData((options) => isAdmin ? getCatedras(options) : getCatedrasMias(options), {
+    key: `catedras-pedidos:${scope}`, errorMessage: 'No se pudieron consultar las cátedras.' });
+  const templates = templatesRemote.data || EMPTY;
+  const catedras = isAdmin ? categoriesRemote.data || EMPTY : EMPTY;
+  const misCatedras = isAdmin ? EMPTY : categoriesRemote.data || EMPTY;
 
   const fuente = isAdmin ? catedras : misCatedras;
   const templateDe = (id) => templates.find((t) => t.id === id);
-  const templateNombre = (id) => templateDe(id)?.nombre || `Template #${id}`;
+  const templateNombre = (id) => (id ? (templateDe(id)?.nombre || `Template #${id}`) : 'Servicio a Medida');
   const catedraNombre = (id) => fuente.find((c) => c.id === id)?.nombre || `Cátedra #${id}`;
   const catedraResponsable = (id) => fuente.find((c) => c.id === id)?.titular?.nombre;
 
@@ -127,166 +266,205 @@ export default function Pedidos({ user }) {
     const q = query.trim().toLowerCase();
     if (!q) return pedidos;
     return pedidos.filter((p) =>
-      [`#${p.id}`, templateNombre(p.template_id), catedraNombre(p.catedra_id), ESTADO_CONFIG[p.estado]?.label]
+      [`#${p.id}`, templateNombre(p.template_id), catedraNombre(p.catedra_id), p.servicio_dado_de_baja ? 'Servicio dado de baja' : ESTADO_CONFIG[p.estado]?.label, descripcionPedido(p), p.modelo_servicio || '', vigenciaLabel(p) || '']
         .join(' ').toLowerCase().includes(q));
   }, [pedidos, query, templates, catedras, misCatedras]);
 
   // ---- Detalle / decisiones ----
-  const cargarEvaluacion = async (pedidoId) => {
-    setEvaluacion(null);
-    setJustificacion('');
-    try {
-      const { data } = await evaluarPedido(pedidoId);
-      setEvaluacion(data);
-    } catch (err) {
-      console.error(err);
-    }
+  const actualizarDetalle = async (id) => {
+    await Promise.all([fetchPedidos(), verDetalle(id)]);
   };
+  const operaciones = useOperacion(operationIds, () => {
+    fetchPedidos();
+    if (detalle) verDetalle(detalle.id);
+  });
+  const operacionDelPedido = (p) => (p.operation_id || p.ultima_operacion_id) ? operaciones[p.operation_id || p.ultima_operacion_id] : Object.values(operaciones)
+    .filter((op) => op.pedido_id === p.id && op.tipo === 'desplegar')
+    .sort((a, b) => (Date.parse(a.creado_at) || 0) - (Date.parse(b.creado_at) || 0)).at(-1);
+
+  useEffect(() => {
+    if (!Number.isSafeInteger(pedidoDesdeAviso) || pedidoDesdeAviso <= 0) return;
+    const controller = new AbortController();
+    getPedido(pedidoDesdeAviso, { signal: controller.signal }).then(({ data }) => {
+      if (controller.signal.aborted) return;
+      setDetalle(data); setDetalleSinActualizar(false);
+      if (data.operation_id) setOperationIds((current) => [...new Set([...current, data.operation_id])]);
+    }).catch(() => { if (!controller.signal.aborted) setNotice('No se pudo abrir el pedido de esta notificación.'); });
+    return () => controller.abort();
+  }, [pedidoDesdeAviso, scope]);
+
+  const detalleId = detalle?.id;
+  const seguimiento = detalle?.estado === 'en_despliegue' && !modalAprobarAbierto && !modalAjusteAbierto && !modalReenviarAbierto;
+  useEffect(() => {
+    if (!detalleId || !seguimiento) return;
+    let running = false;
+    const controller = new AbortController();
+    const poll = async () => {
+      if (document.hidden || running || busyRef.current) return;
+      running = true;
+      try {
+        const { data } = await getPedido(detalleId, { signal: controller.signal });
+        if (!controller.signal.aborted) {
+          setDetalle(data); setDetalleSinActualizar(false);
+          if (data.operation_id) setOperationIds((current) => [...new Set([...current, data.operation_id])]);
+        }
+      } catch { if (!controller.signal.aborted) setDetalleSinActualizar(true); }
+      finally { running = false; }
+    };
+    const timer = setInterval(poll, 5000);
+    document.addEventListener('visibilitychange', poll);
+    return () => { clearInterval(timer); controller.abort(); document.removeEventListener('visibilitychange', poll); };
+  }, [detalleId, seguimiento, scope]);
 
   const verDetalle = async (id) => {
     try {
       const { data } = await getPedido(id);
       setDetalle(data);
-      setEvaluacion(null);
-      setComentario('');
+      setDetalleSinActualizar(false);
       setMotivoRechazo('');
       setMotivoReversion('');
-      if (isAdmin && data.estado === 'solicitado') await cargarEvaluacion(id);
+      registrarOrden(data);
     } catch {
-      alert('Error al cargar detalle');
+      setAvisoModal({
+        title: 'Error al cargar detalle',
+        message: 'No se pudo obtener el detalle actualizado del pedido.',
+        tone: 'bad',
+      });
     }
   };
 
   const cerrarDetalle = () => {
+    if (pedidoDesdeAviso) navigate('/pedidos', { replace: true });
     setDetalle(null);
-    setEvaluacion(null);
-    setComentario('');
     setMotivoRechazo('');
     setMotivoReversion('');
   };
 
-  const handleAprobar = async () => {
-    if (!evaluacion) return;
-    if (evaluacion.excede_capacidad && !justificacion.trim()) {
-      alert('Aprobar por encima de la capacidad libre requiere una justificación.');
-      return;
-    }
-    setTransicionando(true);
-    try {
-      const { data } = await aprobarPedido(evaluacion.pedido.id, {
-        capacidad_token: evaluacion.capacidad_token,
-        justificacion_capacidad: justificacion.trim() || null,
-      });
-      setDetalle(data);
-      setEvaluacion(null);
-      fetchPedidos();
-    } catch (err) {
-      const d = err.response?.data?.detail;
-      if (d?.codigo === 'token_desactualizado') {
-        alert('La capacidad del clúster cambió mientras mirabas este pedido.\n\nLos números se actualizaron: revisalos y confirmá de nuevo.');
-        await cargarEvaluacion(evaluacion.pedido.id);
-      } else if (d?.codigo === 'excede_capacidad') {
-        alert(d.mensaje);
-        await cargarEvaluacion(evaluacion.pedido.id);
-      } else {
-        alert(typeof d === 'string' ? d : 'Error al aprobar el pedido');
-      }
-    } finally {
-      setTransicionando(false);
-    }
-  };
-
   const handleRechazar = async () => {
+    if (busyRef.current) return;
     if (!motivoRechazo.trim()) {
-      alert('Ingresá un motivo de rechazo: la cátedra lo va a ver.');
+      setAvisoModal({
+        title: 'Motivo requerido',
+        message: 'Ingresá un motivo de rechazo: la cátedra lo va a ver.',
+        tone: 'warn',
+      });
       return;
     }
+    busyRef.current = true;
     setTransicionando(true);
     try {
-      const { data } = await rechazarPedido(detalle.id, motivoRechazo);
-      setDetalle(data);
-      setEvaluacion(null);
-      setMotivoRechazo('');
-      fetchPedidos();
+      await rechazarPedido(detalle.id, motivoRechazo, claveIntencion('rechazar', detalle.id, motivoRechazo));
+      delete intentKeys.current[`rechazar:${detalle.id}`];
+      await actualizarDetalle(detalle.id);
     } catch (err) {
-      alert(err.response?.data?.detail || 'Error al rechazar el pedido');
+      setAvisoModal({
+        title: 'Error al rechazar el pedido',
+        message: mensajeError(err, 'Error al rechazar el pedido'),
+        tone: 'bad',
+      });
     } finally {
+      busyRef.current = false;
       setTransicionando(false);
     }
   };
 
   const handleRevertir = async () => {
+    if (busyRef.current) return;
     if (!motivoReversion.trim()) {
-      alert('Escribí por qué deshacés la aprobación: la cátedra lo va a ver.');
-      return;
-    }
-    if (!confirm(`¿Deshacer la aprobación del pedido #${detalle.id}?\n\nLa capacidad que había reservado vuelve a estar libre en el acto.`)) return;
-    setTransicionando(true);
-    try {
-      const { data } = await revertirAprobacion(detalle.id, motivoReversion);
-      const c = data.capacidad_liberada;
-      setDetalle(data);
-      setMotivoReversion('');
-      fetchPedidos();
-      alert(c && (c.vcpus || c.ram_mb || c.storage_gb)
-        ? `Aprobación deshecha. Volvieron a estar libres ${c.vcpus} vCPU, ${c.ram_mb} MB de RAM y ${c.storage_gb} GB de disco.`
-        : 'Aprobación deshecha. Esta renovación no tenía capacidad reservada, así que el saldo del clúster no cambia.');
-    } catch (err) {
-      // El backend ya redacta un mensaje distinto para cada uno de los cuatro
-      // conflictos; volcarlo crudo perdería justamente eso.
-      const d = err.response?.data?.detail;
-      alert(d?.mensaje || (typeof d === 'string' ? d : 'Error al deshacer la aprobación'));
-    } finally {
-      setTransicionando(false);
-    }
-  };
-
-  const handleTransicion = async (pedidoId, nuevoEstado) => {
-    if (nuevoEstado === 'rechazado' && !motivoRechazo) {
-      alert('Ingresá un motivo de rechazo');
-      return;
-    }
-    setTransicionando(true);
-    try {
-      const { data } = await cambiarEstadoPedido(pedidoId, {
-        nuevo_estado: nuevoEstado,
-        comentario: comentario || null,
-        motivo_rechazo: nuevoEstado === 'rechazado' ? motivoRechazo : null,
+      setAvisoModal({
+        title: 'Motivo requerido',
+        message: 'Escribí por qué deshacés la aprobación: la cátedra lo va a ver.',
+        tone: 'warn',
       });
-      setDetalle(data);
-      setComentario('');
-      setMotivoRechazo('');
-      fetchPedidos();
-    } catch (err) {
-      alert(err.response?.data?.detail || 'Error al cambiar estado');
-    } finally {
-      setTransicionando(false);
+      return;
     }
+    setConfirmacion({
+      title: 'Deshacer aprobación',
+      message: `¿Deshacer la aprobación del pedido #${detalle.id}?`,
+      detail: 'La capacidad que había reservado vuelve a estar libre en el acto.',
+      confirmText: 'Deshacer aprobación',
+      danger: true,
+      onConfirm: async () => {
+        busyRef.current = true;
+        setTransicionando(true);
+        try {
+          const { data } = await revertirAprobacion(detalle.id, motivoReversion, claveIntencion('revertir', detalle.id, motivoReversion));
+          delete intentKeys.current[`revertir:${detalle.id}`];
+          const c = data.capacidad_liberada;
+          await actualizarDetalle(detalle.id);
+          setAvisoModal({
+            title: 'Aprobación deshecha',
+            message: c && (c.vcpus || c.ram_mb || c.storage_gb)
+              ? `Aprobación deshecha. Volvieron a estar libres ${c.vcpus} vCPU, ${c.ram_mb} MB de RAM y ${c.storage_gb} GB de disco.`
+              : 'Aprobación deshecha. Consultá el detalle actualizado de la decisión.',
+            tone: 'accent',
+          });
+        } catch (err) {
+          const d = err.response?.data?.detail;
+          setAvisoModal({
+            title: 'No se pudo deshacer la aprobación',
+            message: d?.mensaje || (typeof d === 'string' ? d : 'Error al deshacer la aprobación'),
+            tone: 'bad',
+          });
+        } finally {
+          busyRef.current = false;
+          setTransicionando(false);
+        }
+      },
+    });
   };
 
   const handleDesplegar = async (pedidoId) => {
-    if (!confirm(`¿Desplegar el pedido #${pedidoId} en Proxmox?`)) return;
-    setTransicionando(true);
-    try {
-      await desplegarPedido(pedidoId);
-      await verDetalle(pedidoId);
-      fetchPedidos();
-    } catch (err) {
-      alert(err.response?.data?.detail || 'Error al desplegar el pedido');
-    } finally {
-      setTransicionando(false);
-    }
+    if (busyRef.current) return;
+    setConfirmacion({
+      title: 'Solicitar despliegue',
+      message: `¿Solicitar el despliegue del pedido #${pedidoId}?`,
+      detail: 'Se iniciará el aprovisionamiento de la instancia en Proxmox.',
+      confirmText: 'Desplegar',
+      danger: false,
+      onConfirm: async () => {
+        busyRef.current = true;
+        setTransicionando(true);
+        try {
+          const { data } = await desplegarPedido(pedidoId, {}, claveIntencion('deploy', pedidoId));
+          registrarOrden(data);
+          delete intentKeys.current[`deploy:${pedidoId}`];
+          await verDetalle(pedidoId);
+          fetchPedidos();
+        } catch (err) {
+          registrarOrden(err.response?.data?.detail);
+          setAvisoModal({
+            title: 'Error al desplegar',
+            message: mensajeError(err, 'Error al desplegar el pedido'),
+            tone: 'bad',
+          });
+        } finally {
+          busyRef.current = false;
+          setTransicionando(false);
+        }
+      },
+    });
   };
 
   const handleReintentar = async (pedidoId) => {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setTransicionando(true);
     try {
-      await reintentarPedido(pedidoId);
+      const { data } = await reintentarPedido(pedidoId, {}, claveIntencion('retry', pedidoId));
+      registrarOrden(data);
+      delete intentKeys.current[`retry:${pedidoId}`];
       await verDetalle(pedidoId);
       fetchPedidos();
     } catch (err) {
-      alert(err.response?.data?.detail || 'Error al reintentar el despliegue');
+      registrarOrden(err.response?.data?.detail);
+      setAvisoModal({
+        title: 'Error al reintentar',
+        message: mensajeError(err, 'Error al reintentar el despliegue'),
+        tone: 'bad',
+      });
     } finally {
+      busyRef.current = false;
       setTransicionando(false);
     }
   };
@@ -309,6 +487,7 @@ export default function Pedidos({ user }) {
         <select
           className="input"
           style={{ minWidth: 190 }}
+          aria-label="Filtrar pedidos por estado"
           value={filtroEstado}
           onChange={(e) => setFiltroEstado(e.target.value)}
         >
@@ -317,12 +496,16 @@ export default function Pedidos({ user }) {
             <option key={key} value={key}>{cfg.label}</option>
           ))}
         </select>
-        <button className="btn-send" onClick={() => navigate('/catalogo')}>
+        <button className="btn-send" onClick={() => setModalNuevoAbierto(true)}>
           <Send size={17} />
-          <span>Nuevo pedido</span>
+          <span>Nueva Solicitud</span>
         </button>
       </PageHead>
+      {notice && <div className="callout" role="status"><CheckCircle2 size={18}/><span>{notice}</span><button type="button" className="btn btn-ghost" onClick={() => setNotice('')}>Cerrar aviso</button></div>}
 
+      <EstadoConsulta remote={pedidosRemote} nombre="pedidos" />
+      <EstadoConsulta remote={templatesRemote} nombre="perfiles" />
+      <EstadoConsulta remote={categoriesRemote} nombre="cátedras" />
       <div className="row between" style={{ marginBottom: 'var(--space-4)', alignItems: 'baseline' }}>
         <div className="section-label">Listado</div>
         <span className="section-count">{visibles.length} pedidos · {filtroLabel}</span>
@@ -331,26 +514,32 @@ export default function Pedidos({ user }) {
       {visibles.length === 0 ? (
         <div className="card">
           <Empty icon={<Search size={22} />}>
-            {loading ? 'Cargando…' : 'Ningún pedido coincide con la búsqueda.'}
+            {loading ? 'Cargando…' : pedidosRemote.error ? 'No se pudo confirmar el listado.' : 'Ningún pedido coincide con la búsqueda.'}
           </Empty>
         </div>
       ) : (
-        <div className="col gap-3">
+        <div className="col gap-3" aria-label="Listado de pedidos" aria-busy={loading} data-estado={filtroEstado}>
           {visibles.map((p) => {
             const tpl = templateDe(p.template_id);
             const cfg = ESTADO_CONFIG[p.estado] || {};
             const paso = cfg.paso ?? -1;
             const responsable = catedraResponsable(p.catedra_id);
             return (
-              <div key={p.id} className="card" style={{ gap: 'var(--space-4)' }}>
+              <div key={p.id} data-pedido-id={p.id} data-estado={p.estado} className="card" style={{ gap: 'var(--space-4)' }}>
                 <div className="row between wrap" style={{ alignItems: 'flex-start' }}>
                   <div style={{ minWidth: 0 }}>
                     <div className="row wrap gap-2" style={{ alignItems: 'baseline' }}>
                       <span className="section-count">#{p.id}</span>
                       <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 'var(--font-heading-weight)', fontSize: 19 }}>
-                        {templateNombre(p.template_id)}
+                        {p.asignacion_snapshot?.nombre || (!p.template_id && parseDescripcionPedido(p).software) || templateNombre(p.template_id)}
+                        {p.asignacion_snapshot?.definition_version && <small className="block">Versión autorizada: {p.asignacion_snapshot.definition_version}</small>}
                       </span>
-                      <span className="tag">{tipoTemplate(tpl)}</span>
+                      {(() => {
+                        const mb = modeloServicioBadge(p.modelo_servicio);
+                        return <span className={`tag ${mb.kind}`}>{mb.label}</span>;
+                      })()}
+                      <span className="tag">{tipoTemplate(tpl, p.modelo_servicio)}</span>
+                      {vigenciaLabel(p) && <span className="tag neutral">{vigenciaLabel(p)}</span>}
                       {p.tipo === 'renovacion' && <span className="tag neutral">Renovación</span>}
                     </div>
                     <div style={{ fontSize: 13, color: 'var(--text-soft)', marginTop: 8 }}>
@@ -361,16 +550,40 @@ export default function Pedidos({ user }) {
                     <div className="tabnum" style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 4 }}>
                       {specsDe(p, tpl)}
                     </div>
+                    {descripcionPedido(p) && (
+                      <div style={{ fontSize: 13, color: 'var(--text-soft)', marginTop: 6, fontStyle: 'italic' }}>
+                        “{descripcionPedido(p)}”
+                      </div>
+                    )}
                   </div>
                   <div className="row gap-3" style={{ flex: 'none' }}>
-                    <StatusPill kind={fueRevertido(p) ? 'warn' : kindDe(p.estado)}>
-                      {fueRevertido(p) ? 'Aprobación deshecha' : (cfg.label || p.estado)}
+                    <StatusPill kind={p.servicio_dado_de_baja ? 'off' : fueRevertido(p) ? 'warn' : kindDe(p.estado)}>
+                      {p.servicio_dado_de_baja ? 'Servicio dado de baja' : fueRevertido(p) ? 'Aprobación deshecha' : (p.tipo === 'renovacion' && p.estado === 'activo' ? 'Renovación registrada' : cfg.label || p.estado)}
                     </StatusPill>
                     <button className="btn btn-ghost btn-sm" onClick={() => verDetalle(p.id)}>Ver detalle</button>
                   </div>
                 </div>
 
-                {paso >= 0 && paso < 3 && (
+                {!p.servicio_dado_de_baja && p.tipo !== 'renovacion' && ['en_despliegue', 'error'].includes(p.estado)
+                  ? (
+                    <div>
+                      <ProgresoDespliegue pedido={p} operacion={operacionDelPedido(p)} isAdmin={isAdmin} compact/>
+                      {isAdmin && (p.operation_id || operacionDelPedido(p)?.operation_id) && (
+                        <div style={{ marginTop: '4px' }}>
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-xs"
+                            onClick={() => setConsolaOperationId(p.operation_id || operacionDelPedido(p)?.operation_id)}
+                          >
+                            Ver consola
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )
+                  : p.operation_id && <p role="status">{textoOperacion(operaciones[p.operation_id])}</p>}
+                <VigenciaPedido pedido={p} formatDate={formatDate} />
+                {p.tipo !== 'renovacion' && p.estado !== 'en_despliegue' && paso >= 0 && paso < 3 && (
                   <div className="stepper">
                     {PASOS_PEDIDO.map((label, i) => (
                       <div className="stepper__col" key={label}>
@@ -405,205 +618,614 @@ export default function Pedidos({ user }) {
         </div>
       )}
 
-      {detalle && (
+      {detalle && !modalAprobarAbierto && !modalAjusteAbierto && !modalReenviarAbierto && (
         <DetalleDialog
           detalle={detalle}
           isAdmin={isAdmin}
+          templateDe={templateDe}
           templateNombre={templateNombre}
           catedraNombre={catedraNombre}
           formatDate={formatDate}
           onClose={cerrarDetalle}
-          transicionando={transicionando}
-          evaluacion={evaluacion}
-          justificacion={justificacion}
-          setJustificacion={setJustificacion}
-          comentario={comentario}
-          setComentario={setComentario}
+          transicionando={transicionando || Boolean(detalle.operation_id && (!operaciones[detalle.operation_id] || operacionAbierta(operaciones[detalle.operation_id])))}
+          operacion={operacionDelPedido(detalle)}
+          sinActualizar={detalleSinActualizar}
+          onVerConsola={(opId) => setConsolaOperationId(opId)}
           motivoRechazo={motivoRechazo}
           setMotivoRechazo={setMotivoRechazo}
           motivoReversion={motivoReversion}
           setMotivoReversion={setMotivoReversion}
           onRevertir={handleRevertir}
-          onAprobar={handleAprobar}
+          onAbrirAprobar={() => setModalAprobarAbierto(true)}
+          onAbrirAjuste={() => setModalAjusteAbierto(true)}
+          onAbrirReenviar={() => setModalReenviarAbierto(true)}
+          onCancelarPedido={handleCancelarPedido}
           onRechazar={handleRechazar}
-          onActualizarCapacidad={() => cargarEvaluacion(detalle.id)}
-          onTransicion={handleTransicion}
           onDesplegar={handleDesplegar}
           onReintentar={handleReintentar}
+        />
+      )}
+
+      <NuevoPedidoModal
+        open={modalNuevoAbierto}
+        onClose={() => setModalNuevoAbierto(false)}
+        onCreated={() => {
+          fetchPedidos();
+        }}
+        user={user}
+      />
+
+      <AprobarPedidoModal
+        open={modalAprobarAbierto}
+        pedido={detalle}
+        templates={templates}
+        onClose={() => setModalAprobarAbierto(false)}
+        onAprobado={(result) => {
+          registrarOrden(result);
+          setNotice(result.operation_id ? 'Pedido aprobado. El despliegue está en marcha; podés seguir su avance en el detalle.' : 'Pedido aprobado. Los recursos quedaron reservados.');
+          actualizarDetalle(detalle.id);
+        }}
+      />
+
+      <AjustePedidoModal
+        user={user}
+        open={modalAjusteAbierto}
+        pedido={detalle}
+        onClose={() => setModalAjusteAbierto(false)}
+        onAjusteSolicitado={(result) => {
+          registrarOrden(result);
+          actualizarDetalle(detalle.id);
+        }}
+      />
+
+      <ReenviarPedidoModal
+        user={user}
+        open={modalReenviarAbierto}
+        pedido={detalle}
+        onClose={() => setModalReenviarAbierto(false)}
+        onReenviado={(result) => {
+          registrarOrden(result);
+          actualizarDetalle(detalle.id);
+        }}
+      />
+
+      {consolaOperationId && (
+        <ConsolaOperacion
+          operationId={consolaOperationId}
+          onClose={() => setConsolaOperationId(null)}
+        />
+      )}
+
+      {cancelandoPedido && (
+        <Dialog
+          title={`Cancelar pedido #${cancelandoPedido.id}`}
+          onClose={() => setCancelandoPedido(null)}
+          actions={
+            <>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setCancelandoPedido(null)}
+              >
+                Volver
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                disabled={!cancelandoPedido.motivo?.trim()}
+                onClick={() => ejecutarCancelacion(cancelandoPedido.id, cancelandoPedido.motivo.trim())}
+              >
+                Confirmar cancelación
+              </button>
+            </>
+          }
+        >
+          <div className="confirm-dialog-content">
+            <p className="confirm-dialog-message">Indicá el motivo por el cual cancelás este pedido (será visible en el historial):</p>
+            <textarea
+              className="input"
+              rows={3}
+              placeholder="Motivo de cancelación (obligatorio)"
+              value={cancelandoPedido.motivo}
+              onChange={(e) => setCancelandoPedido({ ...cancelandoPedido, motivo: e.target.value })}
+              autoFocus
+            />
+          </div>
+        </Dialog>
+      )}
+
+      {confirmacion && (
+        <ConfirmDialog
+          title={confirmacion.title}
+          message={confirmacion.message}
+          detail={confirmacion.detail}
+          confirmText={confirmacion.confirmText || 'Aceptar'}
+          cancelText={confirmacion.cancelText || 'Cancelar'}
+          danger={confirmacion.danger}
+          busy={transicionando}
+          onClose={() => setConfirmacion(null)}
+          onConfirm={async () => {
+            const fn = confirmacion.onConfirm;
+            setConfirmacion(null);
+            await fn();
+          }}
+        />
+      )}
+
+      {avisoModal && (
+        <AlertDialog
+          title={avisoModal.title}
+          message={avisoModal.message}
+          detail={avisoModal.detail}
+          tone={avisoModal.tone}
+          onClose={() => setAvisoModal(null)}
         />
       )}
     </div>
   );
 }
 
-function DetalleDialog({
-  detalle, isAdmin, templateNombre, catedraNombre, formatDate, onClose, transicionando,
-  evaluacion, justificacion, setJustificacion, comentario, setComentario,
-  motivoRechazo, setMotivoRechazo, onAprobar, onRechazar, onActualizarCapacidad,
-  onTransicion, onDesplegar, onReintentar, motivoReversion, setMotivoReversion, onRevertir,
+export function DetalleDialog({
+  detalle, isAdmin, templateDe, templateNombre, catedraNombre, formatDate, onClose, transicionando,
+  operacion, sinActualizar, onVerConsola,
+  motivoRechazo, setMotivoRechazo, onAbrirAprobar, onAbrirAjuste, onAbrirReenviar, onCancelarPedido, onRechazar,
+  onDesplegar, onReintentar, motivoReversion, setMotivoReversion, onRevertir,
 }) {
+  const [mostrarRechazo, setMostrarRechazo] = useState(false);
+  const [mostrarReversion, setMostrarReversion] = useState(false);
+  const [historialAbierto, setHistorialAbierto] = useState(false);
+
   const cfg = ESTADO_CONFIG[detalle.estado] || {};
   const revertido = fueRevertido(detalle);
-  const kind = revertido ? 'warn' : kindDe(detalle.estado);
-  const transiciones = TRANSICIONES[detalle.estado] || [];
-  // Solo se deshace una aprobación que todavía no se desplegó: en cuanto hay
-  // servicio, la vuelta atrás es una baja, no una decisión administrativa.
-  const puedeRevertir = isAdmin && detalle.estado === 'aprobado' && !detalle.servicio_id;
+  const kind = detalle.servicio_dado_de_baja ? 'off' : revertido ? 'warn' : kindDe(detalle.estado);
+  const puedeRevertir = isAdmin && detalle.estado === 'aprobado' && !detalle.servicio_id && !transicionando;
+
+  const parsed = parseDescripcionPedido(detalle);
+  const tpl = templateDe ? templateDe(detalle.template_id) : null;
+  const nombreCabecera = detalle.asignacion_snapshot?.nombre || parsed.software || templateNombre(detalle.template_id);
+  const specs = specsDe(detalle, tpl);
 
   return (
     <Dialog
       wide
-      title={`Pedido #${detalle.id} — ${templateNombre(detalle.template_id)}`}
+      title={`Pedido #${detalle.id} — ${nombreCabecera}`}
       onClose={onClose}
     >
-      <div className="grid cols-3 mb-4">
-        <div>
-          <div className="section-label" style={{ marginBottom: 4 }}>Estado</div>
-          <StatusPill kind={kind}>{revertido ? 'Aprobación deshecha' : (cfg.label || detalle.estado)}</StatusPill>
-        </div>
-        <div>
-          <div className="section-label" style={{ marginBottom: 4 }}>Cátedra</div>
-          <div style={{ fontSize: 14 }}>{catedraNombre(detalle.catedra_id)}</div>
-        </div>
-        <div>
-          <div className="section-label" style={{ marginBottom: 4 }}>Creado</div>
-          <div style={{ fontSize: 14 }}>{formatDate(detalle.created_at)}</div>
+      {/* 1. Header Ribbon con Estado, Modelo, Cátedra, Vigencia y Fecha */}
+      <div className="detalle-header-ribbon">
+        <div className="row wrap between gap-2" style={{ width: '100%' }}>
+          <div className="row wrap gap-2" style={{ alignItems: 'center' }}>
+            <StatusPill kind={kind}>
+              {detalle.servicio_dado_de_baja ? 'Servicio dado de baja' : revertido ? 'Aprobación deshecha' : (detalle.tipo === 'renovacion' && detalle.estado === 'activo' ? 'Renovación registrada' : cfg.label || detalle.estado)}
+            </StatusPill>
+            <span className={`tag ${modeloServicioBadge(detalle.modelo_servicio).kind}`}>
+              {modeloServicioBadge(detalle.modelo_servicio).label}
+            </span>
+            <span className="tag neutral" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <Users size={12} />
+              {catedraNombre(detalle.catedra_id)}
+            </span>
+            {vigenciaLabel(detalle) && (
+              <span className="tag neutral" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <Calendar size={12} />
+                {vigenciaLabel(detalle)}
+              </span>
+            )}
+          </div>
+          {detalle.created_at && (
+            <div style={{ fontSize: 12, color: 'var(--text-faint)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <Clock size={12} />
+              <span>{formatDate(detalle.created_at)}</span>
+            </div>
+          )}
         </div>
       </div>
+
+      {/* 2. Contenido Destacado de la Solicitud */}
+      <div className="detalle-content-card">
+        <div className="row between wrap gap-2" style={{ alignItems: 'center' }}>
+          <div className="row gap-2" style={{ alignItems: 'center' }}>
+            <FileText size={16} style={{ color: 'var(--color-accent)' }} />
+            <span style={{ fontWeight: 600, fontSize: 15, color: 'var(--text-strong)' }}>
+              {parsed.titulo || nombreCabecera || 'Detalles de la Solicitud'}
+            </span>
+            {parsed.software && parsed.software.toLowerCase() !== (parsed.titulo || '').toLowerCase() && (
+              <span className="tag accent" style={{ fontSize: 11 }}>
+                {parsed.software}
+              </span>
+            )}
+          </div>
+          {specs && (
+            <span className="tag neutral" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+              <Server size={12} />
+              <span>{specs}</span>
+            </span>
+          )}
+        </div>
+
+        {parsed.justificacion && (
+          <div style={{ borderTop: '1px solid var(--color-divider)', paddingTop: 10, marginTop: 10 }}>
+            <div className="card-meta" style={{ marginBottom: 4, fontSize: 12 }}>
+              Justificación pedagógica
+            </div>
+            <div
+              style={{
+                fontSize: 13.5,
+                lineHeight: 1.5,
+                color: 'var(--text-body)',
+                whiteSpace: 'pre-wrap',
+              }}
+            >
+              {parsed.justificacion}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 3. Avisos / Observaciones previas si existen */}
+      {detalle.observaciones_ajuste && (
+        <div className="callout warn" style={{ marginBottom: 'var(--space-3)' }}>
+          <AlertTriangle size={16} />
+          <div>
+            <strong>Aclaración solicitada por administración:</strong>
+            <div style={{ marginTop: 4, whiteSpace: 'pre-wrap' }}>{detalle.observaciones_ajuste}</div>
+          </div>
+        </div>
+      )}
 
       {detalle.motivo_rechazo && (
-        <div className={`callout ${revertido ? 'warn' : 'bad'}`} style={{ marginBottom: 'var(--space-4)' }}>
-          <Info size={15} />
-          {revertido ? (
-            <span>
-              <strong>Este pedido estaba aprobado y la aprobación se deshizo.</strong>{' '}
-              {motivoLimpio(detalle.motivo_rechazo)}{' '}
-              La capacidad que tenía reservada volvió a estar libre, y se puede volver a pedir lo mismo
-              cuando haga falta.
-            </span>
-          ) : (
-            <span><strong>Motivo de rechazo:</strong> {detalle.motivo_rechazo}</span>
-          )}
+        <div className={`callout ${revertido ? 'warn' : 'bad'}`} style={{ marginBottom: 'var(--space-3)' }}>
+          <Info size={16} />
+          <div>
+            {revertido ? (
+              <span>
+                <strong>Aprobación deshecha:</strong> {motivoLimpio(detalle.motivo_rechazo)} La capacidad que tenía reservada volvió a estar libre.
+              </span>
+            ) : (
+              <span><strong>Motivo de rechazo:</strong> {detalle.motivo_rechazo}</span>
+            )}
+          </div>
         </div>
       )}
 
-      <div className="mb-4">
-        <div className="section-label" style={{ marginBottom: 'var(--space-2)' }}>Historial de estados</div>
-        <div className="col gap-2">
-          {detalle.historial?.map((h) => (
-            <div key={h.id} className="row between" style={{ paddingLeft: 12, borderLeft: '2px solid var(--color-divider)' }}>
-              <div style={{ fontSize: 12 }}>
-                <span>{describirEntrada(h)}</span>
-                {h.usuario_id == null && <span className="tag neutral" style={{ marginLeft: 6 }}>Automático</span>}
-                {h.comentario && <span style={{ color: 'var(--text-soft)' }}> · {h.comentario}</span>}
-              </div>
-              <span className="nowrap" style={{ fontSize: 11, color: 'var(--text-faint)' }}>{formatDate(h.created_at)}</span>
-            </div>
-          ))}
-        </div>
-      </div>
+      {sinActualizar && <p role="alert" className="callout warn">No se pudo actualizar el pedido. Mostramos el último estado y volveremos a consultar.</p>}
 
-      {isAdmin && detalle.estado === 'solicitado' && (
-        <div style={{ borderTop: '1px solid var(--color-divider)', paddingTop: 'var(--space-4)' }}>
-          <div className="section-label" style={{ marginBottom: 'var(--space-2)' }}>Decisión sobre este pedido</div>
-          {evaluacion ? (
-            <>
-              <PanelCapacidad evaluacion={evaluacion} />
-              {evaluacion.excede_capacidad && (
-                <div className="field">
-                  <label>Justificación (obligatoria para aprobar por encima de la capacidad)</label>
-                  <input
-                    className="input"
-                    placeholder="Ej: se apaga el laboratorio viejo esta semana"
-                    value={justificacion}
-                    onChange={(e) => setJustificacion(e.target.value)}
-                  />
-                </div>
-              )}
-              <div className="field">
-                <label>Motivo (si rechazás, la cátedra lo va a ver)</label>
+      {/* 4. Acción Principal / Operativa según estado */}
+
+      {/* Estado: APROBADO (Listo para desplegar / Despliegue programado) */}
+      {detalle.estado === 'aprobado' && (
+        <div className="detalle-action-card detalle-action-card--deploy">
+          <div className="row between wrap gap-3">
+            <div style={{ flex: 1, minWidth: 260 }}>
+              <div style={{ fontWeight: 600, fontSize: 15, color: 'var(--text-strong)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <CheckCircle2 size={18} style={{ color: 'var(--st-ok)' }} />
+                <span>{detalle.despliegue_habilitado ? 'Listo para desplegar en Proxmox' : 'Aprobado — Despliegue programado'}</span>
+              </div>
+              <p className="text-muted" style={{ margin: '4px 0 0', fontSize: 13, lineHeight: 1.4 }}>
+                {detalle.compromiso_capacidad?.estado === 'reservado' && detalle.compromiso_capacidad.expira_at ? (
+                  <>Capacidad reservada en el clúster hasta el <strong>{formatDate(detalle.compromiso_capacidad.expira_at)}</strong>.</>
+                ) : (
+                  'Capacidad validada en el clúster.'
+                )}
+                {!detalle.despliegue_habilitado && detalle.vigencia_aprobada?.desde && (
+                  ` Se habilitará a partir del ${formatFechaCorta(detalle.vigencia_aprobada.desde)}.`
+                )}
+              </p>
+            </div>
+
+            {isAdmin && (
+              <div className="row gap-2" style={{ alignItems: 'center' }}>
+                {puedeRevertir && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost text-muted btn-sm"
+                    onClick={() => setMostrarReversion(!mostrarReversion)}
+                    disabled={transicionando}
+                  >
+                    Deshacer aprobación…
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => onDesplegar(detalle.id)}
+                  disabled={transicionando || !detalle.despliegue_habilitado}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 16px', fontWeight: 600, fontSize: 13.5 }}
+                >
+                  <Server size={15} /> Desplegar en Proxmox
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Formulario colapsable para Deshacer aprobación */}
+          {puedeRevertir && mostrarReversion && (
+            <div className="rechazo-panel" style={{ marginTop: 12, background: 'var(--st-warn-bg)', borderColor: 'var(--st-warn-bd)' }}>
+              <div style={{ fontSize: 13, color: 'var(--text-strong)', fontWeight: 600, marginBottom: 4 }}>
+                Deshacer la aprobación y liberar capacidad
+              </div>
+              <p style={{ fontSize: 12.5, color: 'var(--text-soft)', margin: '0 0 10px 0', lineHeight: 1.4 }}>
+                Libera inmediatamente la capacidad que este pedido tiene reservada, sin esperar a que la reserva venza sola. La cátedra verá el motivo y podrá volver a pedir lo mismo.
+              </p>
+              <div className="field" style={{ margin: 0 }}>
+                <label style={{ fontSize: 12, fontWeight: 500 }}>Motivo (la cátedra lo va a ver):</label>
                 <input
                   className="input"
-                  placeholder="Motivo del rechazo"
-                  value={motivoRechazo}
-                  onChange={(e) => setMotivoRechazo(e.target.value)}
+                  placeholder="Ej: Aprobado por error / cambio de cronograma"
+                  value={motivoReversion}
+                  onChange={(e) => setMotivoReversion(e.target.value)}
+                  disabled={transicionando}
+                  autoFocus
                 />
               </div>
-              <div className="row gap-2 wrap">
-                <button className="btn btn-primary btn-sm" onClick={onAprobar} disabled={transicionando}>
-                  Aprobar y reservar
+              <div className="row right gap-2" style={{ marginTop: 10 }}>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setMostrarReversion(false)}
+                  disabled={transicionando}
+                >
+                  Cancelar
                 </button>
-                <button className="btn btn-danger btn-sm" onClick={onRechazar} disabled={transicionando}>
-                  Rechazar
-                </button>
-                <button className="btn btn-secondary btn-sm" onClick={onActualizarCapacidad} disabled={transicionando}>
-                  Actualizar capacidad
+                <button
+                  type="button"
+                  className="btn btn-danger btn-sm"
+                  onClick={onRevertir}
+                  disabled={transicionando}
+                >
+                  Deshacer aprobación y liberar capacidad
                 </button>
               </div>
-            </>
-          ) : (
-            <p className="text-muted">Consultando la capacidad del clúster…</p>
+            </div>
           )}
         </div>
       )}
 
-      {puedeRevertir && (
-        <div style={{ borderTop: '1px solid var(--color-divider)', paddingTop: 'var(--space-4)', marginTop: 'var(--space-4)' }}>
-          <div className="section-label" style={{ marginBottom: 'var(--space-2)' }}>Deshacer la aprobación</div>
-          <p className="text-muted" style={{ marginBottom: 'var(--space-2)' }}>
-            Libera en el acto la capacidad que este pedido tiene reservada, sin esperar a que la
-            reserva venza sola. La cátedra ve el motivo y puede volver a pedir lo mismo.
-          </p>
-          <div className="field">
-            <label>Motivo (la cátedra lo va a ver)</label>
-            <input
-              className="input"
-              placeholder="Ej: aprobé el template grande por error"
-              value={motivoReversion}
-              onChange={(e) => setMotivoReversion(e.target.value)}
-            />
-          </div>
-          <button className="btn btn-danger btn-sm" onClick={onRevertir} disabled={transicionando}>
-            Deshacer aprobación y liberar capacidad
-          </button>
-        </div>
-      )}
-
-      {isAdmin && (transiciones.length > 0 || detalle.estado === 'aprobado' || detalle.estado === 'error') && (
-        <div style={{ borderTop: '1px solid var(--color-divider)', paddingTop: 'var(--space-4)', marginTop: 'var(--space-4)' }}>
-          <div className="section-label" style={{ marginBottom: 'var(--space-2)' }}>Acciones</div>
-          {transiciones.length > 0 && (
-            <>
-              <div className="field">
-                <input className="input" placeholder="Comentario (opcional)" value={comentario} onChange={(e) => setComentario(e.target.value)} />
-              </div>
-              {transiciones.includes('rechazado') && (
-                <div className="field">
-                  <input className="input" placeholder="Motivo de rechazo (requerido si rechaza)" value={motivoRechazo} onChange={(e) => setMotivoRechazo(e.target.value)} />
-                </div>
-              )}
-            </>
-          )}
-          <div className="row gap-2 wrap">
-            {detalle.estado === 'aprobado' && (
-              <button className="btn btn-primary btn-sm" onClick={() => onDesplegar(detalle.id)} disabled={transicionando}>Desplegar</button>
-            )}
-            {detalle.estado === 'error' && (
-              <button className="btn btn-primary btn-sm" onClick={() => onReintentar(detalle.id)} disabled={transicionando}>Reintentar despliegue</button>
-            )}
-            {transiciones.map((est) => (
+      {/* Estado: EN DESPLIEGUE */}
+      {!detalle.servicio_dado_de_baja && detalle.tipo !== 'renovacion' && detalle.estado === 'en_despliegue' && (
+        <div className="decision-container">
+          <ProgresoDespliegue pedido={detalle} operacion={operacion} isAdmin={isAdmin}/>
+          {isAdmin && (detalle.operation_id || operacion?.operation_id) && (
+            <div className="row right" style={{ marginTop: 8 }}>
               <button
-                key={est}
-                className={`btn btn-sm ${est === 'rechazado' ? 'btn-danger' : 'btn-primary'}`}
-                onClick={() => onTransicion(detalle.id, est)}
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => onVerConsola?.(detalle.operation_id || operacion?.operation_id)}
+              >
+                Ver consola
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Estado: ERROR */}
+      {!detalle.servicio_dado_de_baja && detalle.estado === 'error' && (
+        <div className="decision-container" style={{ borderColor: 'var(--st-bad-bd)' }}>
+          <ProgresoDespliegue pedido={detalle} operacion={operacion} isAdmin={isAdmin}/>
+          {isAdmin && (
+            <div className="row between wrap gap-2" style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--color-divider)' }}>
+              <div className="row gap-2">
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={() => onReintentar(detalle.id)}
+                  disabled={transicionando || !detalle.despliegue_habilitado || operacion?.reintento_disponible === false}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                >
+                  <RefreshCw size={14} /> Reintentar despliegue
+                </button>
+                {(detalle.operation_id || operacion?.operation_id) && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => onVerConsola?.(detalle.operation_id || operacion?.operation_id)}
+                  >
+                    Ver consola
+                  </button>
+                )}
+              </div>
+              <button
+                type="button"
+                className="btn btn-ghost text-muted btn-sm"
+                onClick={() => setMostrarRechazo(!mostrarRechazo)}
                 disabled={transicionando}
               >
-                {ESTADO_CONFIG[est]?.label}
+                Cerrar pedido fallido…
               </button>
-            ))}
+            </div>
+          )}
+          {isAdmin && mostrarRechazo && (
+            <div className="rechazo-panel" style={{ marginTop: 8 }}>
+              <label htmlFor="reject-error-reason" style={{ fontSize: 12, fontWeight: 500 }}>
+                Motivo de cierre del pedido fallido
+              </label>
+              <textarea
+                id="reject-error-reason"
+                value={motivoRechazo}
+                maxLength={2000}
+                onChange={(e) => setMotivoRechazo(e.target.value)}
+                disabled={transicionando}
+                style={{ marginTop: 6 }}
+              />
+              <div className="row right gap-2" style={{ marginTop: 8 }}>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setMostrarRechazo(false)}
+                  disabled={transicionando}
+                >
+                  Cancelar
+                </button>
+                <button
+                  className="btn btn-danger btn-sm"
+                  onClick={onRechazar}
+                  disabled={transicionando || !motivoRechazo.trim()}
+                >
+                  Cerrar pedido fallido como rechazado
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Operación activa no en_despliegue / no error */}
+      {detalle.estado !== 'en_despliegue' && detalle.estado !== 'error' && detalle.operation_id && (
+        <div className="callout info" style={{ marginBottom: 'var(--space-3)' }}>
+          <p role="status" style={{ margin: 0 }}>{textoOperacion(operacion)}</p>
+          {isAdmin && (
+            <div style={{ marginTop: 6 }}>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => onVerConsola?.(detalle.operation_id || operacion?.operation_id)}
+              >
+                Ver consola
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Estado: SOLICITADO */}
+      {isAdmin && detalle.estado === 'solicitado' && (
+        <div className="decision-container">
+          <div className="row between wrap gap-2">
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 15, color: 'var(--text-strong)' }}>Revisión de solicitud</div>
+              <p className="text-muted" style={{ margin: '4px 0 0', fontSize: 13 }}>
+                Revisá recursos, fechas y capacidad antes de confirmar la asignación.
+              </p>
+            </div>
+            <div className="row gap-2 wrap">
+              <button className="btn btn-primary" onClick={onAbrirAprobar} disabled={transicionando}>
+                <CheckCircle2 size={15} /> Revisar y aprobar…
+              </button>
+              <button className="btn btn-warning" onClick={onAbrirAjuste} disabled={transicionando}>
+                Pedir aclaración
+              </button>
+              <button className="btn btn-ghost" onClick={() => setMostrarRechazo(!mostrarRechazo)} disabled={transicionando}>
+                <XCircle size={15} /> Rechazar…
+              </button>
+            </div>
+          </div>
+          {mostrarRechazo && (
+            <div className="rechazo-panel">
+              <label htmlFor="reject-reason" style={{ fontSize: 12, fontWeight: 500 }}>
+                Motivo de rechazo (visible para la cátedra)
+              </label>
+              <textarea
+                id="reject-reason"
+                value={motivoRechazo}
+                maxLength={2000}
+                onChange={(e) => setMotivoRechazo(e.target.value)}
+                disabled={transicionando}
+                style={{ marginTop: 6 }}
+              />
+              <div className="row right gap-2" style={{ marginTop: 8 }}>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setMostrarRechazo(false)}
+                  disabled={transicionando}
+                >
+                  Cancelar
+                </button>
+                <button
+                  className="btn btn-danger btn-sm"
+                  onClick={onRechazar}
+                  disabled={transicionando || !motivoRechazo.trim()}
+                >
+                  Confirmar rechazo
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Estado: REQUIERE AJUSTE */}
+      {detalle.estado === 'requiere_ajuste' && (
+        <div className="decision-container">
+          <div className="row between wrap gap-2">
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 15, color: 'var(--text-strong)' }}>Aclaración pendiente</div>
+              <p className="text-muted" style={{ margin: '4px 0 0', fontSize: 13 }}>
+                Revisá las observaciones, completá la información y reenviá el pedido para que administración lo evalúe nuevamente.
+              </p>
+            </div>
+            <div className="row gap-2 wrap">
+              <button className="btn btn-primary btn-sm" onClick={onAbrirReenviar} disabled={transicionando}>
+                {isAdmin ? 'Modificar y reenviar solicitud' : 'Responder aclaración'}
+              </button>
+              {isAdmin && (
+                <button className="btn btn-danger btn-sm" onClick={() => onCancelarPedido(detalle.id)} disabled={transicionando}>
+                  Cancelar solicitud
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
+
+      {/* Estado: ACTIVO */}
+      {detalle.servicio_dado_de_baja && <div className="callout" role="status">
+        El servicio fue dado de baja. Este pedido conserva su aprobación y su historial.
+      </div>}
+      {detalle.estado === 'activo' && !detalle.servicio_dado_de_baja && (
+        <div className="callout ok" style={{ marginBottom: 'var(--space-3)' }}>
+          <CheckCircle2 size={16} />
+          <div>
+            <strong>Servicio activo y registrado.</strong>
+            <div style={{ marginTop: 2 }}>
+              {detalle.tipo === 'renovacion'
+                ? 'Las nuevas condiciones quedaron registradas. Consultá el estado del servicio para verificar su operación.'
+                : 'El servicio se encuentra operativo.'}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 5. Historial de Estados y Auditoría (Plegable al final) */}
+      <div style={{ marginTop: 'var(--space-3)', borderTop: '1px solid var(--color-divider)', paddingTop: 'var(--space-3)' }}>
+        <button
+          type="button"
+          onClick={() => setHistorialAbierto(!historialAbierto)}
+          className="detalle-history-toggle"
+        >
+          <div className="row gap-2" style={{ alignItems: 'center' }}>
+            <History size={14} />
+            <span style={{ fontWeight: 500 }}>
+              Historial de estados y auditoría ({detalle.historial?.length || 0} eventos)
+            </span>
+          </div>
+          {historialAbierto ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        </button>
+
+        {historialAbierto && (
+          <div className="col gap-2 mt-2" style={{ padding: '4px 0' }}>
+            {detalle.historial?.map((h) => (
+              <div
+                key={h.id}
+                className="row between"
+                style={{
+                  padding: '8px 12px',
+                  borderLeft: '2px solid var(--color-accent)',
+                  background: 'var(--color-surface)',
+                  borderRadius: '0 var(--radius-sm) var(--radius-sm) 0',
+                }}
+              >
+                <div style={{ fontSize: 12 }}>
+                  <span style={{ fontWeight: 500, color: 'var(--text-strong)' }}>{describirEntrada(h)}</span>
+                  {h.usuario_id == null && <span className="tag neutral" style={{ marginLeft: 6, fontSize: 10 }}>Automático</span>}
+                  {h.comentario && <span style={{ color: 'var(--text-soft)' }}> · {h.comentario}</span>}
+                </div>
+                <span className="nowrap" style={{ fontSize: 11, color: 'var(--text-faint)' }}>{formatDate(h.created_at)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </Dialog>
   );
 }

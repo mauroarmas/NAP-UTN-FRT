@@ -1,0 +1,134 @@
+{
+  "entorno": "staging_local_real",
+  "producto": "postgresql",
+  "actualizado_at": "2026-10-22T20:38:48.812952+00:00",
+  "cluster_uuid": "0834fb88-0a09-4b5c-8023-211bd80747d9",
+  "pool": "nap009-staging",
+  "fase": "dos_postgresql_verificados_localmente",
+  "definition_draft_sha256": "9accb7227b271fc5a7096561fd4324cf32c8ddb6266e42b071e5d02cb2571eb4",
+  "bundle_sha256": "7f55836f8f05ee7945bd56f58f5eea5772c8ee243703313e39a0ee72824870bb",
+  "instancias": [
+    {
+      "vmid": 104,
+      "host": "pg1.nap009.lab",
+      "address": "172.16.36.21",
+      "cert_prefix": "pg-1",
+      "resource_uuid": "8871ec97-8a12-4492-967e-f76ba999718e",
+      "operation_id": "25383079-e000-4d19-941b-45165d7dae2e",
+      "fase": "verified_local",
+      "create_upid": "UPID:proxmox:00009ED2:001195F2:6ADA720D:vzcreate:104:nap009lab@pve!ensayos:",
+      "create_exitstatus": "WARNINGS: 1",
+      "bootstrap_response": {
+        "action": "bootstrap",
+        "identity_verified": true,
+        "observed_at": "2026-10-22T20:33:39.064896+00:00",
+        "operation_id": "25383079-e000-4d19-941b-45165d7dae2e",
+        "phase": "verified",
+        "protocol": "nap-guest-runner/1",
+        "resource_uuid": "8871ec97-8a12-4492-967e-f76ba999718e",
+        "result": {
+          "address": "172.16.36.21",
+          "addresses": [
+            "172.16.36.21"
+          ],
+          "bootstrap_completed": true,
+          "checks": [
+            "postgresql-select-v1"
+          ],
+          "database": "db_ensayo_104",
+          "host": "pg1.nap009.lab",
+          "port": 5432,
+          "ready": true,
+          "username": "curso_8871ec978a124492967ef76ba999718e"
+        },
+        "status": "succeeded"
+      },
+      "verify_response": {
+        "action": "verify",
+        "identity_verified": true,
+        "observed_at": "2026-10-22T20:35:14.452626+00:00",
+        "operation_id": "6f46e7aa-a881-4e7c-b957-c9700f8bfd9c",
+        "phase": "verified",
+        "protocol": "nap-guest-runner/1",
+        "resource_uuid": "8871ec97-8a12-4492-967e-f76ba999718e",
+        "result": {
+          "address": "172.16.36.21",
+          "addresses": [
+            "172.16.36.21"
+          ],
+          "bootstrap_completed": true,
+          "checks": [
+            "postgresql-select-v1"
+          ],
+          "database": "db_ensayo_104",
+          "host": "pg1.nap009.lab",
+          "port": 5432,
+          "ready": true,
+          "username": "curso_8871ec978a124492967ef76ba999718e"
+        },
+        "status": "succeeded"
+      }
+    },
+    {
+      "vmid": 105,
+      "host": "pg2.nap009.lab",
+      "address": "172.16.36.22",
+      "cert_prefix": "pg-2",
+      "resource_uuid": "46262510-8c4d-48d8-a5ea-3d2b24a09856",
+      "operation_id": "96ddb519-0e87-4445-af7e-2c3e1c08c75f",
+      "fase": "verified_local",
+      "create_upid": "UPID:proxmox:0000A08B:0011CCC9:6ADA7299:vzcreate:105:nap009lab@pve!ensayos:",
+      "create_exitstatus": "WARNINGS: 1",
+      "bootstrap_response": {
+        "action": "bootstrap",
+        "identity_verified": true,
+        "observed_at": "2026-10-22T20:37:08.805636+00:00",
+        "operation_id": "96ddb519-0e87-4445-af7e-2c3e1c08c75f",
+        "phase": "verified",
+        "protocol": "nap-guest-runner/1",
+        "resource_uuid": "46262510-8c4d-48d8-a5ea-3d2b24a09856",
+        "result": {
+          "address": "172.16.36.22",
+          "addresses": [
+            "172.16.36.22"
+          ],
+          "bootstrap_completed": true,
+          "checks": [
+            "postgresql-select-v1"
+          ],
+          "database": "db_ensayo_105",
+          "host": "pg2.nap009.lab",
+          "port": 5432,
+          "ready": true,
+          "username": "curso_462625108c4d48d8a5ea3d2b24a09856"
+        },
+        "status": "succeeded"
+      },
+      "verify_response": {
+        "action": "verify",
+        "identity_verified": true,
+        "observed_at": "2026-10-22T20:38:49.105521+00:00",
+        "operation_id": "a9527ea1-a8ee-4781-9c80-61a1ef02257a",
+        "phase": "verified",
+        "protocol": "nap-guest-runner/1",
+        "resource_uuid": "46262510-8c4d-48d8-a5ea-3d2b24a09856",
+        "result": {
+          "address": "172.16.36.22",
+          "addresses": [
+            "172.16.36.22"
+          ],
+          "bootstrap_completed": true,
+          "checks": [
+            "postgresql-select-v1"
+          ],
+          "database": "db_ensayo_105",
+          "host": "pg2.nap009.lab",
+          "port": 5432,
+          "ready": true,
+          "username": "curso_462625108c4d48d8a5ea3d2b24a09856"
+        },
+        "status": "succeeded"
+      }
+    }
+  ]
+}

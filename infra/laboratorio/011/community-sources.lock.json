@@ -1,0 +1,21 @@
+{
+  "core_commit": "81a2e2ae7d42dea39fd5dd7903b266b5e607c811",
+  "schema_version": "nap-community-sources/1",
+  "scripts_commit": "5d477b0b6efb4141da0b90cadcec32f8641a815c",
+  "sources": {
+    "core/LICENSE": "df6e04b37dccb40c04e2c3c3eafd358c786eb3391d994a0c9a8692278007ccc3",
+    "core/core/core.func": "9ed54ed8cadc2c675b3a623eb238db6eedd42e4e812314a18236cf5f32d8d92a",
+    "core/core/error_handler.func": "191554d3d7d243a7a0663cb9158116dfea408668e9d153ca531981daf811ad42",
+    "core/lib/alpine.func": "7eba9dcc2498738a51eb772c84bb9d17ea56bc325189a88deee1fd350fd83cc7",
+    "core/lib/db.func": "b1a9f9f5f88ad5c24c3844844c52410547b1c42747fb7cd4ffe81f107a9f7c77",
+    "core/lib/forge.func": "165ab1c71cdecc226871c9b6ea77a7acf2ee8d82bc2ae7d42cacc2da140c99a7",
+    "core/lib/hwaccel.func": "e39ac4591e44a392a36e19ec1b01d67393f9d52aaf8c6f6f1102107ca35ea8c4",
+    "core/lib/runtime.func": "7842bf0f9564776020c53af12e74aab402097ec35d38a3fe69355487cffacd10",
+    "core/lib/system.func": "8ed9f95df8a1fed747cf57458147999d73eaf58af2bf9b4c01931104bbc1cdca",
+    "core/lib/tools.func": "aa9dedd2458ef362b8b336e1081a7a3407780c3cd8e375d3db226dd0d17fdbe1",
+    "core/lxc/install.func": "5caae0e5342d1a0414c27b93318a58f7742d1103bcf6031666e103c52396eae5",
+    "proxmox/LICENSE": "563a66b97b900a1b7b6918b0f9793ed5b22c38c0208c2b68a17c79b8c40f75ae",
+    "proxmox/install/caddy-install.sh": "e9fca9861dbec6007e73d333b67f5855220822c3179916a85afcb19dabbdbb2c",
+    "proxmox/install/mariadb-install.sh": "d7c0b16f049e4a544944c8a9285f49c775dda91d0c096fe8a15777a410b9d62a"
+  }
+}

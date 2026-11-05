@@ -1,0 +1,24 @@
+{
+  "fecha": "2026-10-21",
+  "herramienta": "npm audit",
+  "fuente_sha256": "aea6757f20f5324a8b3517e4accb4d395821cb30a2d3f430f766d01ccec69713",
+  "resumen": {
+    "vulnerabilities": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 0,
+      "critical": 0,
+      "total": 0
+    },
+    "dependencies": {
+      "prod": 76,
+      "dev": 144,
+      "optional": 46,
+      "peer": 12,
+      "peerOptional": 0,
+      "total": 220
+    }
+  },
+  "hallazgos": {}
+}

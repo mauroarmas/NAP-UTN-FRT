@@ -23,23 +23,22 @@ async def _login(client, username, password="secreto123"):
     )
 
 
-async def test_login_devuelve_token(client, db, usuario_catedra):
+async def test_login_devuelve_cookie_sin_token_en_json(client, db, usuario_catedra):
     r = await _login(client, "profe")
 
     assert r.status_code == 200, r.text
-    assert r.json()["access_token"]
+    assert r.json()["estado"] == "operativo"
+    assert "access_token" not in r.json()
+    assert "HttpOnly" in r.headers["set-cookie"]
 
 
 async def test_el_flujo_completo_de_entrada_funciona(client, db, catedra, usuario_catedra):
     """Login seguido de `/auth/me`, que es exactamente lo que hace el frontend."""
-    token = (await _login(client, "profe")).json()["access_token"]
-
-    me = await client.get(
-        "/auth/me", headers={"Authorization": f"Bearer {token}"}
-    )
+    assert (await _login(client, "profe")).status_code == 200
+    me = await client.get('/auth/me')
 
     assert me.status_code == 200, me.text
-    assert me.json()["username"] == "profe"
+    assert me.json()["usuario"]["username"] == "profe"
 
 
 async def test_auth_me_incluye_las_catedras_a_cargo(
@@ -49,18 +48,17 @@ async def test_auth_me_incluye_las_catedras_a_cargo(
     me = await client.get("/auth/me", headers=auth_catedra)
 
     assert me.status_code == 200, me.text
-    assert [c["nombre"] for c in me.json()["catedras"]] == [catedra.nombre]
+    assert [c["nombre"] for c in me.json()["usuario"]["catedras"]] == [catedra.nombre]
 
 
 async def test_auth_me_de_alguien_sin_catedras_no_falla(client, db):
     """Un administrador puede no tener ninguna: la lista vacía es válida."""
     admin = await factories.crear_usuario(db, "solo_admin", rol=RolUsuario.ADMIN)
-    token = (await _login(client, "solo_admin")).json()["access_token"]
-
-    me = await client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert (await _login(client, "solo_admin")).status_code == 200
+    me = await client.get("/auth/me")
 
     assert me.status_code == 200, me.text
-    assert me.json()["catedras"] == []
+    assert me.json()["usuario"]["catedras"] == []
 
 
 async def test_usuarios_me_devuelve_lo_mismo_que_auth_me(
@@ -71,7 +69,7 @@ async def test_usuarios_me_devuelve_lo_mismo_que_auth_me(
     otro = await client.get("/usuarios/me", headers=auth_catedra)
 
     assert uno.status_code == otro.status_code == 200
-    assert uno.json() == otro.json()
+    assert uno.json()["usuario"] == otro.json()
 
 
 async def test_credenciales_invalidas_dan_401(client, db, usuario_catedra):
@@ -86,4 +84,4 @@ async def test_un_usuario_desactivado_no_entra(client, db, usuario_catedra):
 
     r = await _login(client, "profe")
 
-    assert r.status_code == 403, r.text
+    assert r.status_code == 401, r.text

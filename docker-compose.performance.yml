@@ -1,0 +1,29 @@
+# Laboratorio optativo; no incluir en el compose operativo.
+services:
+  rendimiento_db:
+    image: postgres@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
+    container_name: nap009-rendimiento-db
+    ports: ["127.0.0.1:55434:5432"]
+    cpus: 2
+    mem_limit: 1536m
+    pids_limit: 256
+    shm_size: 256m
+    environment:
+      POSTGRES_USER: nap_perf
+      POSTGRES_DB: nap_perf_009
+      POSTGRES_PASSWORD_FILE: /run/secrets/pg-password
+    volumes:
+      - rendimiento_pgdata:/var/lib/postgresql/data
+      - type: bind
+        source: ${NAP_PERFORMANCE_PRIVATE_DIR:?Directorio privado del ensayo}/pg-password
+        target: /run/secrets/pg-password
+        read_only: true
+    command: ["postgres", "-c", "shared_buffers=256MB", "-c", "work_mem=16MB", "-c", "maintenance_work_mem=256MB", "-c", "max_connections=50", "-c", "max_wal_size=2GB"]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "nap_perf", "-d", "nap_perf_009"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+volumes:
+  rendimiento_pgdata:
+    name: nap009_rendimiento_pgdata

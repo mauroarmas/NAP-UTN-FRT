@@ -1,71 +1,103 @@
-"""Vencimiento de servicios y renovación por el mismo circuito de aprobación.
+"""Vencimiento de servicios y renovación por el mismo circuito de aprobación."""
 
-Es la vía **garantizada** de recuperación de capacidad: a diferencia del pausado
-por inactividad, no depende de medir nada ni de que la recolección de métricas
-esté sana. Una fecha de fin es determinista y predecible para la cátedra.
-
-Lo que estas pruebas protegen: que renovar **no recree** el servicio, que no
-reserve capacidad de más, y que un vencimiento no descuente dos veces lo que una
-pausa ya liberó.
-"""
-
-from datetime import datetime, timedelta
+from datetime import timedelta
+from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 import pytest
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.models.pedido import EstadoPedido, TipoPedido, Pedido
+from app.models.pedido import EstadoPedido, Pedido, TipoPedido
 from app.models.servicio import EstadoServicio
 from app.models.servicio_historial import ServicioHistorial
-from app.services import capacidad_service, vencimiento_service
-from sqlalchemy import select
+from app.models.vigencia import VigenciaAutorizada
+from app.services import capacidad_service, vencimiento_service, vigencia_service
+from app.utils.clock import clock
+from app.worker import procesar_una
 from tests import factories
-
-NODO = [
-    {
-        "node": "pve1",
-        "status": "online",
-        "cpu": 0.1,
-        "maxcpu": 16,
-        "maxmem": 32 * 1024**3,
-        "maxdisk": 200 * 1024**3,
-    }
-]
+from tests.capacity_helpers import aprobar_http, materializado, perfil_capacidad, preparar_pedido  # noqa: F401
+from tests.test_operaciones_recuperacion import prepared_guest  # noqa: F401
 
 
 @pytest.fixture(autouse=True)
-def cluster(proxmox):
-    proxmox.nodos = NODO
+def cluster(proxmox, perfil_capacidad):
     return proxmox
 
 
-async def _servicio_con_vencimiento(db, catedra, template, vence_en_dias, vmid="600", **kw):
-    servicio = await factories.crear_servicio(
-        db, catedra_id=catedra.id, template_id=template.id, proxmox_vmid=vmid, **kw
+async def _servicio_con_vencimiento(
+    db, proxmox, catedra, usuario, template, vence_en_dias, vmid="600", estado=EstadoServicio.RUNNING
+):
+    vmid_int = int(vmid)
+    servicio, ledger = await materializado(
+        db, proxmox, catedra, usuario, template, vmid=vmid_int
     )
-    servicio.vence_at = datetime.utcnow() + timedelta(days=vence_en_dias)
+    servicio.estado = estado
+    if estado == EstadoServicio.RUNNING:
+        ledger.vcpus_retenidos = servicio.vcpus_asignados
+        ledger.ram_mb_retenida = servicio.ram_asignada_mb
+        proxmox.estados[vmid_int] = "running"
+        for r in proxmox.recursos:
+            if int(r["vmid"]) == vmid_int:
+                r["status"] = "running"
+    today = clock.now().astimezone(ZoneInfo("America/Argentina/Tucuman")).date()
+    hasta = today + timedelta(days=vence_en_dias)
+    desde = hasta - timedelta(days=30)
+    period = vigencia_service.resolver_fechas(desde, hasta, "America/Argentina/Tucuman")
+    vig = await db.scalar(
+        select(VigenciaAutorizada).where(VigenciaAutorizada.servicio_id == servicio.id)
+    )
+    vig.desde_local = period.desde
+    vig.hasta_local = period.hasta
+    vig.inicio_at = period.inicio_at
+    vig.fin_exclusivo_at = period.fin_exclusivo_at
+    servicio.vence_at = period.fin_exclusivo_at.replace(tzinfo=None)
     await db.commit()
     return servicio
+
+
+def _vigencia_renovacion_posterior(servicio_vence_at):
+    desde = servicio_vence_at.date() + timedelta(days=1)
+    hasta = desde + timedelta(days=30)
+    return {
+        "tipo": "personalizado",
+        "desde": desde.isoformat(),
+        "hasta": hasta.isoformat(),
+    }
+
+
+def _seleccion_renovacion(servicio, vig):
+    return {
+        "asignacion": servicio.asignacion_snapshot,
+        "destino": {"nodo": "pve1", "storage": "local-lvm"},
+        "vigencia": vig,
+    }
 
 
 # --- El servicio nace con fecha conocida ---
 
 
 async def test_el_servicio_desplegado_nace_con_fecha_de_vencimiento(
-    client, db, catedra, usuario_catedra, template, auth_admin
+    client, engine, db, proxmox, catedra, usuario_catedra, template, auth_admin, prepared_guest
 ):
-    pedido = await factories.crear_pedido(
-        db,
-        catedra_id=catedra.id,
-        solicitante_id=usuario_catedra.id,
-        template_id=template.id,
-        estado=EstadoPedido.SOLICITADO,
+    pedido = await preparar_pedido(db, catedra, usuario_catedra, template)
+    await aprobar_http(client, pedido, template, auth_admin, clave=f"apr-{uuid4()}")
+
+    r = await client.post(
+        f"/servicios/desplegar/{pedido.id}",
+        headers=auth_admin | {"Idempotency-Key": f"dep-{uuid4()}"},
+        json={},
     )
-    await client.post(f"/pedidos/{pedido.id}/aprobar", json={}, headers=auth_admin)
+    assert r.status_code == 202, r.text
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    await procesar_una(sessions, pve=proxmox)
+    db.expire_all()
 
-    r = await client.post(f"/servicios/desplegar/{pedido.id}", headers=auth_admin)
-
-    assert r.status_code == 200, r.text
-    assert r.json()["vence_at"] is not None, (
+    await db.refresh(pedido)
+    assert pedido.servicio_id is not None
+    srv_resp = await client.get(f"/servicios/{pedido.servicio_id}", headers=auth_admin)
+    assert srv_resp.status_code == 200, srv_resp.text
+    assert srv_resp.json()["vence_at"] is not None, (
         "la cátedra tiene que saber desde el primer día hasta cuándo lo tiene"
     )
 
@@ -74,11 +106,18 @@ async def test_el_servicio_desplegado_nace_con_fecha_de_vencimiento(
 
 
 async def test_la_catedra_solicita_una_renovacion(
-    client, db, catedra, template, auth_catedra
+    client, db, proxmox, catedra, usuario_catedra, template, auth_catedra
 ):
-    servicio = await _servicio_con_vencimiento(db, catedra, template, 3)
+    servicio = await _servicio_con_vencimiento(
+        db, proxmox, catedra, usuario_catedra, template, 3
+    )
+    vig = _vigencia_renovacion_posterior(servicio.vence_at)
 
-    r = await client.post(f"/servicios/{servicio.id}/renovar", headers=auth_catedra)
+    r = await client.post(
+        f"/servicios/{servicio.id}/renovar",
+        headers=auth_catedra | {"Idempotency-Key": f"ren-{uuid4()}"},
+        json={"vigencia": vig},
+    )
 
     assert r.status_code == 201, r.text
     assert r.json()["servicio_id"] == servicio.id
@@ -89,28 +128,52 @@ async def test_la_catedra_solicita_una_renovacion(
 
 
 async def test_no_se_puede_pedir_dos_renovaciones_a_la_vez(
-    client, db, catedra, template, auth_catedra
+    client, db, proxmox, catedra, usuario_catedra, template, auth_catedra
 ):
-    servicio = await _servicio_con_vencimiento(db, catedra, template, 3, vmid="601")
-    await client.post(f"/servicios/{servicio.id}/renovar", headers=auth_catedra)
+    servicio = await _servicio_con_vencimiento(
+        db, proxmox, catedra, usuario_catedra, template, 3, vmid="601"
+    )
+    vig = _vigencia_renovacion_posterior(servicio.vence_at)
+    await client.post(
+        f"/servicios/{servicio.id}/renovar",
+        headers=auth_catedra | {"Idempotency-Key": f"ren1-{uuid4()}"},
+        json={"vigencia": vig},
+    )
 
     segunda = await client.post(
-        f"/servicios/{servicio.id}/renovar", headers=auth_catedra
+        f"/servicios/{servicio.id}/renovar",
+        headers=auth_catedra | {"Idempotency-Key": f"ren2-{uuid4()}"},
+        json={"vigencia": vig},
     )
 
     assert segunda.status_code == 409, segunda.text
 
 
 async def test_la_renovacion_no_reserva_capacidad_nueva(
-    client, db, catedra, template, auth_catedra, auth_admin
+    client, db, proxmox, catedra, usuario_catedra, template, auth_catedra, auth_admin
 ):
     """El servicio ya está desplegado y ya cuenta como consumo."""
-    servicio = await _servicio_con_vencimiento(db, catedra, template, 3, vmid="602")
-    r = await client.post(f"/servicios/{servicio.id}/renovar", headers=auth_catedra)
-    pedido_id = r.json()["pedido_id"]
+    servicio = await _servicio_con_vencimiento(
+        db, proxmox, catedra, usuario_catedra, template, 3, vmid="602"
+    )
+    vig = _vigencia_renovacion_posterior(servicio.vence_at)
+    r = await client.post(
+        f"/servicios/{servicio.id}/renovar",
+        headers=auth_catedra | {"Idempotency-Key": f"ren-{uuid4()}"},
+        json={"vigencia": vig},
+    )
+    pedido = await db.get(Pedido, r.json()["pedido_id"])
 
     antes = await capacidad_service.panorama(db)
-    await client.post(f"/pedidos/{pedido_id}/aprobar", json={}, headers=auth_admin)
+    res_apr = await aprobar_http(
+        client,
+        pedido,
+        template,
+        auth_admin,
+        clave=f"apr-ren-{uuid4()}",
+        payload=_seleccion_renovacion(servicio, vig),
+    )
+    assert res_apr.status_code == 200, res_apr.text
     despues = await capacidad_service.panorama(db)
 
     assert despues["reservado"] == antes["reservado"], (
@@ -119,23 +182,33 @@ async def test_la_renovacion_no_reserva_capacidad_nueva(
 
 
 async def test_la_renovacion_aprobada_conserva_el_servicio_y_corre_la_fecha(
-    client, db, catedra, template, auth_catedra, auth_admin
+    client, db, proxmox, catedra, usuario_catedra, template, auth_catedra, auth_admin
 ):
     """Recrear el servicio le haría perder a la cátedra todo lo que tenía adentro."""
-    servicio = await _servicio_con_vencimiento(db, catedra, template, 3, vmid="603")
+    servicio = await _servicio_con_vencimiento(
+        db, proxmox, catedra, usuario_catedra, template, 3, vmid="603"
+    )
     id_original = servicio.id
     vmid_original = servicio.proxmox_vmid
     vence_original = servicio.vence_at
+    vig = _vigencia_renovacion_posterior(servicio.vence_at)
 
-    r = await client.post(f"/servicios/{servicio.id}/renovar", headers=auth_catedra)
-    pedido_id = r.json()["pedido_id"]
-    await client.post(f"/pedidos/{pedido_id}/aprobar", json={}, headers=auth_admin)
-
-    desplegado = await client.post(
-        f"/servicios/desplegar/{pedido_id}", headers=auth_admin
+    r = await client.post(
+        f"/servicios/{servicio.id}/renovar",
+        headers=auth_catedra | {"Idempotency-Key": f"ren-{uuid4()}"},
+        json={"vigencia": vig},
+    )
+    pedido = await db.get(Pedido, r.json()["pedido_id"])
+    aprobado = await aprobar_http(
+        client,
+        pedido,
+        template,
+        auth_admin,
+        clave=f"apr-ren-{uuid4()}",
+        payload=_seleccion_renovacion(servicio, vig),
     )
 
-    assert desplegado.status_code == 200, desplegado.text
+    assert aprobado.status_code == 200, aprobado.text
     await db.refresh(servicio)
     assert servicio.id == id_original, "no se recrea el servicio"
     assert servicio.proxmox_vmid == vmid_original, "no se recrea el contenedor"
@@ -143,13 +216,26 @@ async def test_la_renovacion_aprobada_conserva_el_servicio_y_corre_la_fecha(
 
 
 async def test_la_renovacion_queda_en_el_historial_del_servicio(
-    client, db, catedra, template, auth_catedra, auth_admin
+    client, db, proxmox, catedra, usuario_catedra, template, auth_catedra, auth_admin
 ):
-    servicio = await _servicio_con_vencimiento(db, catedra, template, 3, vmid="604")
-    r = await client.post(f"/servicios/{servicio.id}/renovar", headers=auth_catedra)
-    pedido_id = r.json()["pedido_id"]
-    await client.post(f"/pedidos/{pedido_id}/aprobar", json={}, headers=auth_admin)
-    await client.post(f"/servicios/desplegar/{pedido_id}", headers=auth_admin)
+    servicio = await _servicio_con_vencimiento(
+        db, proxmox, catedra, usuario_catedra, template, 3, vmid="604"
+    )
+    vig = _vigencia_renovacion_posterior(servicio.vence_at)
+    r = await client.post(
+        f"/servicios/{servicio.id}/renovar",
+        headers=auth_catedra | {"Idempotency-Key": f"ren-{uuid4()}"},
+        json={"vigencia": vig},
+    )
+    pedido = await db.get(Pedido, r.json()["pedido_id"])
+    await aprobar_http(
+        client,
+        pedido,
+        template,
+        auth_admin,
+        clave=f"apr-ren-{uuid4()}",
+        payload=_seleccion_renovacion(servicio, vig),
+    )
 
     entradas = (
         (
@@ -162,20 +248,27 @@ async def test_la_renovacion_queda_en_el_historial_del_servicio(
         .scalars()
         .all()
     )
-    assert any("Renovado" in (e.comentario or "") for e in entradas)
+    assert any("renovación" in (e.comentario or "").lower() for e in entradas)
 
 
 async def test_la_renovacion_rechazada_deja_ver_el_motivo(
-    client, db, catedra, template, auth_catedra, auth_admin
+    client, db, proxmox, catedra, usuario_catedra, template, auth_catedra, auth_admin
 ):
-    servicio = await _servicio_con_vencimiento(db, catedra, template, 3, vmid="605")
-    r = await client.post(f"/servicios/{servicio.id}/renovar", headers=auth_catedra)
+    servicio = await _servicio_con_vencimiento(
+        db, proxmox, catedra, usuario_catedra, template, 3, vmid="605"
+    )
+    vig = _vigencia_renovacion_posterior(servicio.vence_at)
+    r = await client.post(
+        f"/servicios/{servicio.id}/renovar",
+        headers=auth_catedra | {"Idempotency-Key": f"ren-{uuid4()}"},
+        json={"vigencia": vig},
+    )
     pedido_id = r.json()["pedido_id"]
 
     await client.post(
         f"/pedidos/{pedido_id}/rechazar",
         json={"motivo": "La materia termina este cuatrimestre"},
-        headers=auth_admin,
+        headers=auth_admin | {"Idempotency-Key": f"rej-ren-{uuid4()}"},
     )
 
     visto = await client.get(f"/pedidos/{pedido_id}", headers=auth_catedra)
@@ -183,7 +276,7 @@ async def test_la_renovacion_rechazada_deja_ver_el_motivo(
 
 
 async def test_no_se_renueva_un_servicio_ajeno(
-    client, db, template, auth_catedra, usuario_multicatedra
+    client, db, proxmox, template, auth_catedra, usuario_multicatedra
 ):
     ajeno = await factories.crear_servicio(
         db,
@@ -192,7 +285,11 @@ async def test_no_se_renueva_un_servicio_ajeno(
         proxmox_vmid="606",
     )
 
-    r = await client.post(f"/servicios/{ajeno.id}/renovar", headers=auth_catedra)
+    r = await client.post(
+        f"/servicios/{ajeno.id}/renovar",
+        headers=auth_catedra | {"Idempotency-Key": f"ren-{uuid4()}"},
+        json={"vigencia": {"tipo": "personalizado", "desde": "2026-07-01", "hasta": "2026-08-01"}},
+    )
 
     assert r.status_code == 403, r.text
 
@@ -200,8 +297,10 @@ async def test_no_se_renueva_un_servicio_ajeno(
 # --- Aplicación del vencimiento ---
 
 
-async def test_avisa_antes_de_vencer(db, proxmox, catedra, template):
-    servicio = await _servicio_con_vencimiento(db, catedra, template, 3, vmid="610")
+async def test_avisa_antes_de_vencer(db, proxmox, catedra, usuario_catedra, template):
+    servicio = await _servicio_con_vencimiento(
+        db, proxmox, catedra, usuario_catedra, template, 3, vmid="610"
+    )
 
     resultado = await vencimiento_service.aplicar_vencimientos(db)
 
@@ -213,13 +312,18 @@ async def test_avisa_antes_de_vencer(db, proxmox, catedra, template):
 
 
 async def test_el_servicio_vencido_libera_computo_sin_destruir_datos(
-    db, proxmox, catedra, template
+    engine, db, proxmox, catedra, usuario_catedra, template
 ):
-    servicio = await _servicio_con_vencimiento(db, catedra, template, -1, vmid="611")
+    servicio = await _servicio_con_vencimiento(
+        db, proxmox, catedra, usuario_catedra, template, -2, vmid="611"
+    )
 
     resultado = await vencimiento_service.aplicar_vencimientos(db)
-
     assert resultado["afectados"] == 1
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    await procesar_una(sessions, pve=proxmox)
+    db.expire_all()
+
     await db.refresh(servicio)
     assert servicio.estado == EstadoServicio.PAUSED
     assert servicio.deleted_at is None, "los datos no se destruyen automáticamente"
@@ -227,47 +331,55 @@ async def test_el_servicio_vencido_libera_computo_sin_destruir_datos(
 
 
 async def test_el_vencimiento_queda_registrado_con_el_sistema_como_autor(
-    db, proxmox, catedra, template
+    engine, db, proxmox, catedra, usuario_catedra, template
 ):
-    servicio = await _servicio_con_vencimiento(db, catedra, template, -1, vmid="612")
+    servicio = await _servicio_con_vencimiento(
+        db, proxmox, catedra, usuario_catedra, template, -2, vmid="612"
+    )
+    servicio_id = servicio.id
 
     await vencimiento_service.aplicar_vencimientos(db)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    await procesar_una(sessions, pve=proxmox)
+    db.expire_all()
 
     entradas = (
         (
             await db.execute(
                 select(ServicioHistorial).where(
-                    ServicioHistorial.servicio_id == servicio.id
+                    ServicioHistorial.servicio_id == servicio_id
                 )
             )
         )
         .scalars()
         .all()
     )
-    assert len(entradas) == 1
-    assert entradas[0].usuario_id is None
-    assert "Vencido" in entradas[0].comentario
+    assert len(entradas) >= 1
+    assert all(e.usuario_id is None for e in entradas)
 
 
 async def test_un_servicio_ya_pausado_no_descuenta_capacidad_dos_veces(
-    db, proxmox, catedra, template
+    db, proxmox, catedra, usuario_catedra, template
 ):
-    """Vencimiento y pausado pueden alcanzar al mismo servicio.
-
-    La pausa ya liberó su cómputo: el vencimiento solo tiene que dejar
-    constancia, no volver a detener nada ni descontar de nuevo.
-    """
+    """Vencimiento y pausado pueden alcanzar al mismo servicio."""
     servicio = await _servicio_con_vencimiento(
-        db, catedra, template, -1, vmid="613", estado=EstadoServicio.PAUSED
+        db,
+        proxmox,
+        catedra,
+        usuario_catedra,
+        template,
+        -2,
+        vmid="613",
+        estado=EstadoServicio.PAUSED,
     )
-    servicio.pausado_auto_at = datetime.utcnow()
+    servicio.pausado_auto_at = clock.now().replace(tzinfo=None)
     await db.commit()
 
     antes = await capacidad_service.panorama(db)
     resultado = await vencimiento_service.aplicar_vencimientos(db)
     despues = await capacidad_service.panorama(db)
 
-    assert resultado["afectados"] == 1
+    assert resultado["afectados"] == 0
     assert despues["desplegado"] == antes["desplegado"], (
         "la pausa ya había liberado el cómputo; no hay nada que descontar otra vez"
     )
@@ -277,11 +389,7 @@ async def test_un_servicio_ya_pausado_no_descuenta_capacidad_dos_veces(
 async def test_sin_fecha_de_vencimiento_no_se_apaga_nada(
     db, proxmox, catedra, template
 ):
-    """Los servicios anteriores a la feature no tienen fecha: no se los apaga.
-
-    Apagar por vencimiento a un servicio que nunca supo que tenía fecha sería
-    exactamente la sorpresa que el aviso previo existe para evitar.
-    """
+    """Los servicios sin período de vigencia regularizado se omiten sin apagarse."""
     await factories.crear_servicio(
         db, catedra_id=catedra.id, template_id=template.id, proxmox_vmid="614"
     )

@@ -1,0 +1,700 @@
+{
+  "$defs": {
+    "AccesoTCP": {
+      "additionalProperties": false,
+      "properties": {
+        "tipo": {
+          "const": "tcp",
+          "title": "Tipo",
+          "type": "string"
+        },
+        "puerto": {
+          "maximum": 65535,
+          "minimum": 1,
+          "title": "Puerto",
+          "type": "integer"
+        },
+        "politica": {
+          "const": "mariadb-tls",
+          "title": "Politica",
+          "type": "string"
+        },
+        "probe": {
+          "$ref": "#/$defs/ProbeMariaDB"
+        }
+      },
+      "required": [
+        "tipo",
+        "puerto",
+        "politica",
+        "probe"
+      ],
+      "title": "AccesoTCP",
+      "type": "object"
+    },
+    "AccesoWeb": {
+      "additionalProperties": false,
+      "properties": {
+        "tipo": {
+          "const": "web",
+          "title": "Tipo",
+          "type": "string"
+        },
+        "puerto": {
+          "maximum": 65535,
+          "minimum": 1,
+          "title": "Puerto",
+          "type": "integer"
+        },
+        "politica": {
+          "const": "web-managed",
+          "title": "Politica",
+          "type": "string"
+        },
+        "upstream": {
+          "enum": [
+            "http",
+            "https"
+          ],
+          "title": "Upstream",
+          "type": "string"
+        },
+        "probe": {
+          "$ref": "#/$defs/ProbeHTTP"
+        },
+        "websocket": {
+          "title": "Websocket",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "tipo",
+        "puerto",
+        "politica",
+        "upstream",
+        "probe",
+        "websocket"
+      ],
+      "title": "AccesoWeb",
+      "type": "object"
+    },
+    "BaseLinux": {
+      "additionalProperties": false,
+      "properties": {
+        "os": {
+          "enum": [
+            "ubuntu",
+            "debian"
+          ],
+          "title": "Os",
+          "type": "string"
+        },
+        "version": {
+          "pattern": "^[0-9]{1,2}(?:\\.[0-9]{1,2})?$",
+          "title": "Version",
+          "type": "string"
+        },
+        "arquitectura": {
+          "enum": [
+            "amd64",
+            "arm64"
+          ],
+          "title": "Arquitectura",
+          "type": "string"
+        },
+        "volumen_lxc": {
+          "maxLength": 200,
+          "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*:vztmpl/[a-zA-Z0-9][a-zA-Z0-9_.-]*\\.tar\\.(?:zst|gz|xz)$",
+          "title": "Volumen Lxc",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "os",
+        "version",
+        "arquitectura",
+        "volumen_lxc",
+        "sha256"
+      ],
+      "title": "BaseLinux",
+      "type": "object"
+    },
+    "ConfiguracionCommunity": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "nap-deployment/1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "modelo_servicio": {
+          "enum": [
+            "paas",
+            "saas"
+          ],
+          "title": "Modelo Servicio",
+          "type": "string"
+        },
+        "perfil": {
+          "$ref": "#/$defs/Perfil"
+        },
+        "base": {
+          "$ref": "#/$defs/BaseLinux"
+        },
+        "minimum_resources": {
+          "$ref": "#/$defs/Minimos"
+        },
+        "access": {
+          "discriminator": {
+            "mapping": {
+              "tcp": "#/$defs/AccesoTCP",
+              "web": "#/$defs/AccesoWeb"
+            },
+            "propertyName": "tipo"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/AccesoWeb"
+            },
+            {
+              "$ref": "#/$defs/AccesoTCP"
+            }
+          ],
+          "title": "Access"
+        },
+        "variables": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "maxProperties": 20,
+          "title": "Variables",
+          "type": "object"
+        },
+        "secretos": {
+          "items": {
+            "$ref": "#/$defs/DeclaracionSecreto"
+          },
+          "maxItems": 20,
+          "title": "Secretos",
+          "type": "array"
+        },
+        "persistencia": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 8,
+          "title": "Persistencia",
+          "type": "array"
+        },
+        "origen": {
+          "const": "community_scripts",
+          "title": "Origen",
+          "type": "string"
+        },
+        "community": {
+          "$ref": "#/$defs/FuenteCommunity"
+        }
+      },
+      "required": [
+        "schema_version",
+        "modelo_servicio",
+        "perfil",
+        "base",
+        "minimum_resources",
+        "access",
+        "variables",
+        "secretos",
+        "persistencia",
+        "origen",
+        "community"
+      ],
+      "title": "ConfiguracionCommunity",
+      "type": "object"
+    },
+    "ConfiguracionDocker": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "nap-deployment/1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "modelo_servicio": {
+          "enum": [
+            "paas",
+            "saas"
+          ],
+          "title": "Modelo Servicio",
+          "type": "string"
+        },
+        "perfil": {
+          "$ref": "#/$defs/Perfil"
+        },
+        "base": {
+          "$ref": "#/$defs/BaseLinux"
+        },
+        "minimum_resources": {
+          "$ref": "#/$defs/Minimos"
+        },
+        "access": {
+          "discriminator": {
+            "mapping": {
+              "tcp": "#/$defs/AccesoTCP",
+              "web": "#/$defs/AccesoWeb"
+            },
+            "propertyName": "tipo"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/AccesoWeb"
+            },
+            {
+              "$ref": "#/$defs/AccesoTCP"
+            }
+          ],
+          "title": "Access"
+        },
+        "variables": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "maxProperties": 20,
+          "title": "Variables",
+          "type": "object"
+        },
+        "secretos": {
+          "items": {
+            "$ref": "#/$defs/DeclaracionSecreto"
+          },
+          "maxItems": 20,
+          "title": "Secretos",
+          "type": "array"
+        },
+        "persistencia": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 8,
+          "title": "Persistencia",
+          "type": "array"
+        },
+        "origen": {
+          "const": "imagen_docker",
+          "title": "Origen",
+          "type": "string"
+        },
+        "imagen": {
+          "$ref": "#/$defs/Imagen"
+        }
+      },
+      "required": [
+        "schema_version",
+        "modelo_servicio",
+        "perfil",
+        "base",
+        "minimum_resources",
+        "access",
+        "variables",
+        "secretos",
+        "persistencia",
+        "origen",
+        "imagen"
+      ],
+      "title": "ConfiguracionDocker",
+      "type": "object"
+    },
+    "DeclaracionSecreto": {
+      "additionalProperties": false,
+      "properties": {
+        "nombre": {
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+          "title": "Nombre",
+          "type": "string"
+        },
+        "etiqueta": {
+          "maxLength": 100,
+          "minLength": 1,
+          "pattern": "^[^\\x00-\\x1f\\x7f]+$",
+          "title": "Etiqueta",
+          "type": "string"
+        },
+        "modo": {
+          "enum": [
+            "generado",
+            "por_pedido"
+          ],
+          "title": "Modo",
+          "type": "string"
+        }
+      },
+      "required": [
+        "nombre",
+        "etiqueta",
+        "modo"
+      ],
+      "title": "DeclaracionSecreto",
+      "type": "object"
+    },
+    "FuenteCommunity": {
+      "additionalProperties": false,
+      "properties": {
+        "slug": {
+          "pattern": "^[a-z][a-z0-9-]{0,63}$",
+          "title": "Slug",
+          "type": "string"
+        },
+        "identidad_externa": {
+          "pattern": "^ct/[a-z][a-z0-9-]{0,63}\\.sh$",
+          "title": "Identidad Externa",
+          "type": "string"
+        },
+        "instalador": {
+          "pattern": "^install/[a-z][a-z0-9-]{0,63}-install\\.sh$",
+          "title": "Instalador",
+          "type": "string"
+        },
+        "proxmoxve_commit": {
+          "pattern": "^[a-f0-9]{40}$",
+          "title": "Proxmoxve Commit",
+          "type": "string"
+        },
+        "core_commit": {
+          "pattern": "^[a-f0-9]{40}$",
+          "title": "Core Commit",
+          "type": "string"
+        },
+        "instalador_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Instalador Sha256",
+          "type": "string"
+        },
+        "core_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Core Sha256",
+          "type": "string"
+        },
+        "harness_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Harness Sha256",
+          "type": "string"
+        },
+        "manifiesto_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Manifiesto Sha256",
+          "type": "string"
+        },
+        "politica_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Politica Sha256",
+          "type": "string"
+        },
+        "dependencias_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Dependencias Sha256",
+          "type": "string"
+        },
+        "respuestas": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "maxProperties": 20,
+          "title": "Respuestas",
+          "type": "object"
+        },
+        "postconfiguracion": {
+          "enum": [
+            "mariadb-tls",
+            "caddy-web"
+          ],
+          "title": "Postconfiguracion",
+          "type": "string"
+        },
+        "depuracion": {
+          "const": "salida-cerrada-v1",
+          "title": "Depuracion",
+          "type": "string"
+        }
+      },
+      "required": [
+        "slug",
+        "identidad_externa",
+        "instalador",
+        "proxmoxve_commit",
+        "core_commit",
+        "instalador_sha256",
+        "core_sha256",
+        "harness_sha256",
+        "manifiesto_sha256",
+        "politica_sha256",
+        "dependencias_sha256",
+        "respuestas",
+        "postconfiguracion",
+        "depuracion"
+      ],
+      "title": "FuenteCommunity",
+      "type": "object"
+    },
+    "Imagen": {
+      "additionalProperties": false,
+      "properties": {
+        "repositorio": {
+          "maxLength": 255,
+          "pattern": "^(?:[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?)(?::[1-9][0-9]{0,4})?/(?:[a-z0-9]+(?:[._-][a-z0-9]+)*/)*[a-z0-9]+(?:[._-][a-z0-9]+)*$",
+          "title": "Repositorio",
+          "type": "string"
+        },
+        "tag_original": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tag Original"
+        },
+        "manifest_digest": {
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "title": "Manifest Digest",
+          "type": "string"
+        },
+        "index_digest": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[a-f0-9]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Index Digest"
+        },
+        "config_digest": {
+          "pattern": "^sha256:[a-f0-9]{64}$",
+          "title": "Config Digest",
+          "type": "string"
+        },
+        "os": {
+          "const": "linux",
+          "title": "Os",
+          "type": "string"
+        },
+        "arquitectura": {
+          "enum": [
+            "amd64",
+            "arm64"
+          ],
+          "title": "Arquitectura",
+          "type": "string"
+        },
+        "registry_profile_id": {
+          "pattern": "^[a-z][a-z0-9-]{0,63}$",
+          "title": "Registry Profile Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repositorio",
+        "manifest_digest",
+        "config_digest",
+        "os",
+        "arquitectura",
+        "registry_profile_id"
+      ],
+      "title": "Imagen",
+      "type": "object"
+    },
+    "Minimos": {
+      "additionalProperties": false,
+      "properties": {
+        "vcpus": {
+          "maximum": 2,
+          "minimum": 1,
+          "title": "Vcpus",
+          "type": "integer"
+        },
+        "ram_mb": {
+          "maximum": 1024,
+          "minimum": 1,
+          "title": "Ram Mb",
+          "type": "integer"
+        },
+        "disk_gb": {
+          "maximum": 8,
+          "minimum": 1,
+          "title": "Disk Gb",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "vcpus",
+        "ram_mb",
+        "disk_gb"
+      ],
+      "title": "Minimos",
+      "type": "object"
+    },
+    "Perfil": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9-]{0,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "revision": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        },
+        "sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "revision",
+        "sha256"
+      ],
+      "title": "Perfil",
+      "type": "object"
+    },
+    "ProbeHTTP": {
+      "additionalProperties": false,
+      "properties": {
+        "tipo": {
+          "const": "http",
+          "title": "Tipo",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 512,
+          "minLength": 1,
+          "pattern": "^/(?:[A-Za-z0-9._~-][A-Za-z0-9/._~-]*)?$",
+          "title": "Path",
+          "type": "string"
+        },
+        "estados": {
+          "items": {
+            "maximum": 299,
+            "minimum": 200,
+            "type": "integer"
+          },
+          "maxItems": 10,
+          "minItems": 1,
+          "title": "Estados",
+          "type": "array"
+        },
+        "timeout_segundos": {
+          "maximum": 30,
+          "minimum": 1,
+          "title": "Timeout Segundos",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "tipo",
+        "path",
+        "estados",
+        "timeout_segundos"
+      ],
+      "title": "ProbeHTTP",
+      "type": "object"
+    },
+    "ProbeMariaDB": {
+      "additionalProperties": false,
+      "properties": {
+        "tipo": {
+          "const": "mariadb_select_1",
+          "title": "Tipo",
+          "type": "string"
+        },
+        "timeout_segundos": {
+          "maximum": 30,
+          "minimum": 1,
+          "title": "Timeout Segundos",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "tipo",
+        "timeout_segundos"
+      ],
+      "title": "ProbeMariaDB",
+      "type": "object"
+    }
+  },
+  "discriminator": {
+    "mapping": {
+      "community_scripts": "#/$defs/ConfiguracionCommunity",
+      "imagen_docker": "#/$defs/ConfiguracionDocker"
+    },
+    "propertyName": "origen"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/ConfiguracionDocker"
+    },
+    {
+      "$ref": "#/$defs/ConfiguracionCommunity"
+    }
+  ],
+  "x-nap-policy": {
+    "reserved_variables": [
+      "BASHOPTS",
+      "BASH_ENV",
+      "CDPATH",
+      "COMMUNITY_SCRIPTS_CORE_URL",
+      "DEV_MODE_TRACE",
+      "DIAGNOSTICS",
+      "DOCKER_CERT_PATH",
+      "DOCKER_CONFIG",
+      "DOCKER_CONTEXT",
+      "DOCKER_HOST",
+      "DOCKER_TLS_VERIFY",
+      "ENV",
+      "FUNCTIONS_FILE_PATH",
+      "HOME",
+      "IFS",
+      "INSTALL_LOG",
+      "LD_LIBRARY_PATH",
+      "LD_PRELOAD",
+      "PATH",
+      "PYTHONHOME",
+      "PYTHONPATH",
+      "SHELL",
+      "SHELLOPTS",
+      "SSH_ROOT",
+      "TELEMETRY_URL",
+      "TMPDIR"
+    ],
+    "forbidden_targets": [
+      "/proc",
+      "/sys",
+      "/dev",
+      "/run",
+      "/var/run",
+      "/etc/pve",
+      "/etc/nap",
+      "/var/lib/lxc",
+      "/var/lib/docker",
+      "/root",
+      "/boot"
+    ]
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

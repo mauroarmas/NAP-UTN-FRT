@@ -1,0 +1,18 @@
+name: nap009-tests
+
+services:
+  postgres_test:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: nap_test
+      POSTGRES_PASSWORD: nap_test_local_only
+      POSTGRES_DB: nap_test_009
+    ports:
+      - "127.0.0.1:${NAP_TEST_PORT:-55432}:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 2s
+      timeout: 3s
+      retries: 20

@@ -1,0 +1,27 @@
+{
+  "gate": "T101_revocacion_consola_nativa",
+  "fecha_comprobacion": "2026-10-22T17:20:00Z",
+  "entorno": "staging_local_real",
+  "nodo": "proxmox",
+  "cluster_uuid": "0834fb88-0a09-4b5c-8023-211bd80747d9",
+  "identidad_pve_ensayo": "docente-ensayo@pve",
+  "rol_ensayo": "NAP009ConsoleTest",
+  "privilegios_rol": [
+    "VM.Console",
+    "VM.Audit"
+  ],
+  "alcance_inicial": [
+    "/vms/100",
+    "/vms/102"
+  ],
+  "procedimiento_ejecutado": {
+    "1_preparacion": "Creacion de usuario docente-ensayo@pve y rol con VM.Console/VM.Audit sobre 100 y 102",
+    "2_sesion_activa": "Login interactivo mediante interfaz Proxmox VE, sesion de consola abierta y operativa sobre LXC 100",
+    "3_url_guardada": "URL directa de consola abierta y copiada para reintento de conexion",
+    "4_revocacion_y_corte": "pveum acl delete /vms/100 y terminacion explicita de tareas activas vncproxy/termproxy asociadas al usuario y vmid 100",
+    "5_resultado_consola_abierta": "Consola previa inmediatamente interrumpida con estado Disconnecting",
+    "6_resultado_url_guardada": "Reintento de conexion mediante URL directa rechazado con Connection Failed 403",
+    "7_aislamiento_otros_pools_legitimos": "Permisos efectivos sobre LXC 102 conservados intactos y verificados con consola operativa"
+  },
+  "estado": "gate_aprobado_comprobacion_real"
+}

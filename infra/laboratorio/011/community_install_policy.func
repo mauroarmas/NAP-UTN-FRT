@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Hooks comunes del guest administrado por NAP. La aplicación conserva su script.
+post_progress_to_api() { :; }
+pkg_update() { /usr/local/sbin/apt-get update; }
+network_check() {
+  getent ahostsv4 snapshot.debian.org >/dev/null 2>&1 || exit 122
+}
+motd_ssh() { :; }
+customize() {
+  # NAP controla login y actualización. No autologin ni un updater mutable.
+  [[ "$(passwd -S root 2>/dev/null | awk '{print $2}')" == L ]] || exit 87
+  [[ ! -e /usr/bin/update ]] || exit 87
+}
+cleanup_lxc() { /usr/local/sbin/apt-get clean; }
+NAP_BOOTSTRAPPING=0
+catch_errors

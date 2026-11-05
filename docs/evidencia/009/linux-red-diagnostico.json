@@ -1,0 +1,65 @@
+{
+  "observado_at": "2026-10-21T17:47:07.157162+00:00",
+  "fuente_captura_usuario": {
+    "comandos_concatenados": true,
+    "networkd": "active_running",
+    "eth0": "link_up_carrier_ipv6ll",
+    "networkctl_y_cat_no_ejecutados": true
+  },
+  "vmid": 100,
+  "propiedad_comprobada": true,
+  "net0": "name=eth0,bridge=vmbr0,hwaddr=BC:24:11:40:FE:0D,ip=dhcp,type=veth",
+  "interfaces": [
+    {
+      "inet": "127.0.0.1/8",
+      "ip-addresses": [
+        {
+          "ip-address-type": "inet",
+          "ip-address": "127.0.0.1",
+          "prefix": "8"
+        },
+        {
+          "ip-address-type": "inet6",
+          "ip-address": "::1",
+          "prefix": "128"
+        }
+      ],
+      "name": "lo",
+      "hardware-address": "00:00:00:00:00:00",
+      "hwaddr": "00:00:00:00:00:00",
+      "inet6": "::1/128"
+    },
+    {
+      "name": "eth0",
+      "ip-addresses": [
+        {
+          "ip-address-type": "inet6",
+          "ip-address": "fe80::be24:11ff:fe40:fe0d",
+          "prefix": "64"
+        }
+      ],
+      "hardware-address": "bc:24:11:40:fe:0d",
+      "hwaddr": "bc:24:11:40:fe:0d",
+      "inet6": "fe80::be24:11ff:fe40:fe0d/64"
+    }
+  ],
+  "mutaciones": false,
+  "siguiente": "Pausado por usuario. Al retomar preparar acceso mínimo de mauro a vmnet8 y reconexión del adaptador según documentación, todavía NO aplicados.",
+  "networkctl_captura_individual": {
+    "eth0": "degraded_configuring",
+    "online_state": "online",
+    "network_file": "/etc/systemd/network/eth0.network",
+    "address": "sólo IPv6 link-local",
+    "dhcp_v4_no_confirmado": true
+  },
+  "vmware_host_lecturas": {
+    "modo_adaptador": "nat vmnet8",
+    "allowPromiscuous": "TRUE preexistente",
+    "noPromisc": "FALSE preexistente",
+    "vmnet8": "root:root 0600, sin ACL de mauro",
+    "log": "vmware.log 2026-10-21T10:18:12.110Z msg.vnet.promiscNotAllowed",
+    "dhcp_vmnet8": "allow unknown-clients, rango 172.16.36.128–254, sin lease observado para MAC del LXC100",
+    "fuente_primaria": "https://knowledge.broadcom.com/external/article/315331",
+    "sin_mutaciones": true
+  }
+}

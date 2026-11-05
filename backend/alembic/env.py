@@ -31,7 +31,7 @@ if config.config_file_name is not None:
 # Usar la URL de nuestra config, reemplazando asyncpg por psycopg2 para Alembic
 settings = get_settings()
 sync_url = settings.database_url.replace("+asyncpg", "")
-config.set_main_option("sqlalchemy.url", sync_url)
+config.set_main_option("sqlalchemy.url", sync_url.replace('%','%%'))
 
 # Metadata de nuestros modelos para autogenerate
 target_metadata = Base.metadata
@@ -53,6 +53,14 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
+    provided_connection = config.attributes.get('connection')
+    if provided_connection is not None:
+        # Las pruebas entregan una conexión a su esquema privado; no resolver
+        # otra conexión desde el entorno operativo.
+        context.configure(connection=provided_connection, target_metadata=target_metadata)
+        with context.begin_transaction():
+            context.run_migrations()
+        return
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",

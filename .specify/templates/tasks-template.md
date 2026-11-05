@@ -13,6 +13,12 @@ description: "Task list template for feature implementation"
 
 **Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story.
 
+**Simplicidad (Principio VII)**: implementar el recorrido mínimo acordado, feedback y recuperación.
+No añadir pantallas, opciones avanzadas o campos técnicos para hipótesis. Separar configuración
+inicial de operación diaria. Las correcciones acotadas no requieren generar un tasks.md nuevo.
+El alta de ofertas no crea instancias ni reservas; el despliegue corresponde al pedido aprobado.
+La orquestación/capacidad conserva las pruebas obligatorias de la constitución.
+
 ## Format: `[ID] [P?] [Story] Description`
 
 - **[P]**: Can run in parallel (different files, no dependencies)

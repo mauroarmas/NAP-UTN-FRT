@@ -1,0 +1,94 @@
+# Proxy de producción (Caddy). Sólo NAP_PUBLIC_HOST se sustituye. Equivale al nginx.conf que reemplaza.
+# El certificado llega por archivo (/run/tls): no hay ACME, ni almacenamiento de certificados, ni API de administración.
+{
+	auto_https off
+	admin off
+	http_port 8080
+	https_port 8443
+	persist_config off
+	servers {
+		# Un cliente no puede fijar X-Forwarded-*: sólo el proxy las escribe.
+		trusted_proxies static
+		# Sin HTTP/3: el compose publica sólo TCP.
+		protocols h1 h2
+	}
+}
+
+(seguridad) {
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		X-Frame-Options SAMEORIGIN
+		-Server
+	}
+	request_body {
+		max_size 1MB
+	}
+}
+
+# Registro sin parámetros de consulta, cabeceras ni cookies (equivale al formato `sin_parametros` de nginx).
+(registro) {
+	log {
+		output stdout
+		format filter {
+			wrap console
+			fields {
+				request>headers delete
+				request>tls delete
+				resp_headers delete
+				request>uri regexp \?.* ""
+			}
+		}
+	}
+}
+
+# Cualquier otro nombre en HTTP: se corta la conexión sin respuesta (nginx: 444).
+:8080 {
+	abort
+}
+
+http://{$NAP_PUBLIC_HOST}:8080 {
+	import registro
+	redir https://{$NAP_PUBLIC_HOST}{uri} 308
+}
+
+# Cualquier otro nombre en HTTPS: se corta la conexión.
+:8443 {
+	tls /run/tls/fullchain.pem /run/tls/privkey.pem {
+		protocols tls1.2 tls1.3
+	}
+	abort
+}
+
+https://{$NAP_PUBLIC_HOST}:8443 {
+	import registro
+	import seguridad
+	tls /run/tls/fullchain.pem /run/tls/privkey.pem {
+		protocols tls1.2 tls1.3
+	}
+
+	handle /api/* {
+		header Cache-Control no-store
+		reverse_proxy api:8000 {
+			flush_interval -1
+			transport http {
+				dial_timeout 5s
+				response_header_timeout 75s
+			}
+		}
+	}
+
+	handle /assets/* {
+		header Cache-Control "public, max-age=31536000, immutable"
+		root * /usr/share/caddy
+		file_server
+	}
+
+	handle {
+		header Cache-Control no-cache
+		root * /usr/share/caddy
+		try_files {path} {path}/ /index.html
+		file_server
+	}
+}

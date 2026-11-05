@@ -1,0 +1,50 @@
+{
+  "observado_at": "2026-10-21T17:10:49.388910+00:00",
+  "usuarios": [
+    {
+      "userid": "nap009lab@pve",
+      "enable": 0,
+      "expire": 1795194615,
+      "comment": "Spec009: staging temporal; sin invitados preexistentes",
+      "groups": null
+    }
+  ],
+  "roles": [
+    {
+      "roleid": "NAP009LabAudit",
+      "privs": "Datastore.Audit,Sys.Audit,VM.Audit",
+      "special": 0
+    },
+    {
+      "privs": "Pool.Audit,VM.Allocate,VM.Audit,VM.Config.CPU,VM.Config.Disk,VM.Config.Memory,VM.Config.Network,VM.Config.Options,VM.PowerMgmt",
+      "roleid": "NAP009LabGuest",
+      "special": 0
+    },
+    {
+      "privs": "Datastore.AllocateSpace",
+      "roleid": "NAP009LabDisk",
+      "special": 0
+    },
+    {
+      "roleid": "NAP009LabBridge",
+      "privs": "SDN.Use",
+      "special": 0
+    }
+  ],
+  "pools": [
+    {
+      "poolid": "nap009-staging",
+      "comment": "Spec009: staging temporal; sin invitados preexistentes"
+    }
+  ],
+  "tokens_sin_valores": [
+    {
+      "privsep": 1,
+      "comment": "Spec009: staging temporal; sin invitados preexistentes",
+      "tokenid": "ensayos",
+      "expire": 1795194615
+    }
+  ],
+  "acl": [],
+  "mutaciones": false
+}

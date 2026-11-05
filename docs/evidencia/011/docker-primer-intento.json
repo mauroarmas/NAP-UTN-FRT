@@ -1,0 +1,10 @@
+{
+  "scope": "laboratorio_local",
+  "state": "probe_failed",
+  "phase": "creating",
+  "resource_absent": true,
+  "profiles_enabled": [],
+  "runner_code": "INFRASTRUCTURE_NOT_CONFIRMED",
+  "pve_task_diagnosis": "TEMPLATE_EXTRACTION_ROOTDIR_PERMISSION_DENIED",
+  "runtime_tested": false
+}

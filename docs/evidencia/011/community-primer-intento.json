@@ -1,0 +1,24 @@
+{
+  "scope": "laboratorio_local",
+  "state": "community_gate_not_confirmed",
+  "results": {
+    "mariadb": {
+      "state": "probe_failed",
+      "resource_absent": true,
+      "observations": {
+        "confinement": {
+          "host_label": "lxc-900011_</var/lib/lxc>//&:lxc-900011_<-var-lib-lxc>:unconfined (enforce)",
+          "guest_label": "unconfined",
+          "host_lxc_profile_enforced": true,
+          "host_seccomp_filter": true,
+          "host_uid_mapped": true
+        },
+        "guest_failed_phase": "application"
+      },
+      "profiles_enabled": [],
+      "code": "COMMUNITY_APT_SOURCES_CHANGED",
+      "phase": "probing"
+    }
+  },
+  "profiles_enabled": []
+}

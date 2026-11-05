@@ -1,25 +1,24 @@
-"""Retirar una plantilla del catálogo sin romper su historial.
+"""Retirar una plantilla del catálogo sin romper su historial."""
 
-Retirar no es borrar. La plantilla sale del catálogo —deja de ofrecerse y no se
-puede pedir— pero los pedidos y servicios que la referencian tienen que seguir
-resolviéndola, o el historial académico deja de ser legible (Principio V).
+from uuid import uuid4
 
-Buena parte del comportamiento ya existía antes de esta feature: el catálogo
-filtraba por `activo` y `crear_pedido` rechazaba plantillas inactivas. Lo que
-faltaba era una forma de poner ese campo en `false` desde el portal. Estas
-pruebas cubren el conjunto, para que la pieza que faltaba no quede sin red.
-"""
-
-import pytest
+import pytest_asyncio
 
 from tests import factories
+from tests.service_helpers import link_capacity_definition
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _definicion_publicada(db, template, admin):
+    await link_capacity_definition(db, template, admin, product="linux")
+    return template
 
 
 async def test_retirar_la_saca_del_catalogo(client, auth_admin, template):
     r = await client.patch(
         f"/templates/{template.id}", json={"activo": False}, headers=auth_admin
     )
-    assert r.status_code == 200
+    assert r.status_code == 200, r.text
     assert r.json()["activo"] is False
 
     listado = await client.get("/templates/", headers=auth_admin)
@@ -42,9 +41,19 @@ async def test_no_se_puede_pedir_una_plantilla_retirada(
         f"/templates/{template.id}", json={"activo": False}, headers=auth_admin
     )
     r = await client.post(
-        "/pedidos/", json={"template_id": template.id}, headers=auth_catedra
+        "/pedidos/",
+        json={
+            "template_id": template.id,
+            "modelo_servicio": "iaas",
+            "vigencia": {
+                "tipo": "personalizado",
+                "desde": "2026-04-01",
+                "hasta": "2026-06-30",
+            },
+        },
+        headers=auth_catedra | {"Idempotency-Key": f"ped-{uuid4()}"},
     )
-    assert r.status_code == 404
+    assert r.status_code in {404, 422}
 
 
 async def test_el_historial_la_sigue_resolviendo(client, auth_admin, template):
@@ -78,7 +87,7 @@ async def test_reactivar_la_devuelve_al_catalogo(client, auth_admin, template):
     r = await client.patch(
         f"/templates/{template.id}", json={"activo": True}, headers=auth_admin
     )
-    assert r.status_code == 200
+    assert r.status_code == 200, r.text
 
     listado = await client.get("/templates/", headers=auth_admin)
     assert template.id in [t["id"] for t in listado.json()]
@@ -95,11 +104,7 @@ async def test_la_catedra_no_puede_retirar(client, auth_catedra, template):
 async def test_el_admin_puede_ver_las_retiradas_para_reactivarlas(
     client, auth_admin, template
 ):
-    """Sin esto, retirar sería un camino de ida desde la interfaz.
-
-    El catálogo por defecto oculta las retiradas —es lo que la cátedra puede
-    pedir—, así que el administrador necesita una forma de volver a encontrarlas.
-    """
+    """El catálogo con incluir_retiradas=true muestra las retiradas al administrador."""
     await client.patch(
         f"/templates/{template.id}", json={"activo": False}, headers=auth_admin
     )

@@ -1,0 +1,22 @@
+{
+  "entorno": "laboratorio_local_real",
+  "observado_at": "2026-10-21T03:02:54.993585+00:00",
+  "destino": "172.16.36.100",
+  "nodo": "proxmox",
+  "cuenta": "naprunner",
+  "pruebas": {
+    "cliente_y_protocolo_con_hostkey_fijada": "aprobado",
+    "receta_no_registrada": "rechazada",
+    "comando_shell": "sustituido_por_wrapper_sin_ejecutar_shell",
+    "terminal_interactiva": "denegada",
+    "forwarding_remoto": "denegado",
+    "hostkey_distinta_en_archivo_temporal": "rechazada_antes_de_autenticar"
+  },
+  "operacion_sonda": "f73f791b-2010-43fc-880f-f5b63ab1c42f",
+  "invitados_ejecutados": false,
+  "limitaciones": [
+    "Origen distinto no ensayado en la VM: requiere otro origen real",
+    "No acredita ACL ni revocación de consola docente",
+    "No acredita definiciones, imágenes ni aplicaciones operativas"
+  ]
+}

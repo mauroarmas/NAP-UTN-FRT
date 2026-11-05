@@ -1,83 +1,149 @@
-"""Planificador de los trabajos periódicos del portal.
-
-Deliberadamente sin lógica de negocio: cada trabajo es una función de servicio
-que recibe una sesión y devuelve un resumen. Esa función se prueba directamente,
-se puede disparar a mano desde el endpoint de administración, y acá solo se la
-llama con una cadencia. Si el planificador falla, la feature se degrada a
-operación manual en lugar de romperse.
-
-El lock en base existe porque el planificador vive dentro del proceso de la
-aplicación: con varios workers, cada uno dispararía el mismo trabajo y los
-vencimientos se aplicarían N veces.
-"""
-
+"""Registro compartido; el planificador se inicia exclusivamente en el worker."""
+import asyncio
+from dataclasses import dataclass
 import logging
 import os
 import socket
-from contextlib import asynccontextmanager
+from uuid import UUID, uuid4
+from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timedelta
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from sqlalchemy import delete, select
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import delete, select, update
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.database import AsyncSessionLocal
 from app.models.job_lock import JobLock
+from app.utils.clock import clock, db_utc
 
 logger = logging.getLogger(__name__)
-
-# Un lock más viejo que esto se considera abandonado (proceso caído a mitad de
-# camino) y se puede tomar de nuevo. Sin esto, un corte deja el trabajo colgado
-# para siempre.
-LOCK_MAX_EDAD = timedelta(minutes=30)
+LOCK_MAX_EDAD = timedelta(minutes=30)  # Solo para interpretar un lock legado.
+LEASE_SECONDS = 30
 
 
 class LockNoDisponible(Exception):
-    """El trabajo ya está corriendo en otro proceso."""
+    pass
 
 
-def _identidad() -> str:
-    return f"{socket.gethostname()}:{os.getpid()}"
+@dataclass(frozen=True)
+class LeaseJob:
+    nombre: str
+    owner: UUID
+    generation: int
+
+
+def _identidad():
+    return f'{socket.gethostname()}:{os.getpid()}'[:100]
+
+
+async def adquirir_job(db, nombre):
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+    owner = uuid4()
+    insert = pg_insert if db.bind.dialect.name == 'postgresql' else sqlite_insert
+    now = clock.now()
+    await db.execute(insert(JobLock).values(nombre=nombre, tomado_at=now.replace(tzinfo=None), tomado_por=_identidad(),
+        owner_token=owner, generation=1, lease_until=now + timedelta(seconds=LEASE_SECONDS))
+        .on_conflict_do_nothing(index_elements=['nombre']))
+    row = await db.scalar(select(JobLock).where(JobLock.nombre == nombre).with_for_update().execution_options(populate_existing=True))
+    if row.owner_token != owner:
+        expiry = db_utc(row.lease_until) if row.lease_until else db_utc(row.tomado_at) + LOCK_MAX_EDAD
+        if expiry > now:
+            await db.rollback()
+            raise LockNoDisponible(nombre)
+        row.owner_token, row.generation = owner, row.generation + 1
+        row.lease_until = now + timedelta(seconds=LEASE_SECONDS)
+        row.tomado_at, row.tomado_por = now.replace(tzinfo=None), _identidad()
+    await db.flush()
+    lease = LeaseJob(nombre, owner, row.generation)
+    await db.commit()
+    return lease
+
+
+def _job_owner(lease):
+    return (JobLock.nombre == lease.nombre, JobLock.owner_token == lease.owner, JobLock.generation == lease.generation)
+
+
+async def renovar_job(db, lease):
+    result = await db.execute(update(JobLock).where(*_job_owner(lease), JobLock.lease_until > clock.now())
+        .values(lease_until=clock.now() + timedelta(seconds=LEASE_SECONDS)).execution_options(synchronize_session=False))
+    await db.commit()
+    return result.rowcount == 1
+
+
+async def liberar_job(db, lease):
+    result = await db.execute(delete(JobLock).where(*_job_owner(lease)).execution_options(synchronize_session=False))
+    await db.commit()
+    return result.rowcount == 1
+
+
+async def _renovacion(session_factory, lease, lost):
+    while True:
+        await asyncio.sleep(10)
+        try:
+            async with session_factory() as session:
+                if not await renovar_job(session, lease):
+                    lost.set()
+                    return
+        except Exception:
+            lost.set()
+            logger.error('Heartbeat de trabajo no confirmado')
+            return
 
 
 @asynccontextmanager
-async def tomar_lock(db: AsyncSession, nombre: str):
-    """Toma el lock del trabajo, o lanza ``LockNoDisponible``."""
-    limite = datetime.utcnow() - LOCK_MAX_EDAD
-    await db.execute(
-        delete(JobLock).where(JobLock.nombre == nombre, JobLock.tomado_at < limite)
-    )
-    await db.commit()
-
+async def tomar_lock(db, nombre):
+    lease = await adquirir_job(db, nombre)
+    # Una sesión distinta para heartbeat; nunca comparte AsyncSession con el job.
+    sessions = async_sessionmaker(db.bind, expire_on_commit=False)
+    lost = asyncio.Event()
+    task = asyncio.create_task(_renovacion(sessions, lease, lost))
     try:
-        db.add(JobLock(nombre=nombre, tomado_por=_identidad()))
+        yield lease
+        if lost.is_set():
+            raise LockNoDisponible(nombre)
+        current = await db.scalar(select(JobLock).where(*_job_owner(lease), JobLock.lease_until > clock.now()).with_for_update())
+        if current is None:
+            raise LockNoDisponible(nombre)
         await db.commit()
-    except IntegrityError:
-        await db.rollback()
-        raise LockNoDisponible(nombre)
-
-    try:
-        yield
     finally:
-        await db.execute(delete(JobLock).where(JobLock.nombre == nombre))
-        await db.commit()
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+        await db.rollback()
+        await liberar_job(db, lease)
 
 
-async def lock_tomado(db: AsyncSession, nombre: str) -> bool:
-    result = await db.execute(select(JobLock).where(JobLock.nombre == nombre))
-    return result.scalar_one_or_none() is not None
+async def lock_tomado(db, nombre):
+    row = await db.get(JobLock, nombre, populate_existing=True)
+    if not row:
+        return False
+    expiry = db_utc(row.lease_until) if row.lease_until else db_utc(row.tomado_at) + LOCK_MAX_EDAD
+    return expiry > clock.now()
 
 
 # --- Registro de trabajos ---------------------------------------------------
 
 # nombre -> (función de servicio, minutos entre ejecuciones)
 TRABAJOS: dict[str, tuple] = {}
+CADENCIAS_SEGUNDOS: dict[str, int] = {}
+TRABAJOS_DIARIOS: set[str] = set()
 
 
-def registrar(nombre: str, funcion, cada_minutos: int) -> None:
+def registrar(nombre: str, funcion, cada_minutos: int | None = None, *, cada_segundos: int | None = None, diario=False) -> None:
     """Da de alta un trabajo periódico. Lo llaman los módulos de servicio."""
+    if (cada_minutos is None) == (cada_segundos is None):
+        raise ValueError('Indicar una sola cadencia')
+    cadence = cada_minutos if cada_minutos is not None else cada_segundos
+    if type(cadence) is not int or cadence <= 0:
+        raise ValueError('La cadencia debe ser positiva')
+    if diario and cada_minutos != 1440:
+        raise ValueError('El trabajo diario usa 1440 minutos')
     TRABAJOS[nombre] = (funcion, cada_minutos)
+    if cada_segundos is not None: CADENCIAS_SEGUNDOS[nombre] = cada_segundos
+    else: CADENCIAS_SEGUNDOS.pop(nombre, None)
+    if diario: TRABAJOS_DIARIOS.add(nombre)
+    else: TRABAJOS_DIARIOS.discard(nombre)
 
 
 async def ejecutar(nombre: str, db: AsyncSession | None = None) -> dict:
@@ -92,18 +158,21 @@ async def ejecutar(nombre: str, db: AsyncSession | None = None) -> dict:
     if nombre not in TRABAJOS:
         raise KeyError(nombre)
     funcion, _ = TRABAJOS[nombre]
+    from app.services.restauracion_service import exigir_habilitacion
 
     if db is not None:
+        await exigir_habilitacion(db, componente='worker')
         async with tomar_lock(db, nombre):
             resultado = await funcion(db)
     else:
         async with AsyncSessionLocal() as propia:
+            await exigir_habilitacion(propia, componente='worker')
             async with tomar_lock(propia, nombre):
                 resultado = await funcion(propia)
 
     return {
         "job": nombre,
-        "ejecutado_at": datetime.utcnow().isoformat(),
+        "ejecutado_at": clock.now().isoformat().replace("+00:00", "Z"),
         **(resultado or {}),
     }
 
@@ -118,10 +187,18 @@ def iniciar() -> AsyncIOScheduler:
 
     _scheduler = AsyncIOScheduler()
     for nombre, (_, cada_minutos) in TRABAJOS.items():
+        if nombre in TRABAJOS_DIARIOS:
+            from apscheduler.triggers.cron import CronTrigger
+            from app.config import get_settings
+            trigger = CronTrigger(hour=0, minute=5, timezone=get_settings().institutional_timezone)
+            cadence = {}
+        else:
+            trigger = 'interval'
+            cadence = ({'seconds': CADENCIAS_SEGUNDOS[nombre]} if nombre in CADENCIAS_SEGUNDOS else {'minutes': cada_minutos})
         _scheduler.add_job(
             _ejecutar_silencioso,
-            "interval",
-            minutes=cada_minutos,
+            trigger,
+            **cadence,
             args=[nombre],
             id=nombre,
             # Si una corrida se atrasa, no acumular ejecuciones pendientes.
@@ -140,7 +217,7 @@ async def _ejecutar_silencioso(nombre: str) -> None:
     except LockNoDisponible:
         logger.debug("Trabajo %s ya en ejecución en otro proceso", nombre)
     except Exception:
-        logger.exception("Falló el trabajo periódico %s", nombre)
+        logger.error("Falló el trabajo periódico %s", nombre)
 
 
 def detener() -> None:

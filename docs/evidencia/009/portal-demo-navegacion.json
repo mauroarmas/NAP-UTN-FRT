@@ -1,0 +1,101 @@
+{
+  "entorno": "Docker local real; sesiones temporales de diagnóstico, sin login con contraseña",
+  "vistas": [
+    {
+      "usuario": "mauro_admin",
+      "ruta": "/",
+      "errorBoundary": false,
+      "erroresJS": []
+    },
+    {
+      "usuario": "mauro_admin",
+      "ruta": "/pedidos",
+      "errorBoundary": false,
+      "erroresJS": []
+    },
+    {
+      "usuario": "mauro_admin",
+      "ruta": "/servicios",
+      "errorBoundary": false,
+      "erroresJS": []
+    },
+    {
+      "usuario": "mauro_admin",
+      "ruta": "/usuarios",
+      "errorBoundary": false,
+      "erroresJS": []
+    },
+    {
+      "usuario": "mauro_admin",
+      "ruta": "/catedras",
+      "errorBoundary": false,
+      "erroresJS": []
+    },
+    {
+      "usuario": "mauro_admin",
+      "ruta": "/calendario",
+      "errorBoundary": false,
+      "erroresJS": []
+    },
+    {
+      "usuario": "mauro_admin",
+      "ruta": "/templates",
+      "errorBoundary": false,
+      "erroresJS": []
+    },
+    {
+      "usuario": "mauro_admin",
+      "ruta": "/definiciones",
+      "errorBoundary": false,
+      "erroresJS": []
+    },
+    {
+      "usuario": "mauro_admin",
+      "ruta": "/metricas",
+      "errorBoundary": false,
+      "erroresJS": []
+    },
+    {
+      "usuario": "mauro_admin",
+      "ruta": "/seguridad",
+      "errorBoundary": false,
+      "erroresJS": []
+    },
+    {
+      "usuario": "mauro_catedra",
+      "ruta": "/",
+      "errorBoundary": false,
+      "erroresJS": []
+    },
+    {
+      "usuario": "mauro_catedra",
+      "ruta": "/pedidos",
+      "errorBoundary": false,
+      "erroresJS": []
+    },
+    {
+      "usuario": "mauro_catedra",
+      "ruta": "/catalogo",
+      "errorBoundary": false,
+      "erroresJS": []
+    },
+    {
+      "usuario": "mauro_catedra",
+      "ruta": "/servicios",
+      "errorBoundary": false,
+      "erroresJS": []
+    },
+    {
+      "usuario": "mauro_catedra",
+      "ruta": "/metricas",
+      "errorBoundary": false,
+      "erroresJS": []
+    },
+    {
+      "usuario": "mauro_catedra",
+      "ruta": "/seguridad",
+      "errorBoundary": false,
+      "erroresJS": []
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+# Transporte sin argumentos libres. La instalación prepara runtime/venv privados.
+test "$#" -eq 0
+cd /opt/nap-builder/runtime
+export PYTHONPATH=/opt/nap-builder/runtime:/opt/nap-builder/runtime/backend
+exec /opt/nap-builder/venv/bin/python -m infra.builder.executor --root /var/lib/nap-builder

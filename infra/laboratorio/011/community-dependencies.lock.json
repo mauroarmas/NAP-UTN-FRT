@@ -1,0 +1,37 @@
+{
+  "apt": {
+    "releases": [
+      {
+        "archive": "debian",
+        "sha256": "0584fba32e13e0ab8285fb16c27adea1ec03a73669c18702821094fd6ca86675",
+        "suite": "trixie",
+        "timestamp": "20261026T000000Z",
+        "url": "https://snapshot.debian.org/archive/debian/20261026T000000Z/dists/trixie/InRelease"
+      },
+      {
+        "archive": "debian",
+        "sha256": "bedd917a6cf00bc559d380ca417b4c4057f36a54375b8a4eddce721190cc0950",
+        "suite": "trixie-updates",
+        "timestamp": "20261026T000000Z",
+        "url": "https://snapshot.debian.org/archive/debian/20261026T000000Z/dists/trixie-updates/InRelease"
+      },
+      {
+        "archive": "debian-security",
+        "sha256": "fd9c62340e65defa574627a11ccebf8a51823c463b22d6570572d76b5a8be5c7",
+        "suite": "trixie-security",
+        "timestamp": "20261026T000000Z",
+        "url": "https://snapshot.debian.org/archive/debian-security/20261026T000000Z/dists/trixie-security/InRelease"
+      }
+    ],
+    "verified_keyring_version": "2025.1"
+  },
+  "caddy": {
+    "bytes": 18142322,
+    "published_at": "2026-10-03T05:58:33Z",
+    "sha256": "a22b914ffd1958da42bc7ab13b7b62c6100634e0798ab594891d2d61d53ba749",
+    "url": "https://github.com/caddyserver/caddy/releases/download/v2.11.7/caddy_2.11.7_linux_amd64.deb",
+    "version": "2.11.7"
+  },
+  "schema_version": "nap-community-dependencies/1",
+  "scope": "laboratorio_local"
+}

@@ -1,0 +1,11 @@
+# Fragmento institucional. Validar sshd -t y conservar una sesión de rescate.
+# Cuenta sin contraseña, home/authorized_keys propiedad de root; no conceder
+# grupos administrativos. /bin/sh se usa solo para el ForceCommand de sshd.
+Match User naprunner
+    AuthenticationMethods publickey
+    PasswordAuthentication no
+    KbdInteractiveAuthentication no
+    PermitTTY no
+    DisableForwarding yes
+    PermitUserRC no
+    ForceCommand /usr/bin/sudo -n /usr/local/sbin/nap-guest-runner

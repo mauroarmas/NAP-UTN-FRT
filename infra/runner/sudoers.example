@@ -1,0 +1,4 @@
+# Validar con visudo -cf antes de instalar como root:root 0440.
+# La cadena vacía exige cero argumentos; no se autoriza pct o un intérprete.
+Defaults:naprunner env_reset, !setenv, !log_input, !log_output
+naprunner ALL=(root) NOPASSWD: /usr/local/sbin/nap-guest-runner ""
