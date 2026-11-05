@@ -73,7 +73,7 @@ test('admin puede abrir la consola de despliegue desde Pedidos y ver texto liter
 
   await page.route('**/api/v1/pedidos/**', (route) =>
     route.fulfill({
-      json: new URL(route.request().url()).pathname.endsWith('/42') ? pedido : [pedido],
+      json: new URL(route.request().url()).pathname.endsWith('/42') ? pedido : { items: [pedido], next_cursor: null },
     })
   );
 
@@ -162,7 +162,7 @@ test('la consola maneja pérdida de autorización (403) limpiando el buffer', as
 
   await page.route('**/api/v1/pedidos/**', (route) =>
     route.fulfill({
-      json: new URL(route.request().url()).pathname.endsWith('/43') ? pedido : [pedido],
+      json: new URL(route.request().url()).pathname.endsWith('/43') ? pedido : { items: [pedido], next_cursor: null },
     })
   );
   await page.route('**/api/v1/templates/**', (route) => route.fulfill({ json: [] }));

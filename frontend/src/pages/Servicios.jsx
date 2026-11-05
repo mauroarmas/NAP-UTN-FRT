@@ -9,7 +9,7 @@ import {
   Pin, PinOff, CalendarClock, Send, Loader2, Search, X, Settings, CircleAlert,
 } from 'lucide-react';
 import {
-  getPedidos, listarServicios, desplegarPedido, iniciarServicio, detenerServicio,
+  getPedidosTodos, listarServicios, desplegarPedido, iniciarServicio, detenerServicio,
   reiniciarServicio, eliminarServicio, getStatusServicio, getCatedras, getCatedrasMias,
   getTemplates, reactivarServicio, actualizarServicio, listarOperaciones,
 } from '../services/api';
@@ -114,7 +114,7 @@ export default function Servicios({ user }) {
   const srvRemote = useRemoteData((options) => listarServicios({ ...options,
     params: filtroTipo ? { modelo_servicio: filtroTipo } : {} }), {
     ...common, key: `servicios:${scope}:${filtroTipo}`, errorMessage: 'No se pudieron consultar los servicios.' });
-  const pedRemote = useRemoteData((options) => getPedidos('aprobado', options), {
+  const pedRemote = useRemoteData((options) => getPedidosTodos({ estado: 'aprobado' }, options), {
     ...common, key: `pedidos:${scope}`, enabled: isAdmin, errorMessage: 'No se pudieron consultar los pedidos aprobados.' });
   const catRemote = useRemoteData((options) => isAdmin ? getCatedras(options) : getCatedrasMias(options), {
     ...common, key: `catedras:${scope}`, errorMessage: 'No se pudieron consultar las cátedras.' });

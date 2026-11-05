@@ -1,5 +1,5 @@
 import { mensajeError } from '../utils/errors.js';
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import useRemoteData from '../hooks/useRemoteData';
 import EstadoConsulta from '../components/EstadoConsulta';
@@ -31,6 +31,8 @@ import { ESTADO_PEDIDO_CONFIG as ESTADO_CONFIG, PASOS_PEDIDO } from '../constant
 // rechazado con autor persona—, pero el listado no lo trae. Ahí se cae al
 // prefijo que el backend antepone al motivo, fijado en el contrato de la 005.
 const EMPTY = [];
+const PAGINA_PEDIDOS = 20;
+const ESPERA_BUSQUEDA_MS = 350;
 const PREFIJO_REVERSION = 'Aprobación revertida';
 
 const entradaDeReversion = (historial) =>
@@ -174,6 +176,8 @@ export default function Pedidos({ user }) {
   const pedidoDesdeAviso = Number(new URLSearchParams(location.search).get('pedido'));
   const [filtroEstado, setFiltroEstado] = useState('');
   const [query, setQuery] = useState('');
+  const [busqueda, setBusqueda] = useState('');       // `query` con espera: la búsqueda se hace en el servidor
+  const paginasCargadas = useRef(1);                    // cuántas páginas muestra el listado; el refresco las vuelve a pedir todas
   const [modalNuevoAbierto, setModalNuevoAbierto] = useState(false);
   const [modalAprobarAbierto, setModalAprobarAbierto] = useState(false);
   const [modalAjusteAbierto, setModalAjusteAbierto] = useState(false);
@@ -231,17 +235,38 @@ export default function Pedidos({ user }) {
   const isAdmin = user?.rol === 'admin';
 
   const scope = `${user?.id || ''}:${user?.rol || ''}`;
-  const pedidosRemote = useRemoteData((options) => getPedidos(filtroEstado || null, options), {
-    key: `pedidos:${scope}:${filtroEstado}`, refreshMs: 5000,
+  useEffect(() => {
+    const limpio = query.trim();
+    if (limpio === busqueda) return undefined;
+    const espera = setTimeout(() => { paginasCargadas.current = 1; setBusqueda(limpio); }, ESPERA_BUSQUEDA_MS);
+    return () => clearTimeout(espera);
+  }, [query, busqueda]);
+  const consultarPedidos = async ({ signal }) => {
+    // Vuelve a pedir desde la primera página hasta la que la persona tiene abierta: así el refresco automático
+    // no deja huecos cuando llegan pedidos nuevos mientras se mira una página posterior.
+    const items = [];
+    let cursor;
+    for (let pagina = 0; pagina < paginasCargadas.current; pagina += 1) {
+      const { data } = await getPedidos({ estado: filtroEstado, q: busqueda, limit: PAGINA_PEDIDOS, cursor }, { signal });
+      items.push(...data.items);
+      cursor = data.next_cursor;
+      if (!cursor) break;
+    }
+    return { data: { items, next_cursor: cursor || null } };
+  };
+  const pedidosRemote = useRemoteData(consultarPedidos, {
+    key: `pedidos:${scope}:${filtroEstado}:${busqueda}`, refreshMs: 5000,
     canRefresh: () => pendingPedidos.current && !busyRef.current && !modalAprobarAbierto && !modalAjusteAbierto && !modalReenviarAbierto,
     errorMessage: 'No se pudieron consultar los pedidos.' });
-  const pedidos = pedidosRemote.data || EMPTY;
+  const pedidos = pedidosRemote.data?.items || EMPTY;
+  const hayMasPedidos = Boolean(pedidosRemote.data?.next_cursor);
+  const cargarMasPedidos = () => { paginasCargadas.current += 1; pedidosRemote.reload(); };
   pendingPedidos.current = pedidos.some((p) => p.estado === 'en_despliegue' || p.operation_id);
   const loading = pedidosRemote.loading && !pedidosRemote.data;
   const fetchPedidos = pedidosRemote.reload;
   useEffect(() => {
     if (pedidosRemote.data) setOperationIds((current) => [...new Set([...current,
-      ...pedidosRemote.data.map((p) => p.operation_id || p.ultima_operacion_id).filter(Boolean)])]);
+      ...pedidosRemote.data.items.map((p) => p.operation_id || p.ultima_operacion_id).filter(Boolean)])]);
   }, [pedidosRemote.data]);
   const templatesRemote = useRemoteData((options) => getTemplates(true, null, options), {
     key: `perfiles-pedidos:${scope}`, errorMessage: 'No se pudieron consultar los perfiles.' });
@@ -262,13 +287,7 @@ export default function Pedidos({ user }) {
     return new Date(iso).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
   };
 
-  const visibles = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return pedidos;
-    return pedidos.filter((p) =>
-      [`#${p.id}`, templateNombre(p.template_id), catedraNombre(p.catedra_id), p.servicio_dado_de_baja ? 'Servicio dado de baja' : ESTADO_CONFIG[p.estado]?.label, descripcionPedido(p), p.modelo_servicio || '', vigenciaLabel(p) || '']
-        .join(' ').toLowerCase().includes(q));
-  }, [pedidos, query, templates, catedras, misCatedras]);
+  const visibles = pedidos;                       // ya filtrados y paginados por el servidor
 
   // ---- Detalle / decisiones ----
   const actualizarDetalle = async (id) => {
@@ -489,7 +508,7 @@ export default function Pedidos({ user }) {
           style={{ minWidth: 190 }}
           aria-label="Filtrar pedidos por estado"
           value={filtroEstado}
-          onChange={(e) => setFiltroEstado(e.target.value)}
+          onChange={(e) => { paginasCargadas.current = 1; setFiltroEstado(e.target.value); }}
         >
           <option value="">Todos los estados</option>
           {Object.entries(ESTADO_CONFIG).map(([key, cfg]) => (
@@ -508,7 +527,7 @@ export default function Pedidos({ user }) {
       <EstadoConsulta remote={categoriesRemote} nombre="cátedras" />
       <div className="row between" style={{ marginBottom: 'var(--space-4)', alignItems: 'baseline' }}>
         <div className="section-label">Listado</div>
-        <span className="section-count">{visibles.length} pedidos · {filtroLabel}</span>
+        <span className="section-count">{visibles.length}{hayMasPedidos ? '+' : ''} pedidos · {filtroLabel}</span>
       </div>
 
       {visibles.length === 0 ? (
@@ -615,6 +634,13 @@ export default function Pedidos({ user }) {
               </div>
             );
           })}
+        </div>
+      )}
+      {hayMasPedidos && (
+        <div className="row" style={{ justifyContent: 'center', marginTop: 'var(--space-4)' }}>
+          <button type="button" className="btn btn-secondary" disabled={pedidosRemote.loading} onClick={cargarMasPedidos}>
+            {pedidosRemote.loading ? 'Cargando…' : 'Cargar más pedidos'}
+          </button>
         </div>
       )}
 

@@ -84,7 +84,20 @@ export const getProxmoxStorage = (options = {}) => api.get('/proxmox/storage', o
 export const getProxmoxTemplates = (storage = 'local') => api.get('/proxmox/templates', { params: { storage } });
 
 // Pedidos
-export const getPedidos = (estado, options = {}) => api.get('/pedidos/', { ...options, params: estado ? { estado } : {} });
+// Una página de pedidos, del más reciente al más antiguo: `{ items, next_cursor }`. `q` se filtra en el servidor.
+export const getPedidos = ({ estado, q, limit, cursor } = {}, options = {}) => api.get('/pedidos/', { ...options,
+  params: Object.fromEntries(Object.entries({ estado, q, limit, cursor }).filter(([, valor]) => valor)) });
+// Todos los que cumplen el filtro, siguiendo los cursores. Sólo para conjuntos acotados (p. ej. los aprobados a desplegar).
+export const getPedidosTodos = async (params = {}, options = {}) => {
+  const items = [];
+  let cursor;
+  do {
+    const { data } = await getPedidos({ ...params, limit: 100, cursor }, options);
+    items.push(...data.items);
+    cursor = data.next_cursor;
+  } while (cursor);
+  return { data: items };
+};
 export const getPedido = (id, options = {}) => api.get(`/pedidos/${id}`, options);
 export const createPedido = (data, clave = crypto.randomUUID()) => api.post('/pedidos/', data, ordenHeaders(clave));
 export const getEstadosPedido = () => api.get('/pedidos/estados');

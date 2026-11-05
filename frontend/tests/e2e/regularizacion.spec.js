@@ -8,7 +8,7 @@ async function prepare(page, rol = 'admin') {
     ram_asignada_mb: 1024, disk_asignado_gb: 20, regularizacion_pendiente: true, regularizacion_legacy: true, acciones_habilitadas: [] }] }));
   await page.route('**/api/v1/catedras/**', (route) => route.fulfill({ json: [{ id: 1, nombre: 'Prueba' }] }));
   await page.route('**/api/v1/templates/**', (route) => route.fulfill({ json: [] }));
-  await page.route('**/api/v1/pedidos/**', (route) => route.fulfill({ json: [] }));
+  await page.route('**/api/v1/pedidos/**', (route) => route.fulfill({ json: { items: [], next_cursor: null } }));
   await page.route('**/api/v1/operaciones?**', (route) => route.fulfill({ json: { items: [], next_cursor: null } }));
   await page.route('**/api/v1/servicios/7/regularizacion/evaluar', (route) => route.fulfill({ json: { servicio_id: 7,
     fuente_sha256: 'a'.repeat(64), puede_regularizar: true, motivos: [], nombre: 'Recurso histórico', modelo_servicio: 'iaas',
