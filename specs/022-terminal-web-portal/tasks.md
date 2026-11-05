@@ -15,8 +15,8 @@
 
 ## Phase 1: Setup
 
-- [ ] T001 [P] Fijar en `frontend/package.json` y `package-lock.json` una versión exacta de `@xterm/xterm` y `@xterm/addon-fit` con ≥ 2 semanas de antigüedad (research R7), verificando `npm audit`; instalar en una copia del frontend del scratchpad y comprobar que `vite build` pasa
-- [ ] T002 [P] Prueba de higiene de datos del laboratorio ampliada: agregar `backend/app/services/terminal_*`, `identidad_consola_service.py`, `infra/runner/console_identity.py` y `docs/runbook-terminal-portal.md` al alcance de `backend/tests/test_sin_datos_lab_020.py`
+- [x] T001 [P] Fijar en `frontend/package.json` y `package-lock.json` una versión exacta de `@xterm/xterm` y `@xterm/addon-fit` con ≥ 2 semanas de antigüedad (research R7), verificando `npm audit`; instalar en una copia del frontend del scratchpad y comprobar que `vite build` pasa
+- [x] T002 [P] Prueba de higiene de datos del laboratorio ampliada: agregar `backend/app/services/terminal_*`, `identidad_consola_service.py`, `infra/runner/console_identity.py` y `docs/runbook-terminal-portal.md` al alcance de `backend/tests/test_sin_datos_lab_020.py`
 
 ## Phase 2: Foundational (bloquea las historias)
 

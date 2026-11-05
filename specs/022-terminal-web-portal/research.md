@@ -40,7 +40,7 @@ Fuentes: `backend/app/services/consola_gate_service.py`, `consola_destino_servic
 
 ## R7. Frontend: terminal
 
-- **Decisión**: `@xterm/xterm` + `@xterm/addon-fit`, empaquetados por Vite (sin CDN), con versión exacta del lockfile y antigüedad ≥ 2 semanas (la 6.0.0 es de hace 6 días: se fija una 5.x vigente y se verifica contra `npm audit`). Mensajes binarios de entrada/salida y un mensaje de control para redimensionar.
+- **Decisión**: `@xterm/xterm` + `@xterm/addon-fit`, empaquetados por Vite (sin CDN), con versión exacta del lockfile y antigüedad ≥ 2 semanas: `@xterm/xterm` 6.0.0 (publicada 2025-12-22) y `@xterm/addon-fit` 0.11.0 (2025-12-22), verificadas con `npm audit`. Mensajes binarios de entrada/salida y un mensaje de control para redimensionar.
 - **Razón**: estándar de hecho para terminales web; mismo protocolo de teclas que la consola nativa.
 
 ## R8. Autorización y alcance del WebSocket

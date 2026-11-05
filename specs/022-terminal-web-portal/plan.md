@@ -18,7 +18,7 @@ El retiro conserva la prueba de revocación de la 020 y la compuerta de instalac
 
 **Language/Version**: Python 3 (FastAPI + SQLAlchemy async; runner de nodo sólo biblioteca estándar), JavaScript/React (Vite).
 
-**Primary Dependencies**: backend: las existentes (`websockets`, `httpx`, `uvicorn[standard]`); frontend: **nueva** `@xterm/xterm` y `@xterm/addon-fit`, versión exacta fijada en el lockfile y con ≥ 2 semanas de antigüedad (research R7).
+**Primary Dependencies**: backend: las existentes (`websockets`, `httpx`, `uvicorn[standard]`); frontend: **nueva** `@xterm/xterm` y `@xterm/addon-fit`, versiones exactas `6.0.0` y `0.11.0` fijadas en el lockfile (≥ 2 semanas de antigüedad; research R7).
 
 **Storage**: PostgreSQL del portal, **migración Alembic** (cabeza actual `017_01_clave_acceso_servicio`): tablas `identidades_consola` y `sesiones_terminal`; el estado de sesión vivo es en proceso, el cupo y la auditoría están en la base.
 
