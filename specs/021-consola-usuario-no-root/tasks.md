@@ -69,7 +69,7 @@
 
 - [x] T024 [P] Actualizar `docs/runbook-consola-nativa.md` (se entra como `nap`, `root` bloqueado), `docs/infraestructura-laboratorio/scripts/consola/README.md` si corresponde, y anotar la actualización de servicios existentes y el orden nodos→portal
 - [ ] T025 Ejecutar las suites completas (`pytest backend/tests infra/runner/tests` en segundo plano; `vitest` en una copia del frontend en el scratchpad); sin regresiones
-- [ ] T026 [LAB] Limpiar: dar de baja los servicios de prueba creados, dejar el #42 en su estado previo (detenido), cuenta semilla inactiva, identidades y contenedores temporales borrados
+- [x] T026 [LAB] Limpiar: dar de baja los servicios de prueba creados, dejar el #42 en su estado previo (detenido), cuenta semilla inactiva, identidades y contenedores temporales borrados
 - [ ] T027 Actualizar este `tasks.md`, `spec.md` (Status) y la memoria del proyecto; abrir el PR a `dev` (sin co-autor en los commits; el PR sólo con tu OK)
 
 ## Dependencies & Execution Order
