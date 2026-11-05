@@ -177,6 +177,13 @@ async def _inventario(sessions, usuario_id, identidad):
                 usuario.identidad_consola, usuario.inventario_consola = None, 'sin_identidad'
                 usuario.inventario_consola_ref, usuario.inventario_consola_actor = 'AUTO-022-RETIRADA', 'portal-automatico'
         elif usuario.identidad_consola != identidad:
+            if usuario.identidad_consola:
+                # Adopción: la identidad manual anterior queda registrada. El protocolo del nodo sólo conoce nombres
+                # gestionados (`nap-u<id>@pve`), así que la manual la elimina el operador (runbook); el portal no puede.
+                historial = list(usuario.inventario_consola_historial or [])
+                historial.append({'identidad_anterior': usuario.identidad_consola, 'reemplazada_at': clock.now().isoformat(),
+                                  'por': identidad})
+                usuario.inventario_consola_historial = historial
             usuario.identidad_consola, usuario.inventario_consola = identidad, 'asignada'
             usuario.inventario_consola_ref, usuario.inventario_consola_actor = 'AUTO-022', 'portal-automatico'
 

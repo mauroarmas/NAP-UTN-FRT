@@ -304,3 +304,16 @@ async def test_sin_consola_habilitada_el_bucle_no_hace_nada(db, monkeypatch):
     from app import worker
     monkeypatch.setattr(get_settings(), 'console_access_profile', {}, raising=False)
     assert (await worker.reconciliar_identidades_consola(db)) == {'afectados': 0}
+
+
+async def test_la_adopcion_registra_la_identidad_manual_anterior_sin_perderla(db, sessions, catedra, usuario_catedra):
+    usuario_catedra.identidad_consola, usuario_catedra.inventario_consola = 'docente@pve', 'asignada'
+    usuario_catedra.inventario_consola_ref, usuario_catedra.inventario_consola_actor = 'ACTA-1', 'operador'
+    await db.commit()
+    runner = RunnerConsola(pools=[f'catedra-{catedra.id}'])
+    await svc.reconciliar_usuario(sessions, usuario_catedra.id, runner=runner)
+    await db.refresh(usuario_catedra)
+    assert usuario_catedra.identidad_consola == f'nap-u{usuario_catedra.id}@pve' and usuario_catedra.inventario_consola_ref == 'AUTO-022'
+    [anterior] = usuario_catedra.inventario_consola_historial
+    assert anterior['identidad_anterior'] == 'docente@pve' and anterior['por'] == usuario_catedra.identidad_consola
+    assert 'docente@pve' not in str(runner.pedidos)        # el portal jamás le pide nada al nodo sobre la identidad manual

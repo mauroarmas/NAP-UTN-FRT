@@ -59,7 +59,7 @@ Fuentes: `backend/app/services/consola_gate_service.py`, `consola_destino_servic
 
 ## R11. Pasar a las personas con identidad manual (US4)
 
-- **Decisión**: la primera reconciliación crea la identidad gestionada, la valida con `probe` y recién entonces retira la manual (`retire`) y actualiza `usuarios.identidad_consola`/inventario (`AUTO-022`). Hasta confirmar, la persona conserva su acceso. Es la ruta de adopción y también cubre a quien nunca tuvo identidad.
+- **Decisión**: la primera reconciliación crea la identidad gestionada (`ensure`), la valida y actualiza `usuarios.identidad_consola`/inventario (`AUTO-022`), dejando la identidad manual anterior en `inventario_consola_historial`. **El portal no elimina la manual**: el protocolo del nodo es cerrado y sólo acepta nombres gestionados (`nap-u<id>@pve`) por diseño; la elimina el operador con `retirar-acceso.sh --fase identidad` (runbook). Mientras tanto la persona conserva ambos accesos. Es la ruta de adopción y también cubre a quien nunca tuvo identidad.
 
 ## R12. Deuda aceptada
 
