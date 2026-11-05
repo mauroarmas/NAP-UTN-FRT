@@ -91,3 +91,40 @@ async def test_perfil_sin_nodos_deja_la_consola_cerrada(
     assert response.status_code == 409
     assert response.json()['detail']['codigo'] == 'consola_no_habilitada'
     assert 'url' not in response.text
+
+
+# --- Feature 022: la identidad y su alcance salen de la base ---------------------------------------------------------
+
+@pytest.mark.parametrize('cambio', ['sin_fila', 'en_preparacion', 'con_error', 'retirada', 'sin_pool', 'otro_pool'])
+async def test_sin_identidad_lista_que_cubra_la_catedra_la_consola_sigue_cerrada(
+        client, db, proxmox, perfil_capacidad, catedra, usuario_catedra, template, admin, auth_catedra, monkeypatch, cambio):
+    from sqlalchemy import delete, select
+    from app.models.identidad_consola import IdentidadConsola
+    service = await _servicio(db, proxmox, catedra, usuario_catedra, template)
+    await console_fixture(db, usuario_catedra, service, admin, monkeypatch)
+    fila = await db.scalar(select(IdentidadConsola).where(IdentidadConsola.usuario_id == usuario_catedra.id))
+    if cambio == 'sin_fila':
+        await db.execute(delete(IdentidadConsola))
+    elif cambio in {'en_preparacion', 'con_error', 'retirada'}:
+        fila.estado = cambio
+    elif cambio == 'sin_pool':
+        fila.pools_aplicados = []
+    else:
+        fila.pools_aplicados = ['catedra-99999']
+    await db.commit()
+    respuesta = await client.get(f'/servicios/{service.id}/consola', headers=auth_catedra)
+    assert respuesta.status_code == 409 and respuesta.json()['detail']['codigo'] == 'consola_no_habilitada'
+    assert 'url' not in respuesta.text
+
+
+async def test_si_la_persona_deja_de_poseer_la_catedra_se_cierra_aunque_el_permiso_siga_aplicado(
+        client, db, proxmox, perfil_capacidad, catedra, usuario_catedra, template, admin, auth_catedra, monkeypatch):
+    from app.models.catedra import Catedra
+    service = await _servicio(db, proxmox, catedra, usuario_catedra, template)
+    await console_fixture(db, usuario_catedra, service, admin, monkeypatch)
+    assert (await client.get(f'/servicios/{service.id}/consola', headers=auth_catedra)).status_code == 200
+    (await db.get(Catedra, catedra.id)).titular_id = None       # el reconciliador todavía no retiró el permiso
+    await db.commit()
+    respuesta = await client.get(f'/servicios/{service.id}/consola', headers=auth_catedra)
+    assert respuesta.status_code in {403, 404, 409}
+    assert 'url' not in respuesta.text

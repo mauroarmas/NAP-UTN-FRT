@@ -56,23 +56,15 @@ async def autorizar(db, service, actor):
     actor = await usuario_actual(db, actor)
     profile = await exigir_gate(db, service)
     try:
-        grant = profile['identities'][actor.identidad_consola]
-        if (actor.inventario_consola != 'asignada' or not actor.inventario_consola_actor
-            or not actor.inventario_consola_ref or grant['usuario_id'] != actor.id
-            or grant['revision_admin'] != actor.revision_admin or not grant['referencia_institucional']):
+        # Desde la feature 022 la identidad individual y su alcance los gestiona el portal (tabla `identidades_consola`);
+        # el perfil privado sólo habilita la instalación. La pertenencia al servicio se verifica aquí, en el portal.
+        from app.models.identidad_consola import IdentidadConsola
+        fila = await db.scalar(select(IdentidadConsola).where(IdentidadConsola.usuario_id == actor.id)
+                               .execution_options(populate_existing=True))
+        if fila is None or fila.estado != 'lista' or f'catedra-{service.catedra_id}' not in (fila.pools_aplicados or []):
             raise ValueError()
-        owners = (await db.scalars(select(Usuario.id).where(
-            Usuario.identidad_consola == actor.identidad_consola))).all()
-        if owners != [actor.id]:
+        if service.catedra_id not in await catedras_visibles(db, actor):
             raise ValueError()
-        visible = await catedras_visibles(db, actor)
-        scopes = grant['catedras']
-        if str(service.catedra_id) not in scopes:
-            raise ValueError()
-        for key, revision in scopes.items():
-            category = await db.get(Catedra, int(key), populate_existing=True)
-            if int(key) not in visible or not category or category.revision_admin != revision:
-                raise ValueError()
     except (KeyError, TypeError, ValueError, AttributeError):
         raise error(409, 'consola_no_habilitada', 'La consola todavía no está habilitada para tu cuenta. Pedíselo a administración.') from None
     return profile
