@@ -80,6 +80,8 @@ async def _context(db, actor, service_id):
     if raw_iaas:
         from app.services import iaas_acceso_service
         result['acceso_ssh'] = await iaas_acceso_service.bloque_acceso(db, service, cubierto=covered)
+        # Con qué usuario se entra en la consola (feature 021): `nap` una vez aplicado el cambio; `root` mientras no.
+        result['consola_usuario'] = 'nap' if metadata.get('username') == 'nap' else 'root'
     if gateway:
         result['direccion'] = origen(service.id)
     if actor.rol == RolUsuario.ADMIN and preparation and not gateway:

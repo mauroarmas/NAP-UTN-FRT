@@ -94,13 +94,36 @@ async def fila_de(db, servicio_id):
     return await db.scalar(select(ClaveAccesoServicio).where(ClaveAccesoServicio.servicio_id == servicio_id))
 
 
-def _solicitud(identity, fila, *, operacion_id, accion, nonce):
+def _solicitud(identity, fila, *, operacion_id, accion, nonce, password_consola=None):
     base = {'protocol': 'nap-iaas-access/1', 'operation_id': str(operacion_id), 'action': accion,
         'cluster_uuid': str(identity.cluster_id), 'resource_uuid': str(identity.resource_uuid), 'node': identity.nodo,
         'vmid': identity.vmid, 'pool': identity.pool_catedra, 'nonce': nonce, 'revision': fila['revision'], 'usuario': USUARIO}
     if accion == 'configure':
-        return {**base, 'clave_publica': fila['clave_publica']}
+        return {**base, 'clave_publica': fila['clave_publica'],
+                **({'password_consola': password_consola} if password_consola else {})}
     return {**base, 'huella': fila['huella']}
+
+
+async def contrasena_consola(sessions, *, servicio_id, operacion_id):
+    """(contraseña, origen) que debe tener `nap` para la consola (feature 021); (None, None) si el servicio no pasa al modelo nuevo.
+
+    - `pendiente`: actualización de un servicio entregado; la contraseña nueva se guardó cifrada en la operación ANTES de enviarla.
+    - `servicio`: servicio nuevo, o ya actualizado; es el `guest_password` guardado. Nunca se registra ni se devuelve.
+    """
+    async with sessions() as db:
+        servicio = await db.get(Servicio, servicio_id)
+        operacion = await db.get(OperacionInfraestructura, operacion_id)
+        if servicio is None or operacion is None:
+            return None, None
+        pendiente = (operacion.contexto_seguro or {}).get('acceso_consola')
+        if pendiente:
+            valor = configured_keyring().decrypt(pendiente['password_cifrada'], context=f'operacion:{operacion.id}:consola')
+            return valor['password'], 'pendiente'
+        nuevo = operacion.tipo == 'desplegar' or bool((servicio.acceso_metadata or {}).get('consola'))
+        if nuevo and servicio.credenciales_encrypted:
+            valor = configured_keyring().decrypt(servicio.credenciales_encrypted, context=f'servicio:{servicio.id}:secretos')
+            return valor.get('guest_password'), 'servicio'
+    return None, None
 
 
 async def aplicar(sessions, *, runner, identity, servicio_id, operacion_id):
@@ -114,12 +137,14 @@ async def aplicar(sessions, *, runner, identity, servicio_id, operacion_id):
         if fila is None:
             return None
         datos = {'revision': fila.revision, 'clave_publica': fila.clave_publica, 'huella': fila.huella_sha256}
+    password, origen = await contrasena_consola(sessions, servicio_id=servicio_id, operacion_id=operacion_id)
     nonce = configured_keyring().decrypt(identity.nonce_cifrado, context=f'infra:{identity.resource_uuid}:nonce')
     if runner is None:
         from app.services.guest_runner_client import GuestRunnerClient
         runner = GuestRunnerClient()
     try:
-        respuesta = await runner.execute_iaas_access(_solicitud(identity, datos, operacion_id=operacion_id, accion='configure', nonce=nonce))
+        respuesta = await runner.execute_iaas_access(_solicitud(identity, datos, operacion_id=operacion_id, accion='configure',
+            nonce=nonce, password_consola=password))
     except RunnerError:
         raise InfraNoVerificable(incierto=True) from None
     if respuesta['status'] != 'succeeded':
@@ -130,13 +155,26 @@ async def aplicar(sessions, *, runner, identity, servicio_id, operacion_id):
     resultado = respuesta['result']
     if resultado.get('revision') != datos['revision'] or resultado.get('huella') != datos['huella']:
         raise InfraNoVerificable(incierto=True)
+    consola = resultado.get('consola')
+    if password and consola not in {'aplicada', 'sin_cambios', 'conservada'}:
+        raise InfraNoVerificable(incierto=True)   # se envió la contraseña y el nodo no confirmó el efecto
     ahora = clock.now()
     async with sessions() as db, db.begin():
         fila = await db.scalar(select(ClaveAccesoServicio).where(ClaveAccesoServicio.servicio_id == servicio_id).with_for_update())
         if fila is not None and fila.revision == datos['revision']:
             fila.aplicada_revision, fila.aplicada_at = datos['revision'], ahora
+        if origen == 'pendiente' and consola in {'aplicada', 'sin_cambios'}:
+            # Recién con la confirmación del nodo la contraseña nueva pasa a ser la credencial del servicio.
+            servicio = await db.scalar(select(Servicio).where(Servicio.id == servicio_id).with_for_update())
+            operacion = await db.get(OperacionInfraestructura, operacion_id)
+            servicio.credenciales_encrypted = configured_keyring().encrypt({'guest_password': password},
+                context=f'servicio:{servicio_id}:secretos')
+            contexto = dict(operacion.contexto_seguro or {})
+            contexto.pop('acceso_consola', None)
+            operacion.contexto_seguro = contexto
     return {'usuario': USUARIO, 'puerto': 22, 'huella': datos['huella'], 'revision': datos['revision'],
-        'verificado_at': ahora.isoformat(), **({'direccion': resultado['direccion']} if resultado.get('direccion') else {})}
+        'verificado_at': ahora.isoformat(), **({'direccion': resultado['direccion']} if resultado.get('direccion') else {}),
+        **({'consola': consola} if consola else {})}
 
 
 async def refrescar_direccion(sessions, *, runner, identity, servicio_id, operacion_id):

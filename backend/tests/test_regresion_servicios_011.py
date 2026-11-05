@@ -173,7 +173,7 @@ async def test_regresion_iaas_ciclo_completo_y_consola(
     assert service.estado == EstadoServicio.RUNNING
     assert service.disponibilidad_aplicacion == "utilizable"
     assert service.asignacion_snapshot["origen"] == "proxmox_iaas"
-    assert service.acceso_metadata["username"] == "root"
+    assert service.acceso_metadata["username"] == "nap"
 
     # Verificación de credenciales SSH
     credenciales = configured_keyring().decrypt(
@@ -185,7 +185,7 @@ async def test_regresion_iaas_ciclo_completo_y_consola(
     # Revelación autorizada para la cátedra
     revelar = await client.post(f"/servicios/{service.id}/acceso/revelar", headers=auth_catedra, json={})
     assert revelar.status_code == 200, revelar.text
-    assert revelar.json()["credenciales"]["usuario"] == "root"
+    assert revelar.json()["credenciales"]["usuario"] == "nap"
     assert revelar.json()["credenciales"]["password"] == credenciales["guest_password"]
 
     # Consola IaaS de servicio (/servicios/{id}/consola)

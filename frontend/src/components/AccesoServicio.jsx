@@ -120,7 +120,9 @@ export default function AccesoServicio({ servicio, user }) {
           {consoleLogin && <li>Primero iniciá sesión con tu cuenta personal de consola (dominio «Proxmox VE»):{' '}
             <a href={consoleLogin} target="_blank" rel="noopener noreferrer">Iniciar sesión</a>. Solo hace falta si no lo hiciste hace poco.</li>}
           <li><a href={consoleURL} target="_blank" rel="noopener noreferrer">Abrir consola de esta instancia</a></li>
-          <li>Dentro de la consola entrá como <strong>root</strong> con la contraseña de «Revelar acceso inicial». El usuario <strong>nap</strong> sólo entra por SSH con clave.</li></ol>}</div>}
+          {metadata.consola_usuario === 'nap'
+            ? <li>Dentro de la consola entrá como <strong>nap</strong> con la contraseña de «Revelar acceso inicial». Para tareas de administración usá <code>sudo</code>.</li>
+            : <li>Dentro de la consola entrá como <strong>root</strong> con la contraseña de «Revelar acceso inicial». El usuario <strong>nap</strong> sólo entra por SSH con clave.</li>}</ol>}</div>}
       {metadata.puede_revelar_credenciales && !revealed && <button className="btn btn-primary" disabled={busy} onClick={reveal}>Revelar acceso inicial</button>}
     </>}
     {revealed && <section className="card" aria-label="Credenciales iniciales reveladas">

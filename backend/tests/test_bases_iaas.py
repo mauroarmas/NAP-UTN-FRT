@@ -77,7 +77,7 @@ async def test_iaas_solicitud_aprobacion_despliegue_acceso_sin_definicion(client
     assert service.definicion_version_id is None
     assert service.disponibilidad_aplicacion == 'utilizable'
     assert service.asignacion_snapshot['origen'] == 'proxmox_iaas'
-    assert service.acceso_metadata['username'] == 'root'
+    assert service.acceso_metadata['username'] == 'nap'
     values = configured_keyring().decrypt(service.credenciales_encrypted, context=f'servicio:{service.id}:secretos')
     assert len(values['guest_password']) >= 32
     assert values['guest_password'] not in str(service.asignacion_snapshot)
@@ -85,6 +85,6 @@ async def test_iaas_solicitud_aprobacion_despliegue_acceso_sin_definicion(client
     assert values['guest_password'] not in str(op.contexto_seguro)
     access = await client.post(f'/servicios/{service.id}/acceso/revelar', headers=auth_catedra, json={})
     assert access.status_code == 200, access.text
-    assert access.json()['credenciales']['usuario'] == 'root'
+    assert access.json()['credenciales']['usuario'] == 'nap'
     assert access.json()['credenciales']['password'] == values['guest_password']
     assert (await client.post('/templates/sincronizar-iaas', headers=auth_catedra)).status_code == 403
