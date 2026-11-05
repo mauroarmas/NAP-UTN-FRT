@@ -82,7 +82,7 @@ test('docente responde aclaraciones de su pedido sin cancelar ni elegir hardware
       Object.assign(pedido, route.request().postDataJSON(), { estado: 'solicitado', observaciones_ajuste: null });
       return route.fulfill({ json: pedido });
     }
-    return route.fulfill({ json: route.request().url().endsWith('/10') ? pedido : [pedido] });
+    return route.fulfill({ json: route.request().url().endsWith('/10') ? pedido : { items: [pedido], next_cursor: null } });
   });
   await page.route('**/api/v1/templates/**', (route) => route.fulfill({ json: [{ id: 1, nombre: 'Linux', tipo: 'lxc', modelo_servicio: 'iaas', activo: true }] }));
   await page.route('**/api/v1/catedras/**', (route) => route.fulfill({ json: [{ id: 1, nombre: 'Propia' }] }));
@@ -141,7 +141,7 @@ test('administración evalúa la selección explícita y conserva datos ante 409
   const templates = [{ id: 1, nombre: 'Linux', tipo: 'lxc', modelo_servicio: 'iaas', activo: true, default_vcpus: 1, default_ram_mb: 512, default_disk_gb: 4, minimum_resources: { vcpus: 1, ram_mb: 512, disk_gb: 4 } }];
   await page.route('**/api/v1/auth/me', (route) => route.fulfill({ json: { estado: 'operativo', usuario: { id: 1, nombre: 'Admin', rol: 'admin' } } }));
   await page.route('**/api/v1/auth/csrf', (route) => route.fulfill({ json: { csrf_token: 'test-csrf' } }));
-  await page.route('**/api/v1/pedidos/**', (route) => route.fulfill({ json: route.request().url().endsWith('/12') ? request : [request] }));
+  await page.route('**/api/v1/pedidos/**', (route) => route.fulfill({ json: route.request().url().endsWith('/12') ? request : { items: [request], next_cursor: null } }));
   await page.route('**/api/v1/templates/**', (route) => route.fulfill({ json: route.request().url().endsWith('/tamanos') ? sizes : templates }));
   await page.route('**/api/v1/catedras/**', (route) => route.fulfill({ json: [{ id: 1, nombre: 'Propia' }] }));
   await page.route('**/api/v1/capacidad/', (route) => route.fulfill({ json: { destinos: [] } }));

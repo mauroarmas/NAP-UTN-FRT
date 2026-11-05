@@ -8,7 +8,7 @@ test('detalle sigue etapas reales y conserva acceso pendiente tras recargar', as
     estado: 'en_despliegue', operation_id: confirmed ? null : id, servicio_id: confirmed ? 18 : null,
     descripcion_requerimientos: 'Diagramas para las prácticas.', historial: [] });
   await page.route('**/api/v1/auth/me', route => route.fulfill({ json: { estado: 'operativo', usuario: { id: 1, nombre: 'Admin', rol: 'admin' } } }));
-  await page.route('**/api/v1/pedidos/**', route => route.fulfill({ json: new URL(route.request().url()).pathname.endsWith('/33') ? request() : [request()] }));
+  await page.route('**/api/v1/pedidos/**', route => route.fulfill({ json: new URL(route.request().url()).pathname.endsWith('/33') ? request() : { items: [request()], next_cursor: null } }));
   await page.route('**/api/v1/templates/**', route => route.fulfill({ json: [{ id: 18, nombre: 'Draw.io', tipo: 'lxc', modelo_servicio: 'saas' }] }));
   await page.route('**/api/v1/catedras/**', route => route.fulfill({ json: [{ id: 1, nombre: 'Ingeniería de Software' }] }));
   await page.route(`**/api/v1/operaciones/${id}`, route => route.fulfill({ json: { operation_id: id, pedido_id: 33, tipo: 'desplegar', estado: confirmed ? 'confirmada' : 'en_curso', fase: phase } }));

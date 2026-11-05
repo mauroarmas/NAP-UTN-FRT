@@ -117,7 +117,7 @@ test('la cátedra conserva el catálogo de solicitudes sin administración', asy
     await page.route('**/api/v1/templates/**', (route) => route.fulfill({ json: initial }));
     await page.route('**/api/v1/catedras/**', (route) => route.fulfill({ json: [] }));
     await page.route('**/api/v1/servicios/**', (route) => route.fulfill({ json: [] }));
-    await page.route('**/api/v1/pedidos/**', (route) => route.fulfill({ json: [] }));
+    await page.route('**/api/v1/pedidos/**', (route) => route.fulfill({ json: { items: [], next_cursor: null } }));
     const adminReads = [];
     page.on('request', (request) => {
       const url = new URL(request.url());

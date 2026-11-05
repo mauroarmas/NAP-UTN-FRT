@@ -39,7 +39,7 @@ async def test_listado_de_pedidos_con_sesion_fria(
     r = await client.get("/pedidos/", headers=auth_catedra)
 
     assert r.status_code == 200, r.text
-    assert r.json()[0]["catedra"]["nombre"] == catedra.nombre
+    assert r.json()["items"][0]["catedra"]["nombre"] == catedra.nombre
 
 
 async def test_detalle_de_pedido_con_sesion_fria(

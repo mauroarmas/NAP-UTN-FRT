@@ -19,6 +19,7 @@ vi.mock('../src/services/api', () => ({
   getCatedras: vi.fn(),
   getCatedrasMias: vi.fn(),
   getPedidos: vi.fn(),
+  getPedidosTodos: vi.fn(),
   obtenerOperacion: vi.fn(),
   reintentarPedido: vi.fn(),
   desplegarPedido: vi.fn(),
@@ -34,7 +35,8 @@ beforeEach(() => {
   api.listarOperaciones.mockResolvedValue({ data: [] });
   api.getCatedras.mockResolvedValue({ data: [] });
   api.getCatedrasMias.mockResolvedValue({ data: [] });
-  api.getPedidos.mockResolvedValue({ data: [] });
+  api.getPedidos.mockResolvedValue({ data: { items: [], next_cursor: null } });
+  api.getPedidosTodos.mockResolvedValue({ data: [] });
   api.getTemplates.mockResolvedValue({ data: [] });
   api.obtenerOperacion.mockResolvedValue({ data: { id: 'op-1', estado: 'confirmada' } });
 });

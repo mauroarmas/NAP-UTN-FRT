@@ -18,4 +18,4 @@ async def test_smoke_endpoints_pedidos_existentes(
     """Verifica que el endpoint base de pedidos responde para cátedra autenticada."""
     resp = await client.get("/pedidos/", headers=auth_catedra)
     assert resp.status_code == 200
-    assert isinstance(resp.json(), list)
+    assert isinstance(resp.json()["items"], list)

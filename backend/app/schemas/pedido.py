@@ -182,6 +182,12 @@ class PedidoHistorialResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class PedidoPagina(BaseModel):
+    """Una página del listado de pedidos, del más reciente al más antiguo. `next_cursor` es None en la última."""
+    items: list[PedidoResponse]
+    next_cursor: str | None = None
+
+
 class PedidoDetalleResponse(PedidoResponse):
     historial: list[PedidoHistorialResponse] = []
 

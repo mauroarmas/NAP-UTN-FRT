@@ -115,6 +115,8 @@ async def _cuenta(a):
 
 # Aplicaciones que este script sabe ofrecer: plantilla del catálogo y modelo de servicio.
 APLICACIONES = {'mariadb': {'plantilla': 23, 'modelo': 'paas'}, 'nginx': {'plantilla': 22, 'modelo': 'saas'},
+                # whoami: la oferta se deriva de su configuración vigente (igual que el botón "Actualizar aplicación").
+                'whoami': {'plantilla': 21, 'modelo': 'saas'},
                 # IaaS Linux (Small): necesita --clave-ssh con la clave PÚBLICA de la persona.
                 'ubuntu': {'plantilla': 19, 'modelo': 'iaas'}}
 
@@ -143,8 +145,21 @@ async def _oferta(a):
     async with AsyncSessionLocal() as db:
         admin = await _usuario(db, admin_email())
         plantilla = await db.get(RecursoTemplate, _plantilla(a))
-        r = await catalog.change(db, actor=admin, template_id=_plantilla(a), clave=a.clave,
-                                 body=_cuerpo_oferta(plantilla.revision, a.aplicacion))
+        if a.aplicacion == 'whoami':
+            # Se rearma desde la configuración vigente de la plantilla: el portal puede seguir dando por buenas revisiones de perfil
+            # que los nodos ya bloquearon, y entonces no ofrece el botón "Actualizar aplicación".
+            from app.models.configuracion_despliegue import ConfiguracionDespliegue
+            from app.schemas.aplicacion import RevisarAplicacion
+            doc = (await db.get(ConfiguracionDespliegue, plantilla.configuracion_despliegue_id)).documento
+            img = doc['imagen']
+            ref = '%s:%s' % (img['repositorio'], img['tag_original']) if img.get('tag_original') else '%s@%s' % (img['repositorio'], img['manifest_digest'])
+            cuerpo = RevisarAplicacion(origen=doc['origen'], imagen=ref, puerto=doc['access']['puerto'], modelo_servicio=doc['modelo_servicio'],
+                variables=doc.get('variables', {}), secretos=doc.get('secretos', []), persistencia=doc.get('persistencia', []),
+                ruta_salud=doc['access']['probe'].get('path', '/'), websocket=doc['access'].get('websocket', False),
+                revision_esperada=plantilla.revision)
+        else:
+            cuerpo = _cuerpo_oferta(plantilla.revision, a.aplicacion)
+        r = await catalog.change(db, actor=admin, template_id=_plantilla(a), clave=a.clave, body=cuerpo)
         await db.commit()
         print('oferta', r.status_code, {k: r.resultado.get(k) for k in ('id', 'oferta_disponible', 'configuracion_id', 'requiere_actualizar_perfil')})
 

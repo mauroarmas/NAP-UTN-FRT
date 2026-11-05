@@ -55,7 +55,7 @@ async def test_escenario_1_flujo_principal_iaas(
     # 2. Administrador consulta pedidos solicitados
     resp_listar = await client.get("/pedidos/?estado=solicitado", headers=auth_admin)
     assert resp_listar.status_code == 200
-    ids = [p["id"] for p in resp_listar.json()]
+    ids = [p["id"] for p in resp_listar.json()["items"]]
     assert pedido_id in ids
 
     # 3. Administrador aprueba con despliegue inmediato y el worker ejecuta la operación

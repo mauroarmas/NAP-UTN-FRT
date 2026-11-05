@@ -8,7 +8,7 @@ for(const entry of ['catalogo','pedidos'])test(`Draw.io desde ${entry} conserva 
   await page.route('**/api/v1/catedras/**',r=>r.fulfill({json:[{id:1,nombre:'Cátedra propia'}]}));
   await page.route('**/api/v1/calendarios/*',r=>r.fulfill({json:{anio:2027,periodos:[]}}));
   await page.route('**/api/v1/pedidos/**',r=>{
-    if(r.request().method()==='GET')return r.fulfill({json:[]});
+    if(r.request().method()==='GET')return r.fulfill({json:{items:[],next_cursor:null}});
     expect(r.request().postDataJSON().oferta_revision).toBe(1);
     profile={...profile,version_ofrecida:'2.0.0',revision:2};
     return r.fulfill({status:409,json:{detail:{codigo:'oferta_desactualizada',mensaje:'La oferta cambió; revisá la versión vigente.'}}});

@@ -79,7 +79,7 @@ async def test_la_catedra_ve_la_reversion_en_su_listado(
     r = await client.get("/pedidos/", headers=auth_catedra)
 
     assert r.status_code == 200, r.text
-    fila = next(p for p in r.json() if p["id"] == pedido.id)
+    fila = next(p for p in r.json()["items"] if p["id"] == pedido.id)
     assert fila["estado"] == EstadoPedido.RECHAZADO.value
     assert MOTIVO in fila["motivo_rechazo"]
 
@@ -105,7 +105,7 @@ async def test_la_catedra_puede_volver_a_pedir_lo_mismo(
     assert nuevo.json()["estado"] == EstadoPedido.SOLICITADO.value
 
     bandeja = await client.get("/pedidos/?estado=solicitado", headers=auth_admin)
-    assert nuevo.json()["id"] in [p["id"] for p in bandeja.json()]
+    assert nuevo.json()["id"] in [p["id"] for p in bandeja.json()["items"]]
 
 
 async def test_una_catedra_ajena_sigue_sin_ver_el_pedido_revertido(

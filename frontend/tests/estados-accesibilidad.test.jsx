@@ -10,7 +10,7 @@ import * as api from '../src/services/api';
 
 vi.mock('../src/services/api', async (original) => ({ ...await original(),
   getResumenMetricas: vi.fn(), capturarMetricas: vi.fn(), getHistorialMetricas: vi.fn(),
-  listarServicios: vi.fn(), getPedidos: vi.fn(), getCatedras: vi.fn(), getCatedrasMias: vi.fn(),
+  listarServicios: vi.fn(), getPedidos: vi.fn(), getPedidosTodos: vi.fn(), getCatedras: vi.fn(), getCatedrasMias: vi.fn(),
   getTemplates: vi.fn(), listarOperaciones: vi.fn(), getOperacion: vi.fn(),
   getAccesoServicio: vi.fn(), revelarAccesoServicio: vi.fn(),
   getAlertas: vi.fn(), getAvisos: vi.fn(), getEstadoCorreo: vi.fn(),
@@ -27,7 +27,8 @@ beforeEach(() => {
   api.getAvisos.mockResolvedValue({ data: [] });
   api.getEstadoCorreo.mockResolvedValue({ data: [] });
   api.listarServicios.mockResolvedValue({ data: services });
-  api.getPedidos.mockResolvedValue({ data: [] });
+  api.getPedidos.mockResolvedValue({ data: { items: [], next_cursor: null } });
+  api.getPedidosTodos.mockResolvedValue({ data: [] });
   api.getCatedras.mockResolvedValue({ data: [{ id: 1, nombre: 'Cátedra experimental' }] });
   api.getCatedrasMias.mockResolvedValue({ data: [{ id: 1, nombre: 'Cátedra experimental' }] });
   api.getTemplates.mockResolvedValue({ data: [] });

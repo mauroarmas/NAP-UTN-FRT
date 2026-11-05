@@ -10,7 +10,7 @@ async function prepare(page, admin) {
     estado: 'running', disponibilidad_aplicacion: 'no_verificada', vcpus_asignados: 1, ram_asignada_mb: 1024,
     disk_asignado_gb: 8, cobertura_actual: true, estado_cobertura: 'con_cobertura', acciones_habilitadas: [] };
   await page.route('**/api/v1/servicios/', (route) => route.fulfill({ json: [service] }));
-  await page.route('**/api/v1/pedidos/**', (route) => route.fulfill({ json: [] }));
+  await page.route('**/api/v1/pedidos/**', (route) => route.fulfill({ json: { items: [], next_cursor: null } }));
   await page.route('**/api/v1/catedras/**', (route) => route.fulfill({ json: [{ id: 1, nombre: 'Propia' }] }));
   await page.route('**/api/v1/templates/**', (route) => route.fulfill({ json: [] }));
   await page.route('**/api/v1/operaciones?**', (route) => route.fulfill({ json: { items: [], next_cursor: null } }));

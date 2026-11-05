@@ -59,7 +59,7 @@ async def test_open_operations_restore_from_authorized_list_and_service_projecti
     services = await client.get('/servicios/', headers=auth_catedra)
     assert services.json()[0]['operation_id'] == accepted.json()['operation_id']
     requests = await client.get('/pedidos/', headers=auth_catedra)
-    request = next(p for p in requests.json() if p['id'] == service.pedido_id)
+    request = next(p for p in requests.json()['items'] if p['id'] == service.pedido_id)
     assert request['operation_id'] == accepted.json()['operation_id']
     detail = await client.get(f'/pedidos/{service.pedido_id}', headers=auth_catedra)
     assert detail.json()['operation_id'] == accepted.json()['operation_id']

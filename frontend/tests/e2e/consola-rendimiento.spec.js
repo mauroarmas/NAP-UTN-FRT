@@ -58,7 +58,7 @@ test('apertura de consola con 200 mensajes en menos de 3 segundos', async ({ pag
 
   await page.route('**/api/v1/pedidos/**', (route) =>
     route.fulfill({
-      json: new URL(route.request().url()).pathname.endsWith('/55') ? pedido : [pedido],
+      json: new URL(route.request().url()).pathname.endsWith('/55') ? pedido : { items: [pedido], next_cursor: null },
     })
   );
   await page.route('**/api/v1/templates/**', (route) => route.fulfill({ json: [] }));
