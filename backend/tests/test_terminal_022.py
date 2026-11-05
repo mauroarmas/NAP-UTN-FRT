@@ -4,8 +4,9 @@ import json
 import logging
 
 import pytest
+import pytest_asyncio
 from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import get_settings
 from app.models.evento_seguridad import EventoSeguridad
@@ -20,6 +21,19 @@ from tests.terminal_helpers import Navegador, Remoto, conector, conector_secuenc
 from tests.test_convergencia_seguridad_009 import console_fixture
 
 PASSWORD = 'Pw-' + 'aZ9_x' * 8
+
+
+@pytest_asyncio.fixture
+async def engine(tmp_path):
+    """SQLite en archivo, una conexión por sesión. El `StaticPool` del conftest comparte UNA conexión entre tareas: el `rollback`
+    de una consulta del vigilante puede borrar el INSERT todavía sin confirmar de otra terminal y falsear el cupo (en PostgreSQL
+    cada sesión tiene su conexión, así que no ocurre)."""
+    from app.database import Base
+    eng = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'terminal.db'}", connect_args={'timeout': 30})
+    async with eng.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield eng
+    await eng.dispose()
 
 
 @pytest.fixture
