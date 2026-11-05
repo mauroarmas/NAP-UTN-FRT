@@ -25,7 +25,7 @@ def upgrade():
         sa.Column('creada_at', sa.DateTime(timezone=True), nullable=False),
         sa.Column('actualizada_at', sa.DateTime(timezone=True), nullable=False),
         sa.CheckConstraint("estado IN ('en_preparacion','lista','con_error','retirada')", name='ck_identidad_consola_estado'),
-        sa.CheckConstraint("identidad ~ '^nap-u[0-9]+@pve$'", name='ck_identidad_consola_nombre'),
+        sa.CheckConstraint("identidad LIKE 'nap-u%@pve'", name='ck_identidad_consola_nombre'),
         sa.CheckConstraint('revision >= 1', name='ck_identidad_consola_revision'))
     op.create_table('sesiones_terminal',
         sa.Column('id', sa.Uuid(), primary_key=True),

@@ -37,7 +37,7 @@ async def test_restricciones_rechazan_estados_y_nombres_invalidos(empty_pg_schem
         await conn.run_sync(lambda c: migrate(c, 'head'))
         await conn.execute(text(USUARIO.format(n='u22')))
         uid = await conn.scalar(text("SELECT id FROM usuarios WHERE username='u22'"))
-    for nombre, estado in (('root@pam', 'lista'), ('nap-u1@pve', 'inventado'), ('nap-ux@pve', 'lista')):
+    for nombre, estado in (('root@pam', 'lista'), ('nap-u1@pve', 'inventado'), ('otro@pve', 'lista')):
         with pytest.raises(DBAPIError):
             async with empty_pg_schema.begin() as conn:
                 await conn.execute(text("INSERT INTO identidades_consola (usuario_id,identidad,password_cifrada,estado,creada_at,actualizada_at) "

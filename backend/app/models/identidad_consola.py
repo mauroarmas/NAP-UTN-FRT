@@ -17,7 +17,7 @@ class IdentidadConsola(Base):
     __tablename__ = 'identidades_consola'
     __table_args__ = (
         CheckConstraint("estado IN ('en_preparacion','lista','con_error','retirada')", name='ck_identidad_consola_estado'),
-        CheckConstraint("identidad ~ '^nap-u[0-9]+@pve$'", name='ck_identidad_consola_nombre'),
+        CheckConstraint("identidad LIKE 'nap-u%@pve'", name='ck_identidad_consola_nombre'),
         CheckConstraint('revision >= 1', name='ck_identidad_consola_revision'),
     )
     id: Mapped[int] = mapped_column(primary_key=True)
