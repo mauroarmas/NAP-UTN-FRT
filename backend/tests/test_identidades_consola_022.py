@@ -333,3 +333,19 @@ async def test_el_retiro_pide_cerrar_las_terminales_abiertas_de_la_persona_sobre
     await svc.reconciliar_usuario(sessions, usuario_catedra.id, runner=runner)
     assert (await ts.consultar(sessions, b))['motivo_solicitud'] == 'retiro'          # la de la cátedra retirada se corta
     assert (await ts.consultar(sessions, a))['cierre_solicitado_at'] is None          # la otra sigue
+
+
+async def test_un_nodo_que_no_responde_no_impide_limpiar_los_demas_pero_el_retiro_no_se_da_por_hecho(
+        db, sessions, catedra, usuario_catedra, template, monkeypatch):
+    monkeypatch.setattr(get_settings(), 'runner_nodes', {'pve1': {}, 'pve2': {}, 'pve3': {}}, raising=False)
+    runner = RunnerConsola(pools=[f'catedra-{catedra.id}'])
+    await factories.crear_servicio(db, catedra.id, template.id, proxmox_vmid='101')
+    await svc.reconciliar_usuario(sessions, usuario_catedra.id, runner=runner)
+    usuario_catedra.activo = False
+    await db.commit()
+    runner.nodos_caidos = {'pve2'}
+    assert await svc.reconciliar_usuario(sessions, usuario_catedra.id, runner=runner) == 'lista'      # no se confirmó en pve2
+    assert set(runner.nodos_de('end_sessions')) == {'pve1', 'pve2', 'pve3'}                          # se intentó en todos igual
+    assert [vm for vm in runner.terminadas] == [[101], [101]]                                         # pve1 y pve3 sí se limpiaron
+    runner.nodos_caidos = set()
+    assert await svc.reconciliar_usuario(sessions, usuario_catedra.id, runner=runner) == 'retirada'

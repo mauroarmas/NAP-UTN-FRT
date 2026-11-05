@@ -58,7 +58,7 @@ ese acceso. Las concesiones y revocaciones se validan por instalación, incluida
 terminación de sesiones anteriores. Los cambios de titularidad o rol invalidan las
 comprobaciones que ya no correspondan. Los detalles técnicos están en
 [acceso nativo y revocación](../specs/009-remediar-hallazgos-cierre/contracts/console-access.md),
-el [runbook de habilitación](runbook-consola-nativa.md)
+el [runbook de habilitación](runbook-consola-nativa.md) y la [terminal web del portal](runbook-terminal-portal.md)
 y en los contratos de consola de la spec 009.
 
 En Linux, Ver acceso permite recuperar las credenciales de la instancia una vez

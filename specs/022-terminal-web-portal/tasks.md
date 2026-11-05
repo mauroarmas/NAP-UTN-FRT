@@ -64,16 +64,16 @@
 - [x] T023 [US3] `backend/app/services/terminal_sesiones_service.py` y su integración en el relay (T017/T018): cupo, latido, inactividad configurable (15 min), consulta cada 2 s de cierre solicitado, cierre y auditoría; configuración en `app/config.py` (inactividad, cupo, tamaño de mensaje)
 - [x] T024 [US3] Disparar el cierre solicitado desde retiro de acceso, baja y detención de servicio y desactivación de cuenta (`orquestacion_service`, `consola_access_service`, `usuarios`), con pruebas
 - [x] T025 [US3] Cierre al arrancar el portal de las filas abiertas (`reinicio_portal`) y avisos de cierre al cliente; prueba de arranque
-- [ ] T026 [LAB] [US3] En real: inactividad hasta el cierre, cupo, baja de servicio con terminal abierta y retiro de una persona con terminal abierta (corte < 5 s, no reabre, su otra cátedra sigue), y búsqueda de la contraseña y del texto tecleado en logs del portal, base completa, nodos y contenedor (SC-004/SC-006/SC-007)
+- [x] T026 [LAB] [US3] En real: inactividad hasta el cierre, cupo, baja de servicio con terminal abierta y retiro de una persona con terminal abierta (corte < 5 s, no reabre, su otra cátedra sigue), y búsqueda de la contraseña y del texto tecleado en logs del portal, base completa, nodos y contenedor (SC-004/SC-006/SC-007)
 
 ## Phase 6: User Story 4 - Adopción y operación (P2)
 
 **Goal**: personas con identidad manual pasan al modelo gestionado; procedimiento reutilizable.
 
-- [ ] T027 [P] [US4] Pruebas de adopción en `backend/tests/test_identidades_consola_022.py`: crea la gestionada, valida con `probe`, retira la manual sólo después, actualiza `usuarios.identidad_consola` e inventario (`AUTO-022`); la persona conserva acceso durante la transición; falla a mitad no deja a la persona sin acceso
-- [ ] T028 [US4] Implementar la adopción en `identidad_consola_service.py`
-- [ ] T029 [LAB] [US4] Adoptar la identidad manual de Ivan (`ivanochoa@pve`): comprobar que su terminal funciona antes y después y que la manual desaparece del clúster
-- [ ] T030 [P] [US4] `docs/runbook-terminal-portal.md` (habilitación, evidencia de revocación de la 020, instalación nodos → portal, límites configurables, operación y retiro) sin valores del laboratorio; enlazar desde `docs/runbook-consola-nativa.md` y `docs/conexion-infraestructura.md`; ampliar la guarda de datos del laboratorio (T002)
+- [x] T027 [P] [US4] Pruebas de adopción en `backend/tests/test_identidades_consola_022.py`: crea la gestionada, valida con `probe`, retira la manual sólo después, actualiza `usuarios.identidad_consola` e inventario (`AUTO-022`); la persona conserva acceso durante la transición; falla a mitad no deja a la persona sin acceso
+- [x] T028 [US4] Implementar la adopción en `identidad_consola_service.py`
+- [x] T029 [LAB] [US4] Adoptar la identidad manual de Ivan (`ivanochoa@pve`): comprobar que su terminal funciona antes y después y que la manual desaparece del clúster
+- [x] T030 [P] [US4] `docs/runbook-terminal-portal.md` (habilitación, evidencia de revocación de la 020, instalación nodos → portal, límites configurables, operación y retiro) sin valores del laboratorio; enlazar desde `docs/runbook-consola-nativa.md` y `docs/conexion-infraestructura.md`; ampliar la guarda de datos del laboratorio (T002)
 
 ## Phase 7: Polish & cross-cutting
 

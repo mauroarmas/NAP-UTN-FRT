@@ -4,7 +4,7 @@ Para quien administra el clúster Proxmox de la universidad. Habilita que una pe
 con una cuenta individual de Proxmox, sin ampliar lo que puede hacer en la infraestructura. Es la única excepción a «Proxmox es el back-end» que admite la
 constitución. Valores entre `<…>` son datos propios de su instalación; este documento no contiene datos de ningún laboratorio.
 
-Los comandos de `scripts/consola/` se ejecutan como `root` en un nodo y **por omisión sólo muestran qué harían**; `--aplicar` ejecuta. Origen de la
+Los comandos de `scripts/consola/` se ejecutan como `root` en un nodo y **por omisión sólo muestran qué harían**; `--aplicar` ejecuta. **Desde la feature 022 la persona abre la terminal dentro del portal sin pasar por Proxmox: ver [terminal web del portal](runbook-terminal-portal.md); este documento describe la consola nativa de Proxmox, que queda como respaldo de administración.** Origen de la
 validación y límites: [validación en el laboratorio](infraestructura-laboratorio/validacion-consola-2026-11-04.md).
 
 ## 0. Qué se necesita

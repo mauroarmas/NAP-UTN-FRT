@@ -121,15 +121,22 @@ async def terminar_sesiones(sessions, runner, pools):
         vmids = sorted({int(s.proxmox_vmid) for s in (await db.scalars(select(Servicio).where(
             Servicio.catedra_id.in_(_ids(pools)), Servicio.deleted_at.is_(None), Servicio.proxmox_vmid.is_not(None)))).all()
             if str(s.proxmox_vmid).isdigit()})
-    total = 0
+    total, fallo = 0, None
     for nodo in _nodos():
-        for i in range(0, len(vmids), LOTE_VMIDS):
-            pedido = {'protocol': PROTOCOLO, 'operation_id': str(uuid4()), 'action': 'end_sessions', 'cluster_uuid': _cluster(),
-                      'identidad': 'nap-u0@pve', 'revision': 1, 'vmids': vmids[i:i + LOTE_VMIDS]}
-            respuesta = await runner.execute_console_identity(pedido, nodo)
-            if respuesta['status'] != 'succeeded':
-                raise RunnerError((respuesta.get('error') or {}).get('code', 'UNCONFIRMED'))
-            total += respuesta['result']['terminadas']
+        # Se intenta en TODOS los nodos aunque uno falle (así se limpian los que responden); si alguno no se puede confirmar,
+        # el retiro no se da por hecho: falla cerrado y se reintenta.
+        try:
+            for i in range(0, len(vmids), LOTE_VMIDS):
+                pedido = {'protocol': PROTOCOLO, 'operation_id': str(uuid4()), 'action': 'end_sessions', 'cluster_uuid': _cluster(),
+                          'identidad': 'nap-u0@pve', 'revision': 1, 'vmids': vmids[i:i + LOTE_VMIDS]}
+                respuesta = await runner.execute_console_identity(pedido, nodo)
+                if respuesta['status'] != 'succeeded':
+                    raise RunnerError((respuesta.get('error') or {}).get('code', 'UNCONFIRMED'))
+                total += respuesta['result']['terminadas']
+        except RunnerError as exc:
+            fallo = fallo or exc
+    if fallo is not None:
+        raise fallo
     return total
 
 

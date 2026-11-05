@@ -26,3 +26,8 @@ Archivo/valor privado de la instalación; nunca versionado con valores reales (e
 - `nodos` es obligatorio; sin él la consola permanece cerrada.
 - Cada identidad se corresponde con una persona con `inventario_consola = asignada`; las revisiones deben coincidir con las vigentes en el portal o la persona queda sin consola.
 - Cambiar clúster, versión, evidencia o una revisión invalida la habilitación (FR-011).
+
+## Cambios de la feature 022
+
+- `identities` **ya no se usa**: la identidad individual y su alcance los gestiona el portal (`identidades_consola`).
+- `nodos[<nodo>]` admite `portal_host` opcional: la dirección con la que el **portal** alcanza el nodo (y con la que se verifica su certificado); `host` queda para el navegador (respaldo de administración).
