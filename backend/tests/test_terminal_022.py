@@ -15,7 +15,7 @@ from app.models.sesion_terminal import SesionTerminal
 from app.services import terminal_relay_service as relay
 from app.utils.secretos import configured_keyring
 from tests.capacity_helpers import materializado, perfil_capacidad  # noqa: F401
-from tests.terminal_helpers import Navegador, Remoto, conector, esperar
+from tests.terminal_helpers import Navegador, Remoto, conector, conector_secuencial, esperar
 from tests.test_convergencia_seguridad_009 import console_fixture
 
 PASSWORD = 'Pw-' + 'aZ9_x' * 8
@@ -331,4 +331,21 @@ async def test_el_portal_usa_portal_host_y_el_navegador_nunca_recibe_ninguna_dir
     assert await esperar(lambda: {'t': 'estado', 'e': 'abierta'} in nav.mensajes())
     assert conectar.llamadas[0]['host'] == 'pve1.interno.test'
     assert 'pve1' not in repr(nav.salidas)
+    nav.irse(); await asyncio.wait_for(tarea, 3)
+
+
+async def test_si_la_infraestructura_corta_la_primera_apertura_se_reintenta_una_vez_sin_avisar(
+        db, sessions, proxmox, perfil_capacidad, catedra, usuario_catedra, template, admin, monkeypatch, como):
+    servicio, _ = await preparar(db, proxmox, catedra, usuario_catedra, template, admin, monkeypatch)
+    como(usuario_catedra.id)
+    cortada, buena = Remoto(), Remoto()
+    cortada.se_cierra_al_abrir = True
+    nav = Navegador()
+    tarea, conectar = await correr(nav, sessions, servicio.id, conectar=conector_secuencial(cortada, buena))
+    assert await esperar(lambda: {'t': 'estado', 'e': 'abierta'} in nav.mensajes())
+    assert cortada.cerrado and len(conectar.llamadas) == 2
+    assert all(c['password'] == PASSWORD for c in conectar.llamadas)
+    assert not any(m.get('t') in {'aviso', 'cierre'} for m in nav.mensajes())     # la persona no se entera
+    nav.teclear(b'id\n')
+    assert await esperar(lambda: buena.enviados == [b'id\n'])
     nav.irse(); await asyncio.wait_for(tarea, 3)

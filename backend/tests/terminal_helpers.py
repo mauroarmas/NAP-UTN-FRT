@@ -50,7 +50,11 @@ class Remoto:
 
     def __init__(self):
         self.enviados, self.redimensionado, self.cerrado = [], None, False
+        self.se_cierra_al_abrir = False      # simula la primera apertura cortada por la infraestructura
         self.hacia_el_portal = asyncio.Queue()
+
+    async def vivo_tras(self, segundos):
+        return not self.se_cierra_al_abrir
 
     async def enviar(self, datos):
         self.enviados.append(datos)
@@ -73,6 +77,17 @@ class Remoto:
 
     def cortar(self):
         self.hacia_el_portal.put_nowait(None)
+
+
+def conector_secuencial(*remotos):
+    """Cada llamada a `conectar` entrega el siguiente doble de consola remota."""
+    llamadas, restantes = [], list(remotos)
+
+    async def conectar(host, puerto, nodo, vmid, identidad, password):
+        llamadas.append({'host': host, 'nodo': nodo, 'password': password})
+        return restantes.pop(0)
+    conectar.llamadas = llamadas
+    return conectar
 
 
 def conector(remoto, *, fallos=0, falla_hosts=()):

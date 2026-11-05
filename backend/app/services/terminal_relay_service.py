@@ -46,6 +46,7 @@ VIGILANCIA_SEGUNDOS = 2
 LATIDO_SEGUNDOS = 5
 REVALIDAR_SEGUNDOS = 10
 ENVIO_NAVEGADOR_SEGUNDOS = 15
+PRIMER_DATO_SEGUNDOS = 3.0
 
 
 class RemotoNoDisponible(Exception):
@@ -73,6 +74,19 @@ class ConsolaRemota:
 
     def __init__(self, ws):
         self.ws = ws
+        self._previos = []
+
+    async def vivo_tras(self, segundos):
+        """False si la consola remota se cierra sin haber emitido nada (la primera apertura se corta a veces en la
+        infraestructura); True si habló o sigue abierta. Lo leído se conserva y sale primero en `recibir`."""
+        try:
+            mensaje = await asyncio.wait_for(self.ws.recv(), segundos)
+        except asyncio.TimeoutError:
+            return True
+        except (websockets.ConnectionClosed, OSError):
+            return False
+        self._previos.append(mensaje if isinstance(mensaje, bytes) else mensaje.encode())
+        return True
 
     async def enviar(self, datos):
         await self.ws.send(b'0:' + str(len(datos)).encode() + b':' + datos)
@@ -81,6 +95,8 @@ class ConsolaRemota:
         await self.ws.send(f'1:{int(columnas)}:{int(filas)}:')
 
     async def recibir(self):
+        while self._previos:
+            yield self._previos.pop(0)
         async for mensaje in self.ws:
             yield mensaje if isinstance(mensaje, bytes) else mensaje.encode()
 
@@ -226,8 +242,14 @@ async def servir(navegador, sessions, servicio_id, *, conectar=abrir_consola_rem
     try:
         # 3. Consola remota con la identidad individual (la contraseña no se guarda en ninguna otra variable).
         try:
-            remoto = await conectar_con_reintento(admision['perfil'], admision['nodo'], admision['vmid'],
-                                                  admision['identidad'], admision.pop('password'), conectar=conectar)
+            password = admision.pop('password')
+            argumentos = (admision['perfil'], admision['nodo'], admision['vmid'], admision['identidad'], password)
+            remoto = await conectar_con_reintento(*argumentos, conectar=conectar)
+            if not await remoto.vivo_tras(PRIMER_DATO_SEGUNDOS):
+                # FR-021: la primera apertura que la infraestructura corta antes de emitir nada se reintenta UNA vez, sin avisar.
+                await remoto.cerrar()
+                remoto = await conectar_con_reintento(*argumentos, conectar=conectar)
+            del password, argumentos
         except Exception as exc:
             detalle = getattr(exc, 'detail', None)
             await _cerrar_navegador(navegador, 'error', codigo=CODIGOS_CIERRE.get(detalle.get('codigo') if isinstance(detalle, dict) else None, 4503),
