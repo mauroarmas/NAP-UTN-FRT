@@ -17,6 +17,8 @@ ACTIONS = {'configure', 'probe'}
 BASE_FIELDS = {'protocol', 'operation_id', 'action', 'cluster_uuid', 'resource_uuid', 'node', 'vmid', 'pool',
     'nonce', 'revision', 'usuario'}
 MAX_BYTES = 16384
+# Contraseña de `nap` para la consola (feature 021): opcional, sólo en `configure`; viaja por stdin y nunca se registra.
+PASSWORD_CONSOLA = re.compile(r'[A-Za-z0-9_-]{32,128}')
 
 
 def _uuid(value):
@@ -33,7 +35,12 @@ def parse_request(raw):
             raise ValueError()
         action = value['action']
         expected = BASE_FIELDS | ({'clave_publica'} if action == 'configure' else {'huella'})
+        if action == 'configure' and 'password_consola' in value:
+            expected = expected | {'password_consola'}
         if set(value) != expected:
+            raise ValueError()
+        if 'password_consola' in value and not (isinstance(value['password_consola'], str)
+                                                 and PASSWORD_CONSOLA.fullmatch(value['password_consola'])):
             raise ValueError()
         if not all(_uuid(value[key]) for key in ['operation_id', 'cluster_uuid', 'resource_uuid']):
             raise ValueError()
@@ -61,7 +68,8 @@ def parse_request(raw):
 
 RESPONSE_FIELDS = {'protocol', 'operation_id', 'action', 'resource_uuid', 'status', 'phase', 'identity_verified',
     'observed_at', 'result', 'error'}
-RESULT_FIELDS = {'ready', 'revision', 'huella', 'usuario', 'puerto', 'direccion'}
+RESULT_FIELDS = {'ready', 'revision', 'huella', 'usuario', 'puerto', 'direccion', 'consola'}
+CONSOLA_ESTADOS = {'aplicada', 'sin_cambios', 'conservada'}
 ERROR_CODES = {'INVALID_REQUEST', 'IDENTITY_MISMATCH', 'GUEST_NOT_RUNNING', 'SSHD_UNAVAILABLE', 'SUDO_UNAVAILABLE',
     'PROBE_FAILED', 'UNCONFIRMED', 'DEADLINE_EXCEEDED', 'RUNNER_UNAVAILABLE'}
 
@@ -78,6 +86,8 @@ def parse_response(raw, request):
             result = value.get('result')
             if (not isinstance(result, dict) or not set(result) <= RESULT_FIELDS or result.get('ready') is not True
                 or value.get('identity_verified') is not True):
+                raise ValueError()
+            if 'consola' in result and result['consola'] not in CONSOLA_ESTADOS:
                 raise ValueError()
             if 'direccion' in result:
                 if not isinstance(result['direccion'], str):

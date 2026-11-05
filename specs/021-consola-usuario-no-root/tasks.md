@@ -15,12 +15,12 @@
 
 ## Phase 1: Setup
 
-- [ ] T001 [P] Comprobar o crear la guarda del digest en `infra/applications/tests/test_policy_digest_estable.py`: fija el `policy_digest()` vigente como constante y falla si cambia (research R4)
+- [x] T001 [P] Comprobar o crear la guarda del digest en `infra/applications/tests/test_policy_digest_estable.py`: fija el `policy_digest()` vigente como constante y falla si cambia (research R4)
 
 ## Phase 2: Foundational (bloquea las historias)
 
-- [ ] T002 [P] Agregar el campo **opcional** `password_consola` (`^[A-Za-z0-9_-]{32,128}$`) a `configure` en `backend/app/schemas/iaas_access.py`, rechazado en `probe`, y sus pruebas en `backend/tests/test_iaas_access_protocol.py` (contracts/runner-iaas-access.md)
-- [ ] T003 Extender `infra/runner/iaas_access.py`: con `password_consola`, fijar la contraseña de `nap` con `chpasswd` por stdin si está bloqueada, no cambiar si coincide (`sin_cambios`), no pisar si es otra (`conservada`), dejar `root` con `*`, verificar y devolver `consola` en `result`; sin el campo no toca contraseñas. Pruebas en `infra/runner/tests/test_iaas_access.py` ampliando el doble `Nodo` (sombra de contraseñas, `chpasswd`), incluidos fallos y la ausencia de la contraseña en respuestas
+- [x] T002 [P] Agregar el campo **opcional** `password_consola` (`^[A-Za-z0-9_-]{32,128}$`) a `configure` en `backend/app/schemas/iaas_access.py`, rechazado en `probe`, y sus pruebas en `backend/tests/test_iaas_access_protocol.py` (contracts/runner-iaas-access.md)
+- [x] T003 Extender `infra/runner/iaas_access.py`: con `password_consola`, fijar la contraseña de `nap` con `chpasswd` por stdin si está bloqueada, no cambiar si coincide (`sin_cambios`), no pisar si es otra (`conservada`), dejar `root` con `*`, verificar y devolver `consola` en `result`; sin el campo no toca contraseñas. Pruebas en `infra/runner/tests/test_iaas_access.py` ampliando el doble `Nodo` (sombra de contraseñas, `chpasswd`), incluidos fallos y la ausencia de la contraseña en respuestas
 
 ## Phase 3: User Story 1 - Entrar como `nap` en servicios nuevos (P1)
 
@@ -28,7 +28,7 @@
 
 **Independent Test**: desplegar un Linux nuevo, revelar, abrir la consola como `nap`, `sudo`, rechazo de `root` y de SSH por contraseña.
 
-- [ ] T004 [P] [US1] Pruebas del flujo en `backend/tests/test_acceso_consola_021.py` (reutiliza `tests/iaas_ssh_helpers.py`): la creación NO envía `password` a Proxmox; `configure` incluye `password_consola` igual al `guest_password` guardado; `acceso_metadata.username` es `nap`; «Revelar acceso inicial» devuelve `nap` y esa contraseña; un nodo que responde `PASSWORD_REJECTED` no entrega el servicio
+- [ ] T004 [P] [US1] Pruebas del flujo en `backend/tests/test_acceso_consola_021.py` (reutiliza `tests/iaas_ssh_helpers.py`): la creación NO envía `password` a Proxmox; `configure` incluye `password_consola` igual al `guest_password` guardado; `acceso_metadata.username` es `nap`; «Revelar acceso inicial» devuelve `nap` y esa contraseña; un nodo que responde con fallo no entrega el servicio
 - [ ] T005 [US1] En `backend/app/services/orquestacion_service.py`, no enviar `config['password']` a Proxmox al crear un `proxmox_iaas`; conservar la generación cifrada del `guest_password`
 - [ ] T006 [US1] En `backend/app/services/iaas_acceso_service.py`, `aplicar(..., password_consola=None)` y `_solicitud` envían el campo cuando corresponde y exigen `consola` ∈ {`aplicada`,`sin_cambios`} en la respuesta cuando se envió
 - [ ] T007 [US1] En el bloque de preparación IaaS de `backend/app/services/orquestacion_service.py`: pasar la contraseña a `aplicar` para despliegues nuevos, y fijar `acceso_metadata.username = "nap"` y `acceso_metadata.consola` sólo cuando se aplicó; conservar `root` en el resto (reparaciones de clave de servicios no actualizados)

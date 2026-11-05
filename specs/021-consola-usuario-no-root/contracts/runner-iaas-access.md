@@ -24,4 +24,4 @@ Campo **opcional** nuevo en `configure`:
 
 ## Respuesta
 
-`result` agrega `consola` (`aplicada` | `sin_cambios` | `conservada`) cuando se envió la contraseña. Nunca incluye la contraseña, su hash ni texto del sistema. Errores sólo con códigos (`PASSWORD_REJECTED`, `PROBE_FAILED`, `UNCONFIRMED`, …); un efecto posible sin confirmar queda `unconfirmed` (reintentable).
+`result` agrega `consola` (`aplicada` | `sin_cambios` | `conservada`) cuando se envió la contraseña. Nunca incluye la contraseña, su hash ni texto del sistema. Errores sólo con códigos existentes (`PROBE_FAILED`, `UNCONFIRMED`, …; un fallo al fijar la contraseña queda `unconfirmed` y se reintenta); un efecto posible sin confirmar queda `unconfirmed` (reintentable).
