@@ -1,6 +1,10 @@
+import base64
+import json
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, Header
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, and_, or_, cast, func, String
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
@@ -33,6 +37,7 @@ from app.schemas.pedido import (
     PedidoRechazar,
     PedidoRevertir,
     PedidoResponse,
+    PedidoPagina,
     PedidoDetalleResponse,
     PedidoRevertidoResponse,
 )
@@ -51,25 +56,49 @@ from app.services.pedido_service import (
     TRANSICIONES_VALIDAS,
 )
 from app.utils.soft_delete import excluir_dados_de_baja, vigente_o_404
+from app.utils.errors import error
 
 router = APIRouter(prefix="/pedidos", tags=["Pedidos"])
 
 
-@router.get("/", response_model=list[PedidoResponse])
+PAGINA_POR_DEFECTO = 20
+PAGINA_MAXIMA = 100
+# Lo que la pantalla muestra como estado: la búsqueda por texto tiene que encontrar lo mismo que la persona lee.
+ETIQUETAS_ESTADO = {
+    EstadoPedido.SOLICITADO: "solicitado", EstadoPedido.REQUIERE_AJUSTE: "aclaración pendiente",
+    EstadoPedido.CANCELADO: "cancelado", EstadoPedido.APROBADO: "aprobado", EstadoPedido.EN_DESPLIEGUE: "en despliegue",
+    EstadoPedido.ACTIVO: "activo", EstadoPedido.RECHAZADO: "rechazado", EstadoPedido.ERROR: "error",
+    EstadoPedido.SUSPENDIDO: "suspendido",
+}
+
+
+def _codificar_cursor(pedido: Pedido) -> str:
+    crudo = json.dumps({"c": pedido.created_at.isoformat(), "i": pedido.id}).encode()
+    return base64.urlsafe_b64encode(crudo).decode().rstrip("=")
+
+
+def _decodificar_cursor(cursor: str):
+    try:
+        datos = json.loads(base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)))
+        return datetime.fromisoformat(datos["c"]), int(datos["i"])
+    except (ValueError, KeyError, TypeError, UnicodeError):
+        raise error(422, "cursor_invalido", "Cursor de pedidos inválido") from None
+
+
+@router.get("/", response_model=PedidoPagina)
 async def listar_pedidos(
     estado: str | None = Query(None, description="Filtrar por estado"),
+    q: str | None = Query(None, max_length=100, description="Texto a buscar: número, servicio, cátedra, estado o descripción"),
+    limit: int = Query(PAGINA_POR_DEFECTO, ge=1, le=PAGINA_MAXIMA),
+    cursor: str | None = Query(None, description="`next_cursor` de la página anterior"),
     current_user: Usuario = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Lista pedidos vigentes. Admin ve todos, cátedra ve solo los suyos."""
+    """Lista pedidos vigentes, del más reciente al más antiguo, por páginas. Admin ve todos, cátedra solo los suyos."""
     # `selectinload` de la cátedra no es una optimización: `PedidoResponse` la
     # incluye anidada, y una relación de carga diferida resuelta durante la
     # serialización revienta en contexto async.
-    query = (
-        excluir_dados_de_baja(select(Pedido), Pedido)
-        .options(selectinload(Pedido.catedra))
-        .order_by(Pedido.created_at.desc())
-    )
+    query = excluir_dados_de_baja(select(Pedido), Pedido).options(selectinload(Pedido.catedra))
 
     # Alcance: el conjunto de cátedras de la persona (todas, si es admin)
     if current_user.rol != RolUsuario.ADMIN:
@@ -85,9 +114,34 @@ async def listar_pedidos(
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Estado inválido: {estado}")
 
-    result = await db.execute(query)
+    termino = (q or "").strip().lstrip("#").strip().lower()
+    if termino:
+        patron = f"%{termino.replace(chr(92), chr(92) * 2).replace('%', chr(92) + '%').replace('_', chr(92) + '_')}%"
+        estados = [e for e, etiqueta in ETIQUETAS_ESTADO.items() if termino in etiqueta]
+        query = (
+            query.outerjoin(RecursoTemplate, RecursoTemplate.id == Pedido.template_id)
+            .join(Catedra, Catedra.id == Pedido.catedra_id)
+            .where(or_(
+                cast(Pedido.id, String).like(patron, escape=chr(92)),
+                func.lower(RecursoTemplate.nombre).like(patron, escape=chr(92)),
+                func.lower(Catedra.nombre).like(patron, escape=chr(92)),
+                func.lower(Pedido.descripcion_requerimientos).like(patron, escape=chr(92)),
+                func.lower(cast(Pedido.modelo_servicio, String)).like(patron, escape=chr(92)),
+                *([Pedido.estado.in_(estados)] if estados else []),
+            ))
+        )
+
+    if cursor:
+        momento, ultimo = _decodificar_cursor(cursor)
+        query = query.where(or_(Pedido.created_at < momento, and_(Pedido.created_at == momento, Pedido.id < ultimo)))
+
+    filas = list((await db.execute(
+        query.order_by(Pedido.created_at.desc(), Pedido.id.desc()).limit(limit + 1)
+    )).scalars().all())
+    hay_mas = len(filas) > limit
+    filas = filas[:limit]
     from app.services.operacion_service import anexar_pedidos
-    return await anexar_pedidos(db, list(result.scalars().all()))
+    return {"items": await anexar_pedidos(db, filas), "next_cursor": _codificar_cursor(filas[-1]) if hay_mas else None}
 
 
 @router.get("/estados")

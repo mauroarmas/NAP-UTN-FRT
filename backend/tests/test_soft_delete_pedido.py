@@ -135,7 +135,7 @@ async def test_pedido_dado_de_baja_sale_de_listados(
 
     listado = await client.get("/pedidos/", headers=auth_admin)
     assert listado.status_code == 200
-    assert all(p["id"] != pedido.id for p in listado.json())
+    assert all(p["id"] != pedido.id for p in listado.json()["items"])
 
     detalle = await client.get(f"/pedidos/{pedido.id}", headers=auth_admin)
     assert detalle.status_code == 404

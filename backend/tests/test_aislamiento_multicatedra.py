@@ -77,7 +77,7 @@ async def test_pedidos_cubre_ambas_propias_y_ninguna_ajena(
     r = await client.get("/pedidos/", headers=usuario_multicatedra.headers)
 
     assert r.status_code == 200, r.text
-    catedras_devueltas = {p["catedra_id"] for p in r.json()}
+    catedras_devueltas = {p["catedra_id"] for p in r.json()["items"]}
     propias = {c.id for c in usuario_multicatedra.propias}
     assert catedras_devueltas == propias
     assert usuario_multicatedra.ajena.id not in catedras_devueltas

@@ -111,7 +111,7 @@ async def test_la_demora_queda_visible_para_el_administrador(
     assert detalle.json()["estado_cobertura"] == "vencido"
 
     pedidos = await client.get("/pedidos/?estado=solicitado", headers=auth_admin)
-    assert any(p["id"] == pedido_id and p["servicio_id"] == servicio.id for p in pedidos.json())
+    assert any(p["id"] == pedido_id and p["servicio_id"] == servicio.id for p in pedidos.json()["items"])
 
 
 async def test_resuelta_la_renovacion_el_servicio_sigue_vivo(

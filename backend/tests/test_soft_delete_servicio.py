@@ -84,7 +84,7 @@ async def test_baja_libera_el_contenedor_y_conserva_la_fila(
     assert detail.json()['servicio_dado_de_baja'] is True
     assert detail.json()['estado'] == 'activo'  # La aprobación histórica se conserva.
     listing = await client.get('/pedidos/', headers=auth_admin)
-    assert next(p for p in listing.json() if p['id'] == pedido_id)['servicio_dado_de_baja'] is True
+    assert next(p for p in listing.json()['items'] if p['id'] == pedido_id)['servicio_dado_de_baja'] is True
 
 
 async def test_servicio_dado_de_baja_desaparece_de_listados(
