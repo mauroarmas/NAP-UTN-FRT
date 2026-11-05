@@ -219,6 +219,9 @@ test.describe('Regresión transversal de servicios (011)', () => {
     await expect(accessBtn).toBeVisible();
     await accessBtn.click();
 
+    // La consulta de Proxmox quedó como respaldo de administración (022): se despliega primero
+    await page.getByText('Respaldo de administración').click();
+
     // En el modal de acceso, consultar consola
     const consultarConsolaBtn = page.getByRole('button', { name: 'Consultar consola' });
     await expect(consultarConsolaBtn).toBeVisible();
