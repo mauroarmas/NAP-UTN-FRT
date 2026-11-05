@@ -18,7 +18,9 @@
 	header {
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options nosniff
-		Referrer-Policy no-referrer
+		# No `no-referrer`: con esa política el navegador envía `Origin: null` en el formulario POST con el que el portal abre una
+		# aplicación en otro origen, y el gateway lo rechaza. `strict-origin` envía sólo el origen del portal, nunca la ruta.
+		Referrer-Policy strict-origin
 		X-Frame-Options SAMEORIGIN
 		-Server
 	}
