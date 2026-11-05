@@ -26,6 +26,7 @@ const ADMIN_LINKS = [
   { to: '/catedras', label: 'Cátedras', icon: Building2 },
   { to: '/usuarios', label: 'Usuarios', icon: Users },
   { to: '/admin/cambios-consola', label: 'Accesos a consola', icon: Settings },
+  { to: '/admin/identidades-consola', label: 'Identidades de consola', icon: Users },
 ];
 
 export default function TopNav({ user, onLogout }) {

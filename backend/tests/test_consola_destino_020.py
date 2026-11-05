@@ -66,3 +66,10 @@ def test_validar_nodos_rechaza_perfiles_mal_formados(nodos):
 
 def test_validar_nodos_acepta_nombres_y_direcciones():
     assert validar_nodos({'frt': {'host': 'frt.example.edu', 'port': 8006}, 'n2': {'host': '10.0.0.5'}})
+    assert validar_nodos({'frt': {'host': '10.0.0.5', 'portal_host': 'frt.interno.example.edu'}})
+
+
+@pytest.mark.parametrize('portal', ['a b', 'https://x', '999.1.1.1', '', 7])
+def test_validar_nodos_rechaza_portal_host_mal_formado(portal):
+    with pytest.raises(ValueError):
+        validar_nodos({'frt': {'host': '10.0.0.5', 'portal_host': portal}})

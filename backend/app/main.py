@@ -16,6 +16,8 @@ from app.routers import (
     admin_jobs,
     evidencias,
     cambios_consola,
+    admin_identidades_consola,
+    terminal,
     operaciones,
     calendarios,
     definiciones,
@@ -41,6 +43,15 @@ async def lifespan(app: FastAPI):
         from app.services.puesta_servicio_service import comprobar_arranque
         await comprobar_arranque('api')
     logging.getLogger(__name__).info('API iniciada; los trabajos se ejecutan en el worker independiente')
+    try:
+        # Terminal web (feature 022): al arrancar no puede haber terminales vivas; se cierran sus filas (un único proceso de API).
+        from app.database import AsyncSessionLocal
+        from app.services.terminal_sesiones_service import cerrar_abiertas_al_arrancar
+        cerradas = await cerrar_abiertas_al_arrancar(AsyncSessionLocal)
+        if cerradas:
+            logging.getLogger(__name__).info('Terminales abiertas cerradas al arrancar: %s', cerradas)
+    except Exception as exc:    # la tabla puede no existir antes de migrar; nunca impide arrancar
+        logging.getLogger(__name__).warning('No se pudieron cerrar terminales previas (%s)', type(exc).__name__)
     yield
 
 
@@ -79,6 +90,9 @@ app.include_router(capacidad.router, prefix="/api/v1")
 app.include_router(admin_jobs.router, prefix="/api/v1")
 app.include_router(evidencias.router, prefix="/api/v1")
 app.include_router(cambios_consola.router, prefix="/api/v1")
+app.include_router(admin_identidades_consola.router, prefix="/api/v1")
+app.include_router(admin_identidades_consola.router_sesiones, prefix="/api/v1")
+app.include_router(terminal.router, prefix="/api/v1")
 app.include_router(operaciones.router, prefix="/api/v1")
 app.include_router(calendarios.router, prefix="/api/v1")
 app.include_router(definiciones.router, prefix="/api/v1")

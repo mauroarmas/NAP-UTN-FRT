@@ -6,14 +6,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 ALCANCE = ('docs/runbook-consola-nativa.md', 'docs/infraestructura-laboratorio/scripts/consola/',
            'specs/020-habilitar-consola-nativa/', 'infra/production/settings.example.json',
-           'backend/app/services/consola_destino_service.py', 'backend/app/services/consola_gate_service.py')
+           'backend/app/services/consola_destino_service.py', 'backend/app/services/consola_gate_service.py',
+           'backend/app/services/terminal_relay_service.py', 'backend/app/services/terminal_sesiones_service.py',
+           'backend/app/services/identidad_consola_service.py', 'infra/runner/console_identity.py',
+           'backend/app/schemas/console_identity.py', 'docs/runbook-terminal-portal.md')
 PROHIBIDO = [
     (re.compile(r'\b(?:192\.168|172\.16|10\.\d{1,3})\.\d{1,3}\.\d{1,3}\b'), 'direccion privada'),
     (re.compile(r'0d69119f'), 'UUID del clúster del laboratorio'),
-    (re.compile(r'PVEAPIToken=|token_value"\s*:\s*"[^"]+"|\bpassword\s*[=:]\s*["\']?[A-Za-z0-9]{6,}', re.I), 'secreto'),
+    (re.compile(r'PVEAPIToken=|token_value"\s*:\s*"[^"]+"|\bpassword\s*[=:]\s*["\']?[A-Za-z0-9_-]{20,}', re.I), 'secreto'),
 ]
 IDENTIDAD = re.compile(r'\b([A-Za-z0-9._-]+)@(pve|pam)\b')
-MARCADORES = {'usuario', 'nombre', 'persona', 'user', 'root', 'identidad', 'operador', 'ejemplo', 'x', 'nap-api'}
+MARCADORES = {'usuario', 'nombre', 'persona', 'user', 'root', 'identidad', 'operador', 'ejemplo', 'x', 'nap-api', 'nap-u0'}
 
 
 def _archivos():

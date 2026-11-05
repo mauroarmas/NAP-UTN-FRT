@@ -102,6 +102,7 @@ def registrar_trabajos(*, solo_notificaciones=False):
     scheduler.registrar('limpiar_ensayos', limpiar_ensayos, cada_minutos=1)
     scheduler.registrar('procesar_ensayos', procesar_ensayos, cada_segundos=5)
     scheduler.registrar('sincronizar_bases_iaas', sincronizar_bases_iaas, cada_minutos=5)
+    scheduler.registrar('reconciliar_identidades_consola', reconciliar_identidades_consola, cada_segundos=30)
 
 
 async def procesar_operaciones(db):
@@ -178,6 +179,23 @@ async def sincronizar_bases_iaas(db):
     count = await sincronizar(db)
     await db.commit()
     return {'afectados': count}
+
+
+async def reconciliar_identidades_consola(db):
+    """Converge las identidades individuales de consola con lo que cada persona debe tener (feature 022).
+
+    Sólo corre en instalaciones con consola habilitada (nodos y perfil de consola configurados).
+    """
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+    from app.config import get_settings
+    configuracion = get_settings()
+    if not (configuracion.runner_nodes and configuracion.console_access_profile):
+        return {'afectados': 0}
+    from app.services import identidad_consola_service
+    await db.commit()
+    sessions = async_sessionmaker(db.bind, expire_on_commit=False)
+    resumen = await identidad_consola_service.ciclo(sessions)
+    return {'afectados': len(resumen)}
 
 
 async def main(*, solo_notificaciones=False):

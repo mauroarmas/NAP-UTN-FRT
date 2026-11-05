@@ -1,0 +1,351 @@
+"""Reconciliador de identidades individuales de consola (feature 022). Dobles del nodo; no prueban Proxmox real."""
+import logging
+
+import pytest
+from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import async_sessionmaker
+
+from app.config import get_settings
+from app.models.catedra import Catedra
+from app.models.identidad_consola import IdentidadConsola
+from app.models.usuario import RolUsuario
+from app.services import identidad_consola_service as svc
+from app.utils.secretos import configured_keyring
+from tests import factories
+from tests.console_identity_helpers import RunnerConsola
+
+
+@pytest.fixture
+def sessions(engine):
+    return async_sessionmaker(engine, expire_on_commit=False)
+
+
+@pytest.fixture(autouse=True)
+def dos_nodos(monkeypatch):
+    from uuid import uuid4
+    monkeypatch.setattr(get_settings(), 'runner_nodes', {'pve1': {}, 'pve2': {}}, raising=False)
+    perfil = dict(get_settings().infrastructure_profile or {})
+    perfil.setdefault('cluster_id', str(uuid4()))
+    monkeypatch.setattr(get_settings(), 'infrastructure_profile', perfil, raising=False)
+
+
+async def fila(db, usuario):
+    return await db.scalar(select(IdentidadConsola).where(IdentidadConsola.usuario_id == usuario.id).execution_options(populate_existing=True))
+
+
+def password_de(fila_):
+    return configured_keyring().decrypt(fila_.password_cifrada, context=f'identidad_consola:{fila_.usuario_id}')['password']
+
+
+async def test_el_alta_crea_la_identidad_sola_con_contrasena_aleatoria_cifrada(db, sessions, catedra, usuario_catedra, caplog):
+    caplog.set_level(logging.DEBUG)
+    runner = RunnerConsola(pools=[f'catedra-{catedra.id}'])
+    assert await svc.reconciliar_usuario(sessions, usuario_catedra.id, runner=runner) == 'lista'
+    f = await fila(db, usuario_catedra)
+    assert f.identidad == f'nap-u{usuario_catedra.id}@pve' and f.estado == 'lista' and f.pools_aplicados == [f'catedra-{catedra.id}']
+    clave = password_de(f)
+    assert len(clave) >= 32 and clave not in f.password_cifrada
+    assert runner.usuarios[f.identidad]['password'] == clave
+    assert clave not in caplog.text
+    todo = '\n'.join(map(repr, (await db.execute(text('select * from identidades_consola'))).fetchall()))
+    assert clave not in todo
+
+
+async def test_dos_personas_nunca_comparten_identidad_ni_contrasena(db, sessions, catedra, usuario_catedra):
+    otro = await factories.crear_usuario(db, username='otra', rol=RolUsuario.CATEDRA_ADMIN)
+    otra_catedra = await factories.crear_catedra(db, nombre='Otra', titular_id=otro.id)
+    runner = RunnerConsola(pools=[f'catedra-{catedra.id}', f'catedra-{otra_catedra.id}'])
+    await svc.reconciliar_usuario(sessions, usuario_catedra.id, runner=runner)
+    await svc.reconciliar_usuario(sessions, otro.id, runner=runner)
+    a, b = await fila(db, usuario_catedra), await fila(db, otro)
+    assert a.identidad != b.identidad and password_de(a) != password_de(b)
+    assert runner.usuarios[a.identidad]['pools'] == {f'catedra-{catedra.id}'}
+    assert runner.usuarios[b.identidad]['pools'] == {f'catedra-{otra_catedra.id}'}
+
+
+async def test_administracion_recibe_todas_las_catedras_activas(db, sessions, admin, catedra):
+    otra = await factories.crear_catedra(db, nombre='Otra activa')
+    inactiva = await factories.crear_catedra(db, nombre='Inactiva')
+    inactiva.activa = False
+    await db.commit()
+    runner = RunnerConsola(pools=[f'catedra-{catedra.id}', f'catedra-{otra.id}', f'catedra-{inactiva.id}'])
+    await svc.reconciliar_usuario(sessions, admin.id, runner=runner)
+    assert runner.usuarios[(await fila(db, admin)).identidad]['pools'] == {f'catedra-{catedra.id}', f'catedra-{otra.id}'}
+
+
+async def test_un_pool_que_todavia_no_existe_queda_pendiente_y_se_completa_despues(db, sessions, catedra, usuario_catedra):
+    runner = RunnerConsola(pools=[])
+    assert await svc.reconciliar_usuario(sessions, usuario_catedra.id, runner=runner) == 'lista'
+    assert (await fila(db, usuario_catedra)).pools_aplicados == []
+    runner.pools.add(f'catedra-{catedra.id}')
+    from datetime import timedelta
+    from app.utils.clock import clock
+    (await fila(db, usuario_catedra)).reconciliada_at = clock.now() - timedelta(seconds=svc.REINTENTO_SEGUNDOS + 5)
+    await db.commit()
+    assert await svc.ciclo(sessions, runner=runner) == {usuario_catedra.id: 'lista'}
+    assert (await fila(db, usuario_catedra)).pools_aplicados == [f'catedra-{catedra.id}']
+
+
+async def test_un_fallo_deja_con_error_y_el_reintento_usa_la_misma_contrasena(db, sessions, catedra, usuario_catedra, caplog):
+    caplog.set_level(logging.DEBUG)
+    runner = RunnerConsola(pools=[f'catedra-{catedra.id}'])
+    runner.falla = {'ensure': 2}   # falla en los dos nodos
+    assert await svc.reconciliar_usuario(sessions, usuario_catedra.id, runner=runner) == 'con_error'
+    f = await fila(db, usuario_catedra)
+    assert f.estado == 'con_error' and f.ultimo_error_seguro == svc.MENSAJE_ERROR and f.pools_aplicados == []
+    primera = password_de(f)
+    assert await svc.reconciliar_usuario(sessions, usuario_catedra.id, runner=runner) == 'lista'
+    f = await fila(db, usuario_catedra)
+    assert f.ultimo_error_seguro is None and password_de(f) == primera
+    enviadas = {p['password_consola'] for p in runner.acciones('ensure')}
+    assert enviadas == {primera}
+    assert primera not in caplog.text and primera not in repr(f.ultimo_error_seguro)
+
+
+async def test_un_fallo_definitivo_del_nodo_tambien_queda_visible(db, sessions, catedra, usuario_catedra):
+    runner = RunnerConsola(pools=[f'catedra-{catedra.id}'])
+    runner.error_definitivo = 'ROLE_UNAVAILABLE'
+    assert await svc.reconciliar_usuario(sessions, usuario_catedra.id, runner=runner) == 'con_error'
+
+
+async def test_si_un_nodo_no_responde_se_prueba_con_el_otro(db, sessions, catedra, usuario_catedra):
+    runner = RunnerConsola(pools=[f'catedra-{catedra.id}'])
+    runner.nodos_caidos = {'pve1'}
+    assert await svc.reconciliar_usuario(sessions, usuario_catedra.id, runner=runner) == 'lista'
+    assert runner.nodos_de('ensure') == ['pve1', 'pve2']
+
+
+async def test_cambiar_el_titular_retira_a_la_persona_anterior_y_crea_la_nueva(db, sessions, catedra, usuario_catedra, template):
+    nuevo = await factories.crear_usuario(db, username='nuevo', rol=RolUsuario.CATEDRA_ADMIN)
+    pool = f'catedra-{catedra.id}'
+    runner = RunnerConsola(pools=[pool])
+    await factories.crear_servicio(db, catedra.id, template.id, proxmox_vmid='101')
+    await svc.reconciliar_usuario(sessions, usuario_catedra.id, runner=runner)
+    viejo = (await fila(db, usuario_catedra)).identidad
+    (await db.get(Catedra, catedra.id)).titular_id = nuevo.id
+    await db.commit()
+    resumen = await svc.ciclo(sessions, runner=runner)
+    assert resumen == {usuario_catedra.id: 'retirada', nuevo.id: 'lista'}
+    assert viejo not in runner.usuarios and runner.usuarios[(await fila(db, nuevo)).identidad]['pools'] == {pool}
+    assert [101] in runner.terminadas
+
+
+async def test_retiro_parcial_conserva_la_otra_catedra_y_corta_sesiones_de_la_retirada(db, sessions, catedra, usuario_catedra, template):
+    segunda = await factories.crear_catedra(db, nombre='Segunda', titular_id=usuario_catedra.id)
+    runner = RunnerConsola(pools=[f'catedra-{catedra.id}', f'catedra-{segunda.id}'])
+    await factories.crear_servicio(db, catedra.id, template.id, proxmox_vmid='101')
+    await factories.crear_servicio(db, segunda.id, template.id, proxmox_vmid='202')
+    await svc.reconciliar_usuario(sessions, usuario_catedra.id, runner=runner)
+    (await db.get(Catedra, segunda.id)).titular_id = None
+    await db.commit()
+    runner.terminadas.clear()
+    assert await svc.reconciliar_usuario(sessions, usuario_catedra.id, runner=runner) == 'lista'
+    f = await fila(db, usuario_catedra)
+    assert f.pools_aplicados == [f'catedra-{catedra.id}'] and runner.usuarios[f.identidad]['pools'] == {f'catedra-{catedra.id}'}
+    assert runner.terminadas == [[202], [202]]            # un pedido por nodo, sólo del contenedor de la cátedra retirada
+    assert sorted(runner.nodos_de('end_sessions')) == ['pve1', 'pve2']
+
+
+async def test_retiro_total_elimina_la_cuenta_corta_sesiones_en_todos_los_nodos_y_vuelve_con_contrasena_nueva(
+        db, sessions, catedra, usuario_catedra, template):
+    runner = RunnerConsola(pools=[f'catedra-{catedra.id}'])
+    await factories.crear_servicio(db, catedra.id, template.id, proxmox_vmid='101')
+    await svc.reconciliar_usuario(sessions, usuario_catedra.id, runner=runner)
+    f = await fila(db, usuario_catedra)
+    vieja, ident = password_de(f), f.identidad
+    usuario_catedra.activo = False
+    await db.commit()
+    assert await svc.reconciliar_usuario(sessions, usuario_catedra.id, runner=runner) == 'retirada'
+    f = await fila(db, usuario_catedra)
+    assert f.estado == 'retirada' and f.pools_aplicados == [] and ident not in runner.usuarios
+    assert sorted(runner.nodos_de('end_sessions')) == ['pve1', 'pve2']
+    assert await svc.reconciliar_usuario(sessions, usuario_catedra.id, runner=runner) == 'retirada'   # idempotente
+    usuario_catedra.activo = True
+    await db.commit()
+    assert await svc.reconciliar_usuario(sessions, usuario_catedra.id, runner=runner) == 'lista'
+    f = await fila(db, usuario_catedra)
+    assert f.revision == 2 and password_de(f) != vieja and runner.usuarios[ident]['password'] == password_de(f)
+
+
+async def test_si_el_retiro_no_se_puede_confirmar_no_queda_marcado_como_retirado(db, sessions, catedra, usuario_catedra):
+    runner = RunnerConsola(pools=[f'catedra-{catedra.id}'])
+    await svc.reconciliar_usuario(sessions, usuario_catedra.id, runner=runner)
+    usuario_catedra.activo = False
+    await db.commit()
+    runner.falla = {'retire': 5}
+    estado = await svc.reconciliar_usuario(sessions, usuario_catedra.id, runner=runner)
+    assert estado == 'lista' and (await fila(db, usuario_catedra)).estado == 'lista'     # sigue vigente hasta confirmarlo
+    runner.falla = {}
+    assert await svc.reconciliar_usuario(sessions, usuario_catedra.id, runner=runner) == 'retirada'
+
+
+async def test_el_ciclo_no_repite_trabajo_cuando_todo_coincide(db, sessions, catedra, usuario_catedra):
+    runner = RunnerConsola(pools=[f'catedra-{catedra.id}'])
+    assert await svc.ciclo(sessions, runner=runner) == {usuario_catedra.id: 'lista'}
+    n = len(runner.pedidos)
+    await db.rollback()
+    assert await svc.ciclo(sessions, runner=runner) == {}
+    assert len(runner.pedidos) == n
+
+
+async def test_marcar_para_reintento_toma_la_persona_en_la_proxima_pasada(db, sessions, catedra, usuario_catedra):
+    runner = RunnerConsola(pools=[f'catedra-{catedra.id}'])
+    runner.falla = {'ensure': 2}   # falla en los dos nodos
+    await svc.reconciliar_usuario(sessions, usuario_catedra.id, runner=runner)
+    assert await svc.marcar_para_reintento(db, usuario_catedra.id) is True
+    await db.commit()
+    assert await svc.ciclo(sessions, runner=runner) == {usuario_catedra.id: 'lista'}
+    assert await svc.marcar_para_reintento(db, 999999) is False
+
+
+# --- Retiro automático con el trámite de la 009 (research R5) ------------------------------------------------------
+
+from app.models.cambio_acceso_consola import CambioAccesoConsola
+from app.models.evidencia import Evidencia
+from app.services import consola_access_service
+
+
+def nombre_nuevo(uid):
+    return f'nap-u{uid}@pve'
+
+
+async def _pedir_reasignacion(db, admin, catedra, titular_actual, nuevo):
+    resultado = await consola_access_service.solicitar_cambio(db, usuario_objetivo_id=titular_actual.id, catedra_id=catedra.id,
+        accion='reasignar', cambios={'titular_id': nuevo.id}, revision_esperada=catedra.revision_admin, actor=admin,
+        clave='pedir-reasignacion')
+    await db.commit()
+    return resultado
+
+
+async def test_el_inventario_refleja_la_identidad_gestionada(db, sessions, catedra, usuario_catedra):
+    runner = RunnerConsola(pools=[f'catedra-{catedra.id}'])
+    await svc.reconciliar_usuario(sessions, usuario_catedra.id, runner=runner)
+    await db.refresh(usuario_catedra)
+    f = await fila(db, usuario_catedra)
+    assert usuario_catedra.inventario_consola == 'asignada' and usuario_catedra.identidad_consola == f.identidad
+    assert usuario_catedra.inventario_consola_ref == 'AUTO-022' and usuario_catedra.inventario_consola_actor == 'portal-automatico'
+
+
+async def test_la_reasignacion_se_completa_sola_con_evidencia_del_sistema(db, sessions, admin, catedra, usuario_catedra, template):
+    nuevo = await factories.crear_usuario(db, username='nuevo', rol=RolUsuario.CATEDRA_ADMIN)
+    pool, nuevo_id, viejo_id, catedra_id = f'catedra-{catedra.id}', nuevo.id, usuario_catedra.id, catedra.id
+    runner = RunnerConsola(pools=[pool])
+    await factories.crear_servicio(db, catedra.id, template.id, proxmox_vmid='101')
+    await svc.reconciliar_usuario(sessions, usuario_catedra.id, runner=runner)
+    identidad = (await fila(db, usuario_catedra)).identidad
+    pedido = await _pedir_reasignacion(db, admin, catedra, usuario_catedra, nuevo)
+    assert pedido.status_code == 202                                       # el trámite bloquea y queda pendiente
+    assert (await db.get(Catedra, catedra_id, populate_existing=True)).titular_id == viejo_id   # todavía no se aplicó
+    resumen = await svc.ciclo(sessions, runner=runner)
+    assert resumen[viejo_id] == 'retirada' and identidad not in runner.usuarios      # se retiró ANTES de transferir
+    cambio = await db.scalar(select(CambioAccesoConsola).execution_options(populate_existing=True))
+    assert cambio.estado == 'completado' and cambio.evidencia_id is not None
+    evidencia = await db.get(Evidencia, cambio.evidencia_id)
+    assert 'portal-automatico' in evidencia.documento_canonico and '"entorno":"real"' in evidencia.documento_canonico
+    assert (await db.get(Catedra, catedra_id, populate_existing=True)).titular_id == nuevo_id   # recién ahora se transfiere
+    await db.rollback()
+    assert (await svc.ciclo(sessions, runner=runner)).get(nuevo_id) == 'lista'
+    assert runner.usuarios[nombre_nuevo(nuevo_id)]['pools'] == {pool}
+
+
+async def test_si_el_retiro_falla_el_tramite_sigue_abierto_y_no_se_transfiere(db, sessions, admin, catedra, usuario_catedra):
+    nuevo = await factories.crear_usuario(db, username='nuevo2', rol=RolUsuario.CATEDRA_ADMIN)
+    runner = RunnerConsola(pools=[f'catedra-{catedra.id}'])
+    await svc.reconciliar_usuario(sessions, usuario_catedra.id, runner=runner)
+    await _pedir_reasignacion(db, admin, catedra, usuario_catedra, nuevo)
+    runner.falla = {'retire': 2}              # el retiro falla en los dos nodos
+    await svc.ciclo(sessions, runner=runner)
+    cambio = await db.scalar(select(CambioAccesoConsola).execution_options(populate_existing=True))
+    assert cambio.estado == 'pendiente' and cambio.evidencia_id is None
+    assert (await db.get(Catedra, catedra.id, populate_existing=True)).titular_id == usuario_catedra.id
+    await db.rollback()
+    runner.falla = {}
+    await svc.ciclo(sessions, runner=runner)
+    await db.rollback()
+    cambio = await db.scalar(select(CambioAccesoConsola).execution_options(populate_existing=True))
+    assert cambio.estado == 'completado'
+
+
+async def test_repetir_la_pasada_no_duplica_evidencias(db, sessions, admin, catedra, usuario_catedra):
+    nuevo = await factories.crear_usuario(db, username='nuevo3', rol=RolUsuario.CATEDRA_ADMIN)
+    runner = RunnerConsola(pools=[f'catedra-{catedra.id}'])
+    await svc.reconciliar_usuario(sessions, usuario_catedra.id, runner=runner)
+    await _pedir_reasignacion(db, admin, catedra, usuario_catedra, nuevo)
+    await svc.ciclo(sessions, runner=runner)
+    await db.rollback()
+    await svc.ciclo(sessions, runner=runner)
+    await db.rollback()
+    assert len((await db.scalars(select(Evidencia))).all()) == 1
+
+
+# --- Bucle del worker -----------------------------------------------------------------------------------------------
+
+async def test_el_trabajo_del_worker_esta_registrado_y_converge_tras_un_reinicio(db, sessions, catedra, usuario_catedra, monkeypatch):
+    from app import worker
+    from app.services import scheduler
+    registrados = {}
+    monkeypatch.setattr(scheduler, 'registrar', lambda nombre, funcion, **kw: registrados.update({nombre: (funcion, kw)}))
+    worker.registrar_trabajos()
+    funcion, kw = registrados['reconciliar_identidades_consola']
+    assert kw == {'cada_segundos': 30} and funcion is worker.reconciliar_identidades_consola
+
+    runner = RunnerConsola(pools=[f'catedra-{catedra.id}'])
+    monkeypatch.setattr('app.services.guest_runner_client.GuestRunnerClient', lambda *a, **k: runner)
+    monkeypatch.setattr(get_settings(), 'console_access_profile', {'cluster_uuid': 'x'}, raising=False)
+    assert (await funcion(db)) == {'afectados': 1}
+    assert (await fila(db, usuario_catedra)).estado == 'lista'
+    # "reinicio": nada vuelve a pedirse al nodo cuando todo coincide
+    await db.rollback()
+    n = len(runner.pedidos)
+    assert (await funcion(db)) == {'afectados': 0} and len(runner.pedidos) == n
+
+
+async def test_sin_consola_habilitada_el_bucle_no_hace_nada(db, monkeypatch):
+    from app import worker
+    monkeypatch.setattr(get_settings(), 'console_access_profile', {}, raising=False)
+    assert (await worker.reconciliar_identidades_consola(db)) == {'afectados': 0}
+
+
+async def test_la_adopcion_registra_la_identidad_manual_anterior_sin_perderla(db, sessions, catedra, usuario_catedra):
+    usuario_catedra.identidad_consola, usuario_catedra.inventario_consola = 'docente@pve', 'asignada'
+    usuario_catedra.inventario_consola_ref, usuario_catedra.inventario_consola_actor = 'ACTA-1', 'operador'
+    await db.commit()
+    runner = RunnerConsola(pools=[f'catedra-{catedra.id}'])
+    await svc.reconciliar_usuario(sessions, usuario_catedra.id, runner=runner)
+    await db.refresh(usuario_catedra)
+    assert usuario_catedra.identidad_consola == f'nap-u{usuario_catedra.id}@pve' and usuario_catedra.inventario_consola_ref == 'AUTO-022'
+    [anterior] = usuario_catedra.inventario_consola_historial
+    assert anterior['identidad_anterior'] == 'docente@pve' and anterior['por'] == usuario_catedra.identidad_consola
+    assert 'docente@pve' not in str(runner.pedidos)        # el portal jamás le pide nada al nodo sobre la identidad manual
+
+
+async def test_el_retiro_pide_cerrar_las_terminales_abiertas_de_la_persona_sobre_lo_retirado(db, sessions, catedra, usuario_catedra, template):
+    from app.services import terminal_sesiones_service as ts
+    segunda = await factories.crear_catedra(db, nombre='Segunda', titular_id=usuario_catedra.id)
+    runner = RunnerConsola(pools=[f'catedra-{catedra.id}', f'catedra-{segunda.id}'])
+    s1 = await factories.crear_servicio(db, catedra.id, template.id, proxmox_vmid='101')
+    s2 = await factories.crear_servicio(db, segunda.id, template.id, proxmox_vmid='202')
+    await svc.reconciliar_usuario(sessions, usuario_catedra.id, runner=runner)
+    a = await ts.abrir(sessions, usuario_id=usuario_catedra.id, servicio_id=s1.id, nodo='pve1', limite=5)
+    b = await ts.abrir(sessions, usuario_id=usuario_catedra.id, servicio_id=s2.id, nodo='pve1', limite=5)
+    (await db.get(Catedra, segunda.id)).titular_id = None
+    await db.commit()
+    await svc.reconciliar_usuario(sessions, usuario_catedra.id, runner=runner)
+    assert (await ts.consultar(sessions, b))['motivo_solicitud'] == 'retiro'          # la de la cátedra retirada se corta
+    assert (await ts.consultar(sessions, a))['cierre_solicitado_at'] is None          # la otra sigue
+
+
+async def test_un_nodo_que_no_responde_no_impide_limpiar_los_demas_pero_el_retiro_no_se_da_por_hecho(
+        db, sessions, catedra, usuario_catedra, template, monkeypatch):
+    monkeypatch.setattr(get_settings(), 'runner_nodes', {'pve1': {}, 'pve2': {}, 'pve3': {}}, raising=False)
+    runner = RunnerConsola(pools=[f'catedra-{catedra.id}'])
+    await factories.crear_servicio(db, catedra.id, template.id, proxmox_vmid='101')
+    await svc.reconciliar_usuario(sessions, usuario_catedra.id, runner=runner)
+    usuario_catedra.activo = False
+    await db.commit()
+    runner.nodos_caidos = {'pve2'}
+    assert await svc.reconciliar_usuario(sessions, usuario_catedra.id, runner=runner) == 'lista'      # no se confirmó en pve2
+    assert set(runner.nodos_de('end_sessions')) == {'pve1', 'pve2', 'pve3'}                          # se intentó en todos igual
+    assert [vm for vm in runner.terminadas] == [[101], [101]]                                         # pve1 y pve3 sí se limpiaron
+    runner.nodos_caidos = set()
+    assert await svc.reconciliar_usuario(sessions, usuario_catedra.id, runner=runner) == 'retirada'

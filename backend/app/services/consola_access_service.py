@@ -207,12 +207,16 @@ async def solicitar_cambio(db, *, usuario_objetivo_id, catedra_id, accion, cambi
         payload={'accion': accion, 'cambios': cambios, 'revision_esperada': revision_esperada}, decidir=decide)
 
 
-async def confirmar(db, identity, evidencia_ref, *, actor, clave):
-    actor = await requiere_admin_actual(db, actor)
+async def confirmar(db, identity, evidencia_ref, *, actor, clave, sistema=False):
+    """Completa el trámite con su evidencia. `sistema=True` (feature 022): lo ejecuta el portal con el retiro ya hecho
+    y verificado en la infraestructura; `actor` es sólo quien pidió el trámite (para la idempotencia)."""
+    if not sistema:
+        actor = await requiere_admin_actual(db, actor)
 
     async def decide(session):
         await _admin_lock(session)
-        await requiere_admin_actual(session, actor)
+        if not sistema:
+            await requiere_admin_actual(session, actor)
         change = await session.scalar(select(CambioAccesoConsola).where(CambioAccesoConsola.id == identity)
                                       .with_for_update().execution_options(populate_existing=True))
         if change is None:

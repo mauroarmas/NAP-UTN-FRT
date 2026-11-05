@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import TerminalConsola from './TerminalConsola';
 import { getAccesoServicio, getConsolaServicio, revelarAccesoServicio, abrirAplicacionServicio, actualizarAccesoConsola } from '../services/api';
 import { mensajeError } from '../utils/errors';
 import CambiarClaveSshModal from './CambiarClaveSshModal';
@@ -19,6 +20,7 @@ export default function AccesoServicio({ servicio, user }) {
   const [busy, setBusy] = useState(false);
   const [consoleURL, setConsoleURL] = useState(null);
   const [consoleLogin, setConsoleLogin] = useState(null);
+  const [terminal, setTerminal] = useState(0);        // 0 = cerrada; cada apertura incrementa la clave para recrearla
   const [sshModal, setSshModal] = useState(false);
   const submitting = useRef(false);
   const admin = user?.rol === 'admin';
@@ -123,14 +125,21 @@ export default function AccesoServicio({ servicio, user }) {
       {admin && metadata.consola_usuario === 'root' && <div className="row wrap gap-2">
         <button className="btn btn-secondary" disabled={busy} onClick={updateConsole}>Actualizar acceso de consola</button>
         <span className="muted">La consola pasará a usar el usuario nap con una contraseña nueva; la de root dejará de servir.</span></div>}
-      {method === 'consola' && <div className="row wrap gap-2"><button className="btn btn-secondary" disabled={busy} onClick={queryConsole}>Consultar consola</button>
-        {consoleURL && <ol className="stack gap-1" aria-label="Pasos para abrir la consola">
-          {consoleLogin && <li>Primero iniciá sesión con tu cuenta personal de consola (dominio «Proxmox VE»):{' '}
-            <a href={consoleLogin} target="_blank" rel="noopener noreferrer">Iniciar sesión</a>. Solo hace falta si no lo hiciste hace poco.</li>}
-          <li><a href={consoleURL} target="_blank" rel="noopener noreferrer">Abrir consola de esta instancia</a></li>
-          {metadata.consola_usuario === 'nap'
-            ? <li>Dentro de la consola entrá como <strong>nap</strong> con la contraseña de «Revelar acceso inicial». Para tareas de administración usá <code>sudo</code>.</li>
-            : <li>Dentro de la consola entrá como <strong>root</strong> con la contraseña de «Revelar acceso inicial». El usuario <strong>nap</strong> sólo entra por SSH con clave.</li>}</ol>}</div>}
+      {method === 'consola' && <div className="stack gap-2">
+        {metadata.puede_revelar_credenciales
+          ? <div className="row wrap gap-2">
+              <button className="btn btn-primary" disabled={terminal > 0} onClick={() => setTerminal((n) => n + 1)}>Abrir terminal</button>
+              <span className="muted">Se abre acá, en el portal. Entrá como <strong>{metadata.consola_usuario === 'nap' ? 'nap' : 'root'}</strong> con la contraseña de «Revelar acceso inicial».</span>
+            </div>
+          : <p className="muted">La terminal está disponible cuando el servicio está encendido y con vigencia.</p>}
+        {terminal > 0 && <TerminalConsola key={terminal} servicioId={servicio.id} onCerrar={() => setTerminal(0)} />}
+        {admin && <details><summary>Respaldo de administración</summary>
+          <div className="row wrap gap-2"><button className="btn btn-secondary" disabled={busy} onClick={queryConsole}>Consultar consola</button>
+            {consoleURL && <ol className="stack gap-1" aria-label="Pasos para abrir la consola">
+              {consoleLogin && <li>Primero iniciá sesión en Proxmox con tu cuenta de consola:{' '}
+                <a href={consoleLogin} target="_blank" rel="noopener noreferrer">Iniciar sesión</a>.</li>}
+              <li><a href={consoleURL} target="_blank" rel="noopener noreferrer">Abrir consola de esta instancia</a></li></ol>}</div></details>}
+      </div>}
       {metadata.puede_revelar_credenciales && !revealed && <button className="btn btn-primary" disabled={busy} onClick={reveal}>Revelar acceso inicial</button>}
     </>}
     {revealed && <section className="card" aria-label="Credenciales iniciales reveladas">

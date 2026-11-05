@@ -141,9 +141,11 @@ async def console_fixture(db, actor, service, admin, monkeypatch, *, environment
     category = await db.get(Catedra, service.catedra_id)
     profile = {'cluster_uuid':settings.infrastructure_profile['cluster_id'], 'pve_version':'9.2.2',
         'nodos':{'pve1':{'host':'pve1.test','port':8006}},
-        'gate':{'evidencia_ref':str(evidence_id),'sha256':evidence.sha256},
-        'identities':{actor.identidad_consola:{'usuario_id':actor.id,'revision_admin':actor.revision_admin,
-            'referencia_institucional':'TEST-ONLY', 'catedras':{str(category.id):category.revision_admin}}}}
+        'gate':{'evidencia_ref':str(evidence_id),'sha256':evidence.sha256}}
+    # Feature 022: la identidad y su alcance viven en la base, no en el perfil privado.
+    from app.models.identidad_consola import IdentidadConsola
+    db.add(IdentidadConsola(usuario_id=actor.id, identidad=f'nap-u{actor.id}@pve', password_cifrada='x', estado='lista',
+        pools_aplicados=[f'catedra-{category.id}'], revision=1))
     monkeypatch.setattr(settings, 'console_access_profile', profile)
     from app.services import consola_destino_service
     async def responde(host, port): return True
@@ -162,8 +164,12 @@ async def test_consola_exige_prueba_instalacion_y_alcance_actual(db, client, pro
         environment='simulado' if invalid == 'simulation' else 'real')
     if invalid == 'cluster': profile['cluster_uuid'] = 'other'
     if invalid == 'checksum': profile['gate']['sha256'] = '0'*64
-    if invalid == 'user_revision': profile['identities'][usuario_catedra.identidad_consola]['revision_admin'] += 1
-    if invalid == 'scope': profile['identities'][usuario_catedra.identidad_consola]['catedras'] = {}
+    from app.models.identidad_consola import IdentidadConsola
+    fila = await db.scalar(select(IdentidadConsola).where(IdentidadConsola.usuario_id == usuario_catedra.id))
+    if invalid == 'user_revision':
+        fila.estado = 'con_error'; await db.commit()          # identidad todavía no lista
+    if invalid == 'scope':
+        fila.pools_aplicados = []; await db.commit()          # no cubre la cátedra del servicio
     if invalid == 'unowned':
         service.identidad_infraestructura_id = None
         await db.commit()

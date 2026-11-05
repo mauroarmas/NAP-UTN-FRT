@@ -8,6 +8,7 @@ const Servicios = lazy(() => import('./pages/Servicios'));
 const Catedras = lazy(() => import('./pages/Catedras'));
 const Usuarios = lazy(() => import('./pages/Usuarios'));
 const CambiosConsola = lazy(() => import('./pages/CambiosConsola'));
+const IdentidadesConsola = lazy(() => import('./pages/IdentidadesConsola'));
 const Calendario = lazy(() => import('./pages/Calendario'));
 const Definiciones = lazy(() => import('./pages/Definiciones'));
 const Metricas = lazy(() => import('./pages/Metricas'));
@@ -54,6 +55,7 @@ function ProtectedLayout({ user, onRefresh, onLogout }) {
                 <Route path="/admin/templates" element={<Navigate to="/catalogo" replace />} />
                 <Route path="/usuarios" element={<Usuarios user={user} />} />
                 <Route path="/admin/cambios-consola" element={<CambiosConsola user={user} />} />
+                <Route path="/admin/identidades-consola" element={<IdentidadesConsola user={user} />} />
               </>
             )}
             <Route path="*" element={<Navigate to="/" replace />} />

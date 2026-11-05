@@ -205,6 +205,8 @@ export const validarDefinicion = (id, clave = crypto.randomUUID()) => api.post(`
 export const publicarDefinicion = (id, clave = crypto.randomUUID()) => api.post(`/definiciones/${id}/publicar`, {}, ordenHeaders(clave));
 export const retirarDefinicion = (id, motivo, clave = crypto.randomUUID()) => api.post(`/definiciones/${id}/retirar`, { motivo }, ordenHeaders(clave));
 export const listarCambiosConsola = () => api.get('/admin/cambios-consola');
+export const listarIdentidadesConsola = (estado) => api.get('/admin/identidades-consola', { params: estado ? { estado } : {} });
+export const reintentarIdentidadConsola = (usuarioId, clave = crypto.randomUUID()) => api.post(`/admin/identidades-consola/${usuarioId}/reintentar`, null, ordenHeaders(clave));
 export const obtenerCambioConsola = (id) => api.get(`/admin/cambios-consola/${id}`);
 export const confirmarRevocacionConsola = (id, evidencia_ref) => api.post(`/admin/cambios-consola/${id}/confirmar-revocacion`, { evidencia_ref }, { headers: { 'Idempotency-Key': crypto.randomUUID() } });
 export const registrarFalloConsola = (id, motivo) => api.post(`/admin/cambios-consola/${id}/registrar-fallo`, { motivo }, { headers: { 'Idempotency-Key': crypto.randomUUID() } });

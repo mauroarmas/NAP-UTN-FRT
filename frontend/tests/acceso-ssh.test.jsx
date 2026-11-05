@@ -60,7 +60,7 @@ test('con el acceso aplicado se muestra el comando, la huella y se mantiene la c
   expect(await screen.findByText('ssh nap@192.168.100.120')).toBeVisible();
   expect(screen.getByText('SHA256:abc')).toBeVisible();
   expect(screen.getByText(/No usa contraseña/)).toBeVisible();
-  expect(screen.getByRole('button', { name: 'Consultar consola' })).toBeVisible();
+  expect(screen.getByText(/terminal/i)).toBeVisible();      // la consola sigue ofreciéndose, ahora como terminal del portal
   await user.click(screen.getByRole('button', { name: 'Copiar comando' }));
   expect(copiar).toHaveBeenCalledWith('ssh nap@192.168.100.120');
 });

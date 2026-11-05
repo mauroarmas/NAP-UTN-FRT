@@ -179,3 +179,35 @@ class GuestRunnerClient:
             raise RunnerError('UNCONFIRMED') from None
         finally:
             await self._stop(process)
+
+    async def execute_console_identity(self, request, node):
+        """Protocolo nap-console-identity/1 (feature 022): mismo SSH y comando forzado; la contraseña sólo viaja por stdin.
+
+        `node` elige a qué nodo se le pide (no forma parte del mensaje): crear/retirar/comprobar valen para todo el
+        clúster, pero terminar sesiones debe pedirse en CADA nodo.
+        """
+        from app.schemas import console_identity
+        try:
+            raw = canonical(request).encode()
+        except (TypeError, ValueError, RecursionError):
+            raise RunnerError('INVALID_REQUEST') from None
+        request = console_identity.parse_request(raw)
+        entry = self.config.get(node) if isinstance(self.config, dict) else None
+        argv = ssh_argv(entry)
+        process = None
+        try:
+            async with asyncio.timeout(self.timeout_seconds):
+                process = await self.start_process(*argv, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.DEVNULL, limit=65537, start_new_session=True,
+                    env={'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8'})
+                output = await self._exchange(process, raw)
+                if process.returncode != 0:
+                    raise RunnerError('RUNNER_UNAVAILABLE')
+                return console_identity.parse_response(output, request)
+        except asyncio.CancelledError:
+            await self._stop(process)
+            raise
+        except (TimeoutError, OSError, ValueError):
+            raise RunnerError('UNCONFIRMED') from None
+        finally:
+            await self._stop(process)
