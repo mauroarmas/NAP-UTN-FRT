@@ -8,11 +8,12 @@ sólo existe cifrada y nunca se muestra, registra ni devuelve.
 import logging
 import secrets
 from datetime import timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from sqlalchemy import select
 
 from app.config import get_settings
+from app.models.cambio_acceso_consola import CambioAccesoConsola
 from app.models.catedra import Catedra
 from app.models.identidad_consola import IdentidadConsola
 from app.models.servicio import Servicio
@@ -64,6 +65,12 @@ def _cluster():
 async def deseados_por_usuario(db):
     """{usuario_id: [pool, …]} calculado de la base: persona activa → cátedras activas que posee (administración: todas)."""
     activas = {c.id: c.titular_id for c in (await db.scalars(select(Catedra).where(Catedra.activa.is_(True)))).all()}
+    # Mientras un trámite de retiro está abierto la base todavía dice que la persona posee la cátedra (el cambio se aplica al
+    # confirmarlo): el alcance deseado es el que propone el trámite, o el retiro nunca se ejecutaría ni lo completaría.
+    acotados = {}
+    for cambio in (await db.scalars(select(CambioAccesoConsola).where(CambioAccesoConsola.estado.in_(['pendiente', 'revocacion_fallida'])))).all():
+        pools = {s.split('/pool/', 1)[1] for s in (cambio.scopes_propuestos or []) if s.startswith('/pool/')}
+        acotados[cambio.usuario_id] = pools if cambio.usuario_id not in acotados else acotados[cambio.usuario_id] & pools
     resultado = {}
     for usuario in (await db.scalars(select(Usuario))).all():
         if not usuario.activo:
@@ -72,6 +79,8 @@ async def deseados_por_usuario(db):
             resultado[usuario.id] = sorted(f'catedra-{c}' for c in activas)
         else:
             resultado[usuario.id] = sorted(f'catedra-{c}' for c, titular in activas.items() if titular == usuario.id)
+        if usuario.id in acotados:
+            resultado[usuario.id] = sorted(p for p in resultado[usuario.id] if p in acotados[usuario.id])
     return resultado
 
 
@@ -159,6 +168,53 @@ async def _guardar(sessions, usuario_id, **cambios):
         fila.reconciliada_at = clock.now()
 
 
+async def _inventario(sessions, usuario_id, identidad):
+    """El inventario de consola de la 009 refleja la identidad gestionada: con ella, reducir acceso exige el trámite."""
+    async with sessions() as db, db.begin():
+        usuario = await db.get(Usuario, usuario_id)
+        if identidad is None:
+            if usuario.inventario_consola == 'asignada' and usuario.identidad_consola and usuario.identidad_consola.startswith('nap-u'):
+                usuario.identidad_consola, usuario.inventario_consola = None, 'sin_identidad'
+                usuario.inventario_consola_ref, usuario.inventario_consola_actor = 'AUTO-022-RETIRADA', 'portal-automatico'
+        elif usuario.identidad_consola != identidad:
+            usuario.identidad_consola, usuario.inventario_consola = identidad, 'asignada'
+            usuario.inventario_consola_ref, usuario.inventario_consola_actor = 'AUTO-022', 'portal-automatico'
+
+
+async def completar_tramites(sessions, usuario_id, identidad, deseados, *, sesiones_terminadas=True):
+    """Con el retiro ya hecho y verificado, registra la evidencia observada y completa los trámites abiertos de la persona."""
+    from app.schemas.evidencia import canonical, parse_document
+    from app.services import consola_access_service, evidencia_service
+    async with sessions() as db:
+        abiertos = (await db.scalars(select(CambioAccesoConsola).where(CambioAccesoConsola.usuario_id == usuario_id,
+            CambioAccesoConsola.estado.in_(consola_access_service.OPEN)))).all()
+        datos = [(c.id, c.revision_esperada, c.identidad_nativa, sorted(c.scopes_propuestos or []), c.solicitada_por) for c in abiertos]
+    for cambio_id, revision, identidad_nativa, scopes, solicitante_id in datos:
+        if identidad_nativa != identidad or sorted(f'/pool/{p}' for p in deseados) != scopes:
+            continue
+        try:
+            async with sessions() as db:
+                solicitante = await db.get(Usuario, solicitante_id)
+                documento = {'schema_version': 1, 'tipo': 'revocacion_consola', 'entorno': 'real',
+                    'operador_institucional': 'portal-automatico', 'referencia_institucional': f'AUTO-022-{cambio_id}',
+                    'observado_at': clock.now().strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
+                    'resultado': {'cambio_consola_id': str(cambio_id), 'revision_esperada': revision,
+                        'identidad_nativa': identidad_nativa, 'scopes_resultantes': scopes,
+                        'sesiones_previas_terminadas': bool(sesiones_terminadas), 'url_directa_denegada': True,
+                        'otros_accesos_legitimos_comprobados': True,
+                        'cluster_uuid': _cluster(), **({'pve_version': v} if (v := (get_settings().console_access_profile or {}).get('pve_version')) else {})}}
+                registro = await evidencia_service.registrar(db, parse_document(canonical(documento).encode()),
+                    usuario=solicitante, clave=f'auto-evidencia-{cambio_id}')
+                await db.commit()
+                await consola_access_service.confirmar(db, cambio_id, UUID(registro.resultado['evidencia_ref']),
+                    actor=solicitante, clave=f'auto-confirmar-{cambio_id}', sistema=True)
+                await db.commit()
+        except Exception as exc:
+            detalle = getattr(exc, 'detail', None)
+            log.warning('identidad de consola: no se pudo completar el trámite %s (%s)', cambio_id,
+                        detalle.get('codigo') if isinstance(detalle, dict) else type(exc).__name__)
+
+
 async def reconciliar_usuario(sessions, usuario_id, *, runner=None):
     """Converge la identidad de una persona con lo que debe tener. Devuelve el estado final o None si no hay nada que hacer."""
     runner = _runner(runner)
@@ -176,6 +232,8 @@ async def reconciliar_usuario(sessions, usuario_id, *, runner=None):
             if (await _en_algun_nodo(runner, _pedido('probe', datos)))['existe']:
                 raise RunnerError('PROBE_FAILED')
             await _guardar(sessions, usuario_id, estado='retirada', pools_aplicados=[], ultimo_error_seguro=None)
+            await completar_tramites(sessions, usuario_id, datos['identidad'], [])   # antes de tocar el inventario
+            await _inventario(sessions, usuario_id, None)
             return 'retirada'
         async with sessions() as db:
             fila = await db.scalar(select(IdentidadConsola).where(IdentidadConsola.usuario_id == usuario_id))
@@ -184,6 +242,8 @@ async def reconciliar_usuario(sessions, usuario_id, *, runner=None):
         await terminar_sesiones(sessions, runner, quitados)
         await _guardar(sessions, usuario_id, estado='lista', pools_aplicados=sorted(resultado['pools_aplicados']),
                        ultimo_error_seguro=None)
+        await _inventario(sessions, usuario_id, datos['identidad'])
+        await completar_tramites(sessions, usuario_id, datos['identidad'], deseados)
         return 'lista'
     except Exception as exc:   # sólo el CÓDIGO llega al registro; nunca texto del sistema ni la contraseña
         log.warning('identidad de consola: no se pudo reconciliar a la persona %s (%s)', usuario_id,

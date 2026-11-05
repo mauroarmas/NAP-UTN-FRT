@@ -196,3 +196,83 @@ async def test_marcar_para_reintento_toma_la_persona_en_la_proxima_pasada(db, se
     await db.commit()
     assert await svc.ciclo(sessions, runner=runner) == {usuario_catedra.id: 'lista'}
     assert await svc.marcar_para_reintento(db, 999999) is False
+
+
+# --- Retiro automático con el trámite de la 009 (research R5) ------------------------------------------------------
+
+from app.models.cambio_acceso_consola import CambioAccesoConsola
+from app.models.evidencia import Evidencia
+from app.services import consola_access_service
+
+
+def nombre_nuevo(uid):
+    return f'nap-u{uid}@pve'
+
+
+async def _pedir_reasignacion(db, admin, catedra, titular_actual, nuevo):
+    resultado = await consola_access_service.solicitar_cambio(db, usuario_objetivo_id=titular_actual.id, catedra_id=catedra.id,
+        accion='reasignar', cambios={'titular_id': nuevo.id}, revision_esperada=catedra.revision_admin, actor=admin,
+        clave='pedir-reasignacion')
+    await db.commit()
+    return resultado
+
+
+async def test_el_inventario_refleja_la_identidad_gestionada(db, sessions, catedra, usuario_catedra):
+    runner = RunnerConsola(pools=[f'catedra-{catedra.id}'])
+    await svc.reconciliar_usuario(sessions, usuario_catedra.id, runner=runner)
+    await db.refresh(usuario_catedra)
+    f = await fila(db, usuario_catedra)
+    assert usuario_catedra.inventario_consola == 'asignada' and usuario_catedra.identidad_consola == f.identidad
+    assert usuario_catedra.inventario_consola_ref == 'AUTO-022' and usuario_catedra.inventario_consola_actor == 'portal-automatico'
+
+
+async def test_la_reasignacion_se_completa_sola_con_evidencia_del_sistema(db, sessions, admin, catedra, usuario_catedra, template):
+    nuevo = await factories.crear_usuario(db, username='nuevo', rol=RolUsuario.CATEDRA_ADMIN)
+    pool, nuevo_id, viejo_id, catedra_id = f'catedra-{catedra.id}', nuevo.id, usuario_catedra.id, catedra.id
+    runner = RunnerConsola(pools=[pool])
+    await factories.crear_servicio(db, catedra.id, template.id, proxmox_vmid='101')
+    await svc.reconciliar_usuario(sessions, usuario_catedra.id, runner=runner)
+    identidad = (await fila(db, usuario_catedra)).identidad
+    pedido = await _pedir_reasignacion(db, admin, catedra, usuario_catedra, nuevo)
+    assert pedido.status_code == 202                                       # el trámite bloquea y queda pendiente
+    assert (await db.get(Catedra, catedra_id, populate_existing=True)).titular_id == viejo_id   # todavía no se aplicó
+    resumen = await svc.ciclo(sessions, runner=runner)
+    assert resumen[viejo_id] == 'retirada' and identidad not in runner.usuarios      # se retiró ANTES de transferir
+    cambio = await db.scalar(select(CambioAccesoConsola).execution_options(populate_existing=True))
+    assert cambio.estado == 'completado' and cambio.evidencia_id is not None
+    evidencia = await db.get(Evidencia, cambio.evidencia_id)
+    assert 'portal-automatico' in evidencia.documento_canonico and '"entorno":"real"' in evidencia.documento_canonico
+    assert (await db.get(Catedra, catedra_id, populate_existing=True)).titular_id == nuevo_id   # recién ahora se transfiere
+    await db.rollback()
+    assert (await svc.ciclo(sessions, runner=runner)).get(nuevo_id) == 'lista'
+    assert runner.usuarios[nombre_nuevo(nuevo_id)]['pools'] == {pool}
+
+
+async def test_si_el_retiro_falla_el_tramite_sigue_abierto_y_no_se_transfiere(db, sessions, admin, catedra, usuario_catedra):
+    nuevo = await factories.crear_usuario(db, username='nuevo2', rol=RolUsuario.CATEDRA_ADMIN)
+    runner = RunnerConsola(pools=[f'catedra-{catedra.id}'])
+    await svc.reconciliar_usuario(sessions, usuario_catedra.id, runner=runner)
+    await _pedir_reasignacion(db, admin, catedra, usuario_catedra, nuevo)
+    runner.falla = {'retire': 2}              # el retiro falla en los dos nodos
+    await svc.ciclo(sessions, runner=runner)
+    cambio = await db.scalar(select(CambioAccesoConsola).execution_options(populate_existing=True))
+    assert cambio.estado == 'pendiente' and cambio.evidencia_id is None
+    assert (await db.get(Catedra, catedra.id, populate_existing=True)).titular_id == usuario_catedra.id
+    await db.rollback()
+    runner.falla = {}
+    await svc.ciclo(sessions, runner=runner)
+    await db.rollback()
+    cambio = await db.scalar(select(CambioAccesoConsola).execution_options(populate_existing=True))
+    assert cambio.estado == 'completado'
+
+
+async def test_repetir_la_pasada_no_duplica_evidencias(db, sessions, admin, catedra, usuario_catedra):
+    nuevo = await factories.crear_usuario(db, username='nuevo3', rol=RolUsuario.CATEDRA_ADMIN)
+    runner = RunnerConsola(pools=[f'catedra-{catedra.id}'])
+    await svc.reconciliar_usuario(sessions, usuario_catedra.id, runner=runner)
+    await _pedir_reasignacion(db, admin, catedra, usuario_catedra, nuevo)
+    await svc.ciclo(sessions, runner=runner)
+    await db.rollback()
+    await svc.ciclo(sessions, runner=runner)
+    await db.rollback()
+    assert len((await db.scalars(select(Evidencia))).all()) == 1
