@@ -17,6 +17,7 @@ from app.routers import (
     evidencias,
     cambios_consola,
     admin_identidades_consola,
+    terminal,
     operaciones,
     calendarios,
     definiciones,
@@ -81,6 +82,7 @@ app.include_router(admin_jobs.router, prefix="/api/v1")
 app.include_router(evidencias.router, prefix="/api/v1")
 app.include_router(cambios_consola.router, prefix="/api/v1")
 app.include_router(admin_identidades_consola.router, prefix="/api/v1")
+app.include_router(terminal.router, prefix="/api/v1")
 app.include_router(operaciones.router, prefix="/api/v1")
 app.include_router(calendarios.router, prefix="/api/v1")
 app.include_router(definiciones.router, prefix="/api/v1")

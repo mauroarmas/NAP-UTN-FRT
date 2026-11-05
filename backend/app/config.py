@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     iaas_template_storage: str = 'local'
     runner_nodes: dict = Field(default_factory=dict, repr=False)
     console_access_profile: dict = Field(default_factory=dict)
+    # Terminal web del portal (feature 022)
+    terminal_inactividad_segundos: int = Field(default=900, ge=30, le=86400)
+    terminal_max_sesiones: int = Field(default=3, ge=1, le=50)
+    terminal_max_mensaje_bytes: int = Field(default=65536, ge=1024, le=1048576)
+    terminal_ca_file: str = ''
     application_gateway_domain: str = ''
     application_gateway_port: int = Field(default=443, ge=1, le=65535)
     application_gateway_ca_file: str = ''
